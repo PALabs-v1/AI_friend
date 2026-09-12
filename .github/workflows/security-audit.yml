@@ -41,8 +41,24 @@ jobs:
           chmod +x gitleaks
           sudo mv gitleaks /usr/local/bin/gitleaks
 
+      # Scoped to the commits this push/PR actually introduces, matching
+      # the diff-only behavior gitleaks-action provided (see the job
+      # comment above) -- `gitleaks detect` with no --log-opts walks the
+      # *entire* history every run, which re-surfaces old, already-reviewed
+      # findings (e.g. doc placeholders, hash constants) as failures.
       - name: Run gitleaks
-        run: gitleaks detect --source . --verbose --redact
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            LOG_OPTS="origin/${{ github.event.pull_request.base.ref }}..${{ github.event.pull_request.head.sha }}"
+          else
+            BEFORE="${{ github.event.before }}"
+            if [ -z "$BEFORE" ] || [ "$BEFORE" = "0000000000000000000000000000000000000000" ]; then
+              LOG_OPTS="-1"
+            else
+              LOG_OPTS="${BEFORE}..${{ github.sha }}"
+            fi
+          fi
+          gitleaks detect --source . --verbose --redact --log-opts="$LOG_OPTS"
 
   credential-scan:
     name: Credential Leak Prevention
