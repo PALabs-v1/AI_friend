@@ -35,10 +35,22 @@
       "skillPath": "skills/mcp-builder/SKILL.md",
       "computedHash": "826e46adf81e1372282e205c34e1a2ee876e72148007726e4a2512599d2fef7b"
     },
+    "neo4j-cypher-skill": {
+      "source": "neo4j-contrib/neo4j-skills",
+      "sourceType": "github",
+      "skillPath": "neo4j-cypher-skill/SKILL.md",
+      "computedHash": "41c1a186535852ca8375659ced1d4ccd3c8622473b0e2614bb3ab3affaa32a4e"
+    },
     "neo4j-data-models": {
       "source": "michaelkeevildown/claude-agents-skills",
       "sourceType": "github",
       "computedHash": "5ff7042b6384691d8b7a738b3119cc84a34f12fc12eae450de004173b58850d0"
+    },
+    "neo4j-driver-python-skill": {
+      "source": "neo4j-contrib/neo4j-skills",
+      "sourceType": "github",
+      "skillPath": "neo4j-driver-python-skill/SKILL.md",
+      "computedHash": "6b9472587e8838299b5d0f7e460027e5db1f3c5984fd1132ec30ddb8e1f5e01a"
     },
     "pdf": {
       "source": "anthropics/skills",
@@ -61,6 +73,24 @@
       "source": "wshobson/agents",
       "sourceType": "github",
       "computedHash": "8646a52fb34f1b88954aa84c86d5de04fbda1f415e509045c7f3ffff5886ded4"
+    },
+    "qdrant-clients-sdk": {
+      "source": "qdrant/skills",
+      "sourceType": "github",
+      "skillPath": "skills/qdrant-clients-sdk/SKILL.md",
+      "computedHash": "58df9c656977780dd62db051ab81d84639acf0ead3cce162e765456fb3167c91"
+    },
+    "qdrant-performance-optimization": {
+      "source": "qdrant/skills",
+      "sourceType": "github",
+      "skillPath": "skills/qdrant-performance-optimization/SKILL.md",
+      "computedHash": "d2c8b5d1b354862649a1b394fc8d89842dd4dbeffbf548274e83973ca1868457"
+    },
+    "qdrant-search-quality": {
+      "source": "qdrant/skills",
+      "sourceType": "github",
+      "skillPath": "skills/qdrant-search-quality/SKILL.md",
+      "computedHash": "c4e6b80442dcf12e93cb4641bee0ff826f316c6597a6df54507648a8942a218c"
     },
     "solution-architect-agent": {
       "source": "repowise-dev/claude-code-prompts",
