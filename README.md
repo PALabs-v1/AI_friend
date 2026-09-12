@@ -12,6 +12,8 @@
 [![Docker Build](https://github.com/PALabs-v1/AI_friend/actions/workflows/docker-build.yml/badge.svg)](<https://github.com/PALabs-v1/AI_friend/actions/workflows/docker-build.yml>)
 [![Docker Health](https://github.com/PALabs-v1/AI_friend/actions/workflows/docker-health.yml/badge.svg)](<https://github.com/PALabs-v1/AI_friend/actions/workflows/docker-health.yml>)
 
+**Website:** [palabs.vercel.app](https://palabs.vercel.app/) — source at [PALabs-v1/website](https://github.com/PALabs-v1/website)
+
 <p align="center">
   <img src="assets/ai-friend.png" alt="AI Friend Interface Preview" width="100%" />
 </p>
@@ -309,7 +311,6 @@ AI_friend/
 │   ├── tools/                    # measure/ (live-infra harness), quality/ (lint baselines)
 │   └── db/                        # schema.sql (source of truth), migrations
 ├── frontend/                # Next.js web app (chat, onboarding, memory browser)
-├── website/                  # Design-system donor + future public landing page
 ├── docs/                       # Architecture deep-dive, operational guides
 ├── notebooks/                    # Colab: voice training, eval harness, LLM benchmarking
 ├── config/                         # Neutral example persona.toml / biography.md

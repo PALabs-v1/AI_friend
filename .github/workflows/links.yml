@@ -22,5 +22,5 @@ jobs:
           # are not filesystem paths Lychee can resolve from source Markdown.
           # Keep checking every other Markdown file while excluding this
           # generated-route source tree from the local-file pass.
-          args: --verbose --no-progress --max-retries 3 --retry-wait-time 2 --timeout 20 --accept 200,203,403,429 --exclude "https://doi.org/.*" --exclude "https://unitree.com/.*" --exclude "https://tesla.com/.*" --exclude "https://saifmohammad.com/.*" --exclude "http://localhost.*" --exclude-path .agent --exclude-path .agents --exclude-path .claude --exclude-path .gemini --exclude-path .github/skills --exclude-path _archive --exclude-path orchestration/archive --exclude-path website/content/docs '*.md' '**/*.md'
+          args: --verbose --no-progress --max-retries 3 --retry-wait-time 2 --timeout 20 --accept 200,203,403,429 --exclude "https://doi.org/.*" --exclude "https://unitree.com/.*" --exclude "https://tesla.com/.*" --exclude "https://saifmohammad.com/.*" --exclude "http://localhost.*" --exclude-path .agent --exclude-path .agents --exclude-path .claude --exclude-path .gemini --exclude-path .github/skills --exclude-path _archive --exclude-path orchestration/archive '*.md' '**/*.md'
           fail: true
