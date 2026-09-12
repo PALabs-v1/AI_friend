@@ -238,7 +238,7 @@ dependencies = [
 
 [[package]]
 name = "cognitive-rust"
-version = "7.1.0"
+version = "7.1.1"
 dependencies = [
  "pyo3",
  "serde",
@@ -253,7 +253,7 @@ checksum = "c2459377285ad874054d797f3ccebf984978aa39129f6eafde5cdc8315b612f8"
 
 [[package]]
 name = "contracts"
-version = "7.1.0"
+version = "7.1.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -1997,7 +1997,7 @@ checksum = "fe895eb47f22e2ddd4dabc02bce419d2e643c8e3b585c78158b349195bc24d82"
 
 [[package]]
 name = "stt-agent"
-version = "7.1.0"
+version = "7.1.1"
 dependencies = [
  "anyhow",
  "async-nats",
@@ -2477,7 +2477,7 @@ checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 
 [[package]]
 name = "voice-agent"
-version = "7.1.0"
+version = "7.1.1"
 dependencies = [
  "anyhow",
  "async-nats",

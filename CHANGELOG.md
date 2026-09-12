@@ -16,6 +16,12 @@ measured, what was deliberately left undone, and why — see
 It is the source of truth; where any other document in this repo disagrees
 with it, the ledger is right.
 
+## v7.1.1
+
+- Repository migrated from Aniket-a14/AI_friend to PALabs-v1/AI_friend.
+- Installer, documentation and repository URLs updated.
+- Distribution and release infrastructure verified under PALabs.
+
 ## v7.1.0
 
 A repositioning release: the Brain (cognitive/affect/memory architecture) is
