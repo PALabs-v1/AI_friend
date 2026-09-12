@@ -16,10 +16,10 @@ To achieve high-quality, expressive voice cloning with custom prosody and emotio
 
 Rather than running heavy PyTorch CUDA training on your local laptop, use the bundled Google Colab notebook:
 
-[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/Aniket-a14/AI_friend/blob/main/notebooks/01_voice_clone_sovits_training.ipynb)
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/PALabs-v1/AI_friend/blob/main/notebooks/01_voice_clone_sovits_training.ipynb)
 
 ### Colab Training Steps:
-1. Open [`notebooks/01_voice_clone_sovits_training.ipynb`](https://github.com/Aniket-a14/AI_friend/blob/main/notebooks/01_voice_clone_sovits_training.ipynb) in Colab.
+1. Open [`notebooks/01_voice_clone_sovits_training.ipynb`](https://github.com/PALabs-v1/AI_friend/blob/main/notebooks/01_voice_clone_sovits_training.ipynb) in Colab.
 2. Select **Runtime $\rightarrow$ Change runtime type $\rightarrow$ T4 GPU**.
 3. Upload your audio clips and run the automated pipeline (Hubert feature extraction, Semantic token extraction, and SoVITS fine-tuning).
 4. Download the generated weights (`my_voice.pth` and `my_voice.ckpt`).

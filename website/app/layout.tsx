@@ -13,7 +13,7 @@ export const metadata: Metadata = {
     title: 'PALabs — A friend of your own making',
     description: 'Describe them in your own words. They speak in a voice you gave them, remember who you are, and run entirely on your own hardware.',
     type: 'website',
-    url: 'https://github.com/Aniket-a14/AI_friend',
+    url: 'https://github.com/PALabs-v1/AI_friend',
     siteName: 'PALabs',
   },
   twitter: {

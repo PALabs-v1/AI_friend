@@ -11,7 +11,7 @@ const STEPS = [
     lang: "bash",
     code: [
       { type: "comment", text: "# Clone and configure" },
-      { type: "command", text: "git clone https://github.com/Aniket-a14/AI_friend.git" },
+      { type: "command", text: "git clone https://github.com/PALabs-v1/AI_friend.git" },
       { type: "command", text: "cd AI_friend && cp .env.example .env" },
       { type: "gap" },
       { type: "comment", text: "# Network, Ollama, default voice, schema, mesh — all of it" },

@@ -55,7 +55,7 @@ ENV PORT=3000
 ENV HOSTNAME="0.0.0.0"
 
 # Metadata
-LABEL org.opencontainers.image.source="https://github.com/Aniket-a14/Ai_friend"
+LABEL org.opencontainers.image.source="https://github.com/PALabs-v1/AI_friend"
 LABEL org.opencontainers.image.description="AI Friend Frontend - Real-time Voice Interface"
 LABEL org.opencontainers.image.version="2.3.0"
 

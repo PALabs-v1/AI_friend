@@ -3,14 +3,14 @@
 **An AI friend you describe in your own words, that speaks in a voice you gave it, runs entirely on your own machine, and remembers who you are.**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/license/MIT)
-[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](<https://colab.research.google.com/github/Aniket-a14/AI_friend/blob/main/notebooks/ai_friend_voice_training.ipynb>)
-[![Continuous Integration](https://github.com/Aniket-a14/AI_friend/actions/workflows/ci.yml/badge.svg)](<https://github.com/Aniket-a14/AI_friend/actions/workflows/ci.yml>)
-[![Mesh Integrity](https://github.com/Aniket-a14/AI_friend/actions/workflows/mesh-integrity.yml/badge.svg)](<https://github.com/Aniket-a14/AI_friend/actions/workflows/mesh-integrity.yml>)
-[![Cognitive Regression](https://github.com/Aniket-a14/AI_friend/actions/workflows/cognitive-regression.yml/badge.svg)](<https://github.com/Aniket-a14/AI_friend/actions/workflows/cognitive-regression.yml>)
-[![Persona Guard](https://github.com/Aniket-a14/AI_friend/actions/workflows/persona-guard.yml/badge.svg)](<https://github.com/Aniket-a14/AI_friend/actions/workflows/persona-guard.yml>)
-[![Security Audit](https://github.com/Aniket-a14/AI_friend/actions/workflows/security-audit.yml/badge.svg)](<https://github.com/Aniket-a14/AI_friend/actions/workflows/security-audit.yml>)
-[![Docker Build](https://github.com/Aniket-a14/AI_friend/actions/workflows/docker-build.yml/badge.svg)](<https://github.com/Aniket-a14/AI_friend/actions/workflows/docker-build.yml>)
-[![Docker Health](https://github.com/Aniket-a14/AI_friend/actions/workflows/docker-health.yml/badge.svg)](<https://github.com/Aniket-a14/AI_friend/actions/workflows/docker-health.yml>)
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](<https://colab.research.google.com/github/PALabs-v1/AI_friend/blob/main/notebooks/ai_friend_voice_training.ipynb>)
+[![Continuous Integration](https://github.com/PALabs-v1/AI_friend/actions/workflows/ci.yml/badge.svg)](<https://github.com/PALabs-v1/AI_friend/actions/workflows/ci.yml>)
+[![Mesh Integrity](https://github.com/PALabs-v1/AI_friend/actions/workflows/mesh-integrity.yml/badge.svg)](<https://github.com/PALabs-v1/AI_friend/actions/workflows/mesh-integrity.yml>)
+[![Cognitive Regression](https://github.com/PALabs-v1/AI_friend/actions/workflows/cognitive-regression.yml/badge.svg)](<https://github.com/PALabs-v1/AI_friend/actions/workflows/cognitive-regression.yml>)
+[![Persona Guard](https://github.com/PALabs-v1/AI_friend/actions/workflows/persona-guard.yml/badge.svg)](<https://github.com/PALabs-v1/AI_friend/actions/workflows/persona-guard.yml>)
+[![Security Audit](https://github.com/PALabs-v1/AI_friend/actions/workflows/security-audit.yml/badge.svg)](<https://github.com/PALabs-v1/AI_friend/actions/workflows/security-audit.yml>)
+[![Docker Build](https://github.com/PALabs-v1/AI_friend/actions/workflows/docker-build.yml/badge.svg)](<https://github.com/PALabs-v1/AI_friend/actions/workflows/docker-build.yml>)
+[![Docker Health](https://github.com/PALabs-v1/AI_friend/actions/workflows/docker-health.yml/badge.svg)](<https://github.com/PALabs-v1/AI_friend/actions/workflows/docker-health.yml>)
 
 <p align="center">
   <img src="assets/ai-friend.png" alt="AI Friend Interface Preview" width="100%" />
@@ -97,7 +97,7 @@ optional: a 3B-class Ollama model runs on CPU, and real-time voice cloning
 (GPT-SoVITS) is meaningfully faster with one but not required to boot.
 
 ```bash
-git clone https://github.com/Aniket-a14/AI_friend.git
+git clone https://github.com/PALabs-v1/AI_friend.git
 cd AI_friend
 cp .env.example .env   # fill in the secrets it asks for
 ./start.sh              # or: make start
@@ -273,9 +273,9 @@ Full deep-dive: see the Architecture section in [`CLAUDE.md`](CLAUDE.md).
 
 | Task | Notebook | 1-Click Launch | Purpose |
 | :--- | :--- | :---: | :--- |
-| **Voice Cloning** | `ai_friend_voice_training.ipynb` | <a href="https://colab.research.google.com/github/Aniket-a14/AI_friend/blob/main/notebooks/ai_friend_voice_training.ipynb" target="_parent"><img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/></a> | Fine-tune custom GPT-SoVITS voice weights from audio |
-| **Behavioral Evals** | `ai_friend_eval_harness.ipynb` | <a href="https://colab.research.google.com/github/Aniket-a14/AI_friend/blob/main/notebooks/ai_friend_eval_harness.ipynb" target="_parent"><img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/></a> | Test persona defense & 240-turn memory retention |
-| **LLM Benchmark** | `ai_friend_llm_benchmark.ipynb` | <a href="https://colab.research.google.com/github/Aniket-a14/AI_friend/blob/main/notebooks/ai_friend_llm_benchmark.ipynb" target="_parent"><img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/></a> | Measure raw TTFT and tokens/sec on GPU |
+| **Voice Cloning** | `ai_friend_voice_training.ipynb` | <a href="https://colab.research.google.com/github/PALabs-v1/AI_friend/blob/main/notebooks/ai_friend_voice_training.ipynb" target="_parent"><img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/></a> | Fine-tune custom GPT-SoVITS voice weights from audio |
+| **Behavioral Evals** | `ai_friend_eval_harness.ipynb` | <a href="https://colab.research.google.com/github/PALabs-v1/AI_friend/blob/main/notebooks/ai_friend_eval_harness.ipynb" target="_parent"><img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/></a> | Test persona defense & 240-turn memory retention |
+| **LLM Benchmark** | `ai_friend_llm_benchmark.ipynb` | <a href="https://colab.research.google.com/github/PALabs-v1/AI_friend/blob/main/notebooks/ai_friend_llm_benchmark.ipynb" target="_parent"><img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/></a> | Measure raw TTFT and tokens/sec on GPU |
 
 ## Signal bus contracts
 

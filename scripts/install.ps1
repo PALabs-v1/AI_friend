@@ -1,7 +1,7 @@
 # ==============================================================================
 #  AI Friend — Automated Windows PowerShell Installer
 #  Usage:
-#    irm https://raw.githubusercontent.com/Aniket-a14/AI_friend/main/scripts/install.ps1 | iex
+#    irm https://raw.githubusercontent.com/PALabs-v1/AI_friend/main/scripts/install.ps1 | iex
 # ==============================================================================
 
 [CmdletBinding()]
@@ -92,12 +92,12 @@ if ($Dev) {
         Set-Location $TargetDir
         git pull --ff-only
     } else {
-        git clone "https://github.com/Aniket-a14/AI_friend.git" $TargetDir
+        git clone "https://github.com/PALabs-v1/AI_friend.git" $TargetDir
         Set-Location $TargetDir
     }
 } else {
     Write-Host "==> Downloading lightweight runtime bundle (~4.3 MB)..." -ForegroundColor Cyan
-    $zipUrl = "https://raw.githubusercontent.com/Aniket-a14/AI_friend/main/dist/ai-friend-runtime.zip"
+    $zipUrl = "https://raw.githubusercontent.com/PALabs-v1/AI_friend/main/dist/ai-friend-runtime.zip"
     $tmpZip = Join-Path $env:TEMP "ai-friend-runtime.zip"
     $tmpExtract = Join-Path $env:TEMP "ai-friend-runtime-extract"
 
@@ -119,7 +119,7 @@ if ($Dev) {
         Set-Location $TargetDir
     } else {
         Write-Host "==> Fetching shallow runtime checkout..." -ForegroundColor Cyan
-        git clone --depth 1 "https://github.com/Aniket-a14/AI_friend.git" $TargetDir
+        git clone --depth 1 "https://github.com/PALabs-v1/AI_friend.git" $TargetDir
         Set-Location $TargetDir
     }
 }

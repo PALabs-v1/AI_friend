@@ -20,10 +20,10 @@ export function OSInstallTabs() {
   }, [])
 
   const installCommands = {
-    mac: `curl -fsSL https://raw.githubusercontent.com/Aniket-a14/AI_friend/main/scripts/install.sh | bash`,
-    linux: `curl -fsSL https://raw.githubusercontent.com/Aniket-a14/AI_friend/main/scripts/install.sh | bash`,
-    windows: `irm https://raw.githubusercontent.com/Aniket-a14/AI_friend/main/scripts/install.ps1 | iex`,
-    docker: `git clone https://github.com/Aniket-a14/AI_friend.git && cd AI_friend && ./start.sh`,
+    mac: `curl -fsSL https://raw.githubusercontent.com/PALabs-v1/AI_friend/main/scripts/install.sh | bash`,
+    linux: `curl -fsSL https://raw.githubusercontent.com/PALabs-v1/AI_friend/main/scripts/install.sh | bash`,
+    windows: `irm https://raw.githubusercontent.com/PALabs-v1/AI_friend/main/scripts/install.ps1 | iex`,
+    docker: `git clone https://github.com/PALabs-v1/AI_friend.git && cd AI_friend && ./start.sh`,
   }
 
   const activeCommand = installCommands[selectedOS]

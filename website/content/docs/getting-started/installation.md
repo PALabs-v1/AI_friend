@@ -11,19 +11,19 @@ Choose your operating system to download, configure, and install the complete st
 ### macOS (Apple Silicon & Intel)
 Open Terminal and run:
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Aniket-a14/AI_friend/main/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/PALabs-v1/AI_friend/main/scripts/install.sh | bash
 ```
 
 ### Windows 10/11 (Native PowerShell & WSL2)
 Open PowerShell as Administrator and run:
 ```powershell
-irm https://raw.githubusercontent.com/Aniket-a14/AI_friend/main/scripts/install.ps1 | iex
+irm https://raw.githubusercontent.com/PALabs-v1/AI_friend/main/scripts/install.ps1 | iex
 ```
 
 ### Linux (Ubuntu / Debian / Arch / Fedora)
 Open your terminal and run:
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Aniket-a14/AI_friend/main/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/PALabs-v1/AI_friend/main/scripts/install.sh | bash
 ```
 
 > [!NOTE]
@@ -56,7 +56,7 @@ If you prefer setting up manually without the automated script:
 
 ```bash
 # 1. Clone the repository
-git clone https://github.com/Aniket-a14/AI_friend.git
+git clone https://github.com/PALabs-v1/AI_friend.git
 cd AI_friend
 
 # 2. Configure environment defaults

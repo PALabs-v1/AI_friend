@@ -34,4 +34,4 @@ A separate calibration layer tracks how often past confidence predictions matche
 
 ## What This Is Not
 
-This is an engineering decomposition, not a claim about consciousness, biological cognition, or human-equivalent reasoning. "Fast" and "slow" cognition here means latency tiers with different budgets and model-use policies — not a claim about System 1/System 2 psychology. See [ARCHITECTURE.md](https://github.com/Aniket-a14/AI_friend/blob/main/ARCHITECTURE.md) in the repository root for the full mechanism register, including what's explicitly rejected or deferred.
+This is an engineering decomposition, not a claim about consciousness, biological cognition, or human-equivalent reasoning. "Fast" and "slow" cognition here means latency tiers with different budgets and model-use policies — not a claim about System 1/System 2 psychology. See [ARCHITECTURE.md](https://github.com/PALabs-v1/AI_friend/blob/main/ARCHITECTURE.md) in the repository root for the full mechanism register, including what's explicitly rejected or deferred.

@@ -2,7 +2,7 @@
 # ==============================================================================
 #  AI Friend — Automated Multi-Platform Installer (macOS & Linux)
 #  Usage:
-#    curl -fsSL https://raw.githubusercontent.com/Aniket-a14/AI_friend/main/scripts/install.sh | bash
+#    curl -fsSL https://raw.githubusercontent.com/PALabs-v1/AI_friend/main/scripts/install.sh | bash
 # ==============================================================================
 set -euo pipefail
 
@@ -172,13 +172,13 @@ if [[ "$DEV_MODE" == true ]]; then
   if [[ -d "$TARGET_DIR/.git" ]]; then
     cd "$TARGET_DIR" && git pull --ff-only
   else
-    git clone https://github.com/Aniket-a14/AI_friend.git "$TARGET_DIR"
+    git clone https://github.com/PALabs-v1/AI_friend.git "$TARGET_DIR"
     cd "$TARGET_DIR"
   fi
 else
   log_info "Downloading lightweight runtime bundle (~4.3 MB)..."
-  TAR_URL="https://raw.githubusercontent.com/Aniket-a14/AI_friend/main/dist/ai-friend-runtime.tar.gz"
-  FALLBACK_URL="https://github.com/Aniket-a14/AI_friend/archive/refs/heads/main.tar.gz"
+  TAR_URL="https://raw.githubusercontent.com/PALabs-v1/AI_friend/main/dist/ai-friend-runtime.tar.gz"
+  FALLBACK_URL="https://github.com/PALabs-v1/AI_friend/archive/refs/heads/main.tar.gz"
 
   TMP_ARCHIVE="/tmp/ai-friend-runtime.tar.gz"
   if curl -fsSL "$TAR_URL" -o "$TMP_ARCHIVE" 2>/dev/null; then
@@ -188,7 +188,7 @@ else
   else
     # Fallback to shallow clone
     log_info "Fetching shallow runtime checkout..."
-    git clone --depth 1 https://github.com/Aniket-a14/AI_friend.git "$TARGET_DIR"
+    git clone --depth 1 https://github.com/PALabs-v1/AI_friend.git "$TARGET_DIR"
     cd "$TARGET_DIR"
   fi
 fi
