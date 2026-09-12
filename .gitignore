@@ -171,5 +171,9 @@ scripts/remote/
 .vercel
 .env*
 
-# Local Claude Code plugin/skill enablement (per-machine, not shared)
-.claude/
+# Local Claude Code plugin enablement (per-machine, not shared).
+# .claude/skills/ is intentionally NOT ignored here -- this repo already
+# tracks and shares its skills (qdrant-vector-search, rust-async-mesh-patterns,
+# streaming-tts-pipeline, pyo3-extension-modules) and skills-lock.json.
+.claude/settings.json
+.claude/settings.local.json
