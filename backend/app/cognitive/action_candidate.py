@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import math
 import re
-import uuid
 from collections.abc import Callable
 from typing import Any, Literal
 
@@ -216,11 +215,6 @@ class ActionCandidate(BaseModel):
     # candidate-generation time and drive filtering/realization, not
     # metacognitive stance.
     metadata: dict[str, Any] = Field(default_factory=dict)
-
-
-def new_candidate_id() -> str:
-    return f"cand-{uuid.uuid4().hex}"
-
 
 import functools
 

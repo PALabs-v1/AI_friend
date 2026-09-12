@@ -172,20 +172,6 @@ def _tokens_contain_phrase(tokens: list[str], phrase: tuple[str, ...]) -> bool:
     )
 
 
-def _contains_joined_phrase(text: str, phrase: tuple[str, ...]) -> bool:
-    """True if `phrase`'s words appear concatenated with zero separators and
-    zero case cues at all (e.g. "mooddecayrate"), as a substring of `text`
-    once every non-alphanumeric character is stripped. Restricted to
-    phrases of two or more words: a single common word like "name" would
-    false-positive against an unrelated word like "nickname" under plain
-    substring matching, so single-word phrases rely on exact tokenization
-    (`_tokens_contain_phrase`) instead, never this."""
-    if len(phrase) < 2:
-        return False
-    stripped = _ALNUM_ONLY_PATTERN.sub("", (text or "").lower())
-    return "".join(phrase) in stripped
-
-
 def _protected_phrases() -> tuple[tuple[str, ...], ...]:
     """Static safety/immutable markers, plus every IMMUTABLE_CORE key and
     every CONSTITUTIONAL-tier PersonaProfile field name, split on `_` so a

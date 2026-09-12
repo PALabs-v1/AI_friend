@@ -3,19 +3,21 @@ import inspect
 import logging
 import math
 from collections.abc import AsyncGenerator
-from typing import Any, Protocol, get_args, runtime_checkable
+from typing import TYPE_CHECKING, Any, Protocol, get_args, runtime_checkable
 
 from ..config import Config
 from ..contracts import StateUpdate
 from ..persona.policy import PersonaPolicy
 from ..state.session_state import SessionState, persist_session_state
 from .action_intent import ActionIntent, ActionKind, build_action_intent
-from .background_scheduler import BackgroundScheduler
 from .behavior_contracts import BehaviorDecision
 from .memory_activation import MemoryActivation, memories_to_activations
 from .percept import PerceptEnvelope
 
 logger = logging.getLogger(__name__)
+
+if TYPE_CHECKING:
+    from .background_scheduler import BackgroundScheduler
 
 
 @runtime_checkable

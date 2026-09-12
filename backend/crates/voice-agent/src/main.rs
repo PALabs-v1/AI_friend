@@ -139,10 +139,6 @@ impl ProsodyTrajectory {
 #[derive(Debug, Clone, serde::Deserialize)]
 struct VisionDescriptionMsg {
     user_distance: Option<f64>,
-    #[allow(dead_code)]
-    description: Option<String>,
-    #[allow(dead_code)]
-    source: Option<String>,
 }
 
 struct ReverbFilter {

@@ -103,7 +103,6 @@ jobs:
           OLLAMA_URL=http://localhost:11434
           SOVITS_URL=http://localhost:9871
           DATABASE_URL=postgresql://ai_friend:ci_dummy@localhost:5432/ai_friend_db
-          GEMINI_API_KEY=ci_dummy
           EOF
 
       - name: Validate Phased Startup Config

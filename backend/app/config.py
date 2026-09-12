@@ -499,7 +499,7 @@ class AppSettings(BaseSettings):
     )
     # Only the fields that gate a real, network-reachable service if left at
     # the shipped placeholder -- Postgres/Neo4j auth and the LiveKit room
-    # credentials. Optional integrations (Gemini, ElevenLabs, Porcupine) are
+    # credentials. Optional integrations (e.g. Anthropic) are
     # deliberately excluded: a placeholder there disables a feature, it
     # doesn't expose one.
     _SECRET_BEARING_FIELDS = (

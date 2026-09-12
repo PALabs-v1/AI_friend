@@ -52,11 +52,13 @@ from app.vision.adapters import (
     to_percept_envelope,
 )
 
+BACKEND_ROOT = Path(__file__).resolve().parents[1]
+
 PACKAGE_B_FILES = [
-    Path("app/llm/model_roles.py"),
-    Path("app/cognitive/vision_percept.py"),
-    Path("app/vision/adapters.py"),
-    Path("tests/test_model_roles_vision.py"),
+    BACKEND_ROOT / "app/llm/model_roles.py",
+    BACKEND_ROOT / "app/cognitive/vision_percept.py",
+    BACKEND_ROOT / "app/vision/adapters.py",
+    BACKEND_ROOT / "tests/test_model_roles_vision.py",
 ]
 
 
@@ -550,7 +552,7 @@ def test_model_roles_module_has_no_authoritative_state_or_identity_coupling():
     must not import the very modules that own state mutation and identity
     enforcement, since importing them would be the first step toward
     reaching into them."""
-    source = Path("app/llm/model_roles.py").read_text(encoding="ascii")
+    source = (BACKEND_ROOT / "app/llm/model_roles.py").read_text(encoding="ascii")
 
     forbidden_symbols = ["StateService", "AgentState", "IdentityManager", "PersonaProfile"]
     for symbol in forbidden_symbols:
