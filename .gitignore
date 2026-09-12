@@ -170,3 +170,6 @@ backend/scripts/results/
 scripts/remote/
 .vercel
 .env*
+
+# Local Claude Code plugin/skill enablement (per-machine, not shared)
+.claude/
