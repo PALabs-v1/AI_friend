@@ -13,6 +13,31 @@ from .nats_streams import setup_streams
 logger = logging.getLogger("runtime_bootstrap")
 
 
+def write_sqlite_fallback_sentinel(reason: str) -> None:
+    """Write the sentinel file `/health` (main.py, a separate process) reads
+    to report degraded SQLite-fallback status.
+
+    Extracted from `_enter_sqlite_fallback` (audit finding, 2026-09-14) so
+    `ConversationHistoryStore.initialize()`'s own, separate Postgres-failure
+    fallback branch (`state/conversation_store.py`) can report through the
+    same `/health` signal instead of setting `used_fallback_storage` with no
+    consumer. Deliberately just the sentinel write, not the production
+    fail-closed check below -- `ConversationHistoryStore` already has its
+    own, differently-gated strict-mode check (`ORGANISM_MODE_STRICT_STORAGE`)
+    and must not have a second, conflicting policy imposed on it here.
+    """
+    health_file = getattr(Config, "SQLITE_FALLBACK_HEALTH_FILE", "")
+    if not health_file:
+        return
+    try:
+        with open(health_file, "w") as fh:
+            fh.write(json.dumps({"reason": reason, "timestamp": time.time()}))
+    except OSError as file_err:
+        logger.debug(
+            "[Bootstrap] Could not write SQLite fallback sentinel: %s", file_err
+        )
+
+
 def _enter_sqlite_fallback(reason: str) -> None:
     """P1-6: a Postgres connection failure used to log at WARNING and fall
     back to SQLite with no other signal. Q-M2-2 answered SQLite as
@@ -44,16 +69,7 @@ def _enter_sqlite_fallback(reason: str) -> None:
             "this degraded mode explicitly."
         )
 
-    health_file = getattr(Config, "SQLITE_FALLBACK_HEALTH_FILE", "")
-    if not health_file:
-        return
-    try:
-        with open(health_file, "w") as fh:
-            fh.write(json.dumps({"reason": reason, "timestamp": time.time()}))
-    except OSError as file_err:
-        logger.debug(
-            "[Bootstrap] Could not write SQLite fallback sentinel: %s", file_err
-        )
+    write_sqlite_fallback_sentinel(reason)
 
 
 def _clear_sqlite_fallback() -> None:

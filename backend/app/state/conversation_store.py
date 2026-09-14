@@ -7,6 +7,7 @@ from pathlib import Path
 import asyncpg
 
 from ..config import Config, config_instance
+from ..runtime_bootstrap import write_sqlite_fallback_sentinel
 
 logger = logging.getLogger(__name__)
 
@@ -126,6 +127,10 @@ class ConversationHistoryStore:
                     "SQLite database - conversation history stored in "
                     "PostgreSQL is now unreachable from this session."
                 )
+                # Audit finding (2026-09-14): used_fallback_storage was set
+                # but nothing read it -- this store's own fallback never
+                # reached /health the way runtime_bootstrap.py's does.
+                write_sqlite_fallback_sentinel(f"PostgreSQL connection failed: {e}")
                 try:
                     from .sqlite_fallback import SQLitePool
 
