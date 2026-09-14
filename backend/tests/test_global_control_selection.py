@@ -1274,8 +1274,46 @@ class TestPureAscii:
                 capture_output=True, text=True, check=True,
             ).stdout.strip()
         )
+        # A bare "main" only resolves in a full/local checkout. A CI
+        # pull_request run's default checkout (actions/checkout@v4, no
+        # fetch-depth override) fetches only the PR's own merge ref at
+        # depth 1 -- no local main branch, and no origin/main tracking ref
+        # either, since main itself was never fetched -- so this test failed
+        # with exit 128 on every PR, unrelated to any diff under test (found
+        # 2026-09-14 auditing PR #215/#216). Mirrors CLAUDE.md's own
+        # base-branch resolution: prefer local main (matches a
+        # push-triggered run, where HEAD already is main); otherwise fetch
+        # main from origin at depth 1 (cheap, and the runner is already
+        # talking to origin since checkout succeeded) before falling back to
+        # origin/main; skip only if neither resolves even after that.
+        base_ref = None
+        for candidate in ("main", "origin/main"):
+            result = subprocess.run(
+                ["git", "rev-parse", "--verify", "--quiet", candidate],
+                cwd=repo_root, capture_output=True, text=True, check=False,
+            )
+            if result.returncode == 0:
+                base_ref = candidate
+                break
+            if candidate == "main":
+                # Plain `fetch origin main` only updates FETCH_HEAD when the
+                # remote's configured refspec doesn't already cover it (true
+                # for a single-branch PR checkout) -- verified by hand this
+                # leaves origin/main still unresolvable. The explicit
+                # destination refspec is what actually creates the
+                # origin/main tracking ref the next loop iteration checks
+                # for.
+                subprocess.run(
+                    [
+                        "git", "fetch", "--quiet", "--depth=1", "origin",
+                        "main:refs/remotes/origin/main",
+                    ],
+                    cwd=repo_root, capture_output=True, text=True, check=False,
+                )
+        if base_ref is None:
+            pytest.skip("neither main nor origin/main resolves in this checkout")
         merge_base = subprocess.run(
-            ["git", "merge-base", "main", "HEAD"],
+            ["git", "merge-base", base_ref, "HEAD"],
             cwd=repo_root, capture_output=True, text=True, check=True,
         ).stdout.strip()
 
