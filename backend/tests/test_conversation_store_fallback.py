@@ -1,3 +1,4 @@
+import json
 import logging
 from unittest.mock import patch
 
@@ -46,6 +47,43 @@ async def test_lenient_storage_mode_preserves_sqlite_fallback(caplog, monkeypatc
         record.levelno >= logging.CRITICAL and "PostgreSQL" in record.message
         for record in caplog.records
     )
+
+
+@pytest.mark.asyncio
+async def test_lenient_fallback_writes_the_health_sentinel(tmp_path, monkeypatch):
+    """Audit finding (2026-09-14): `used_fallback_storage` was set on this
+    exact path but nothing ever read it - the only wired /health signal came
+    from runtime_bootstrap.py's own, separate fallback branch. This asserts
+    ConversationHistoryStore's fallback now reports through the same
+    sentinel file /health already reads (test_health_sqlite_fallback.py),
+    not just a new local flag nothing consumes."""
+    sentinel = tmp_path / "sqlite_fallback_active"
+    store = ConversationHistoryStore()
+    store.dsn = "postgresql://user:pass@nonexistent-host:5432/db"
+    monkeypatch.setattr(
+        config_module.config_instance, "ORGANISM_MODE_STRICT_STORAGE", False
+    )
+    monkeypatch.setattr(
+        config_module.config_instance, "SQLITE_FALLBACK_HEALTH_FILE", str(sentinel)
+    )
+
+    with (
+        patch(
+            "app.state.conversation_store.asyncpg.create_pool",
+            side_effect=ConnectionError("could not connect to server"),
+        ),
+        patch(
+            "app.state.sqlite_fallback.SQLitePool",
+            return_value=type(
+                "FakePool", (), {"acquire": lambda self: _NullAcquire()}
+            )(),
+        ),
+    ):
+        await store.initialize()
+
+    assert sentinel.exists()
+    payload = json.loads(sentinel.read_text())
+    assert "PostgreSQL connection failed" in payload["reason"]
 
 
 @pytest.mark.asyncio
