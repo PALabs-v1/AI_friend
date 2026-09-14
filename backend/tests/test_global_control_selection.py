@@ -1312,13 +1312,19 @@ class TestPureAscii:
                 )
         if base_ref is None:
             pytest.skip("neither main nor origin/main resolves in this checkout")
-        merge_base = subprocess.run(
-            ["git", "merge-base", base_ref, "HEAD"],
-            cwd=repo_root, capture_output=True, text=True, check=True,
-        ).stdout.strip()
-
+        # Diff straight against base_ref's tip rather than computing a
+        # merge-base. A CI PR checkout is shallow on BOTH sides (depth=1):
+        # HEAD's own parents were never fetched, so no common ancestor with
+        # ANY ref can exist locally regardless of how deep main is fetched
+        # -- confirmed by hand (merge-base exit 1, "no merge base found")
+        # even after the origin/main resolution fix above. A direct diff
+        # against the tip is the pragmatic equivalent here: this scan only
+        # reads `+` lines, and the 7 files this package owns are not ones
+        # main is expected to move independently on mid-PR, so the
+        # main-moved-and-this-branch-is-stale edge case merge-base would
+        # normally guard against does not apply in practice for this check.
         diff = subprocess.run(
-            ["git", "diff", "--unified=0", merge_base, "--", *self._TOUCHED_FILES],
+            ["git", "diff", "--unified=0", base_ref, "--", *self._TOUCHED_FILES],
             cwd=repo_root, capture_output=True, check=True,
         ).stdout
 
