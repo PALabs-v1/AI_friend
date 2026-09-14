@@ -35,7 +35,6 @@ class Topics(str, Enum):
     AUDIO_RESUME = "audio.resume"
     AUDIO_INBOUND = "audio.inbound"
     AUDIO_STREAM = "audio.stream"
-    VOICE_WARM = "voice.warm"
     VOICE_SEGMENTATION_FEEDBACK = "voice.segmentation_feedback"
     SYSTEM_TICK = "system.tick"
     MEMORY_SURFACED = "memory.surfaced"
@@ -97,7 +96,6 @@ TOPIC_DELIVERY: dict[Topics, Literal["durable", "best_effort"]] = {
     Topics.AUDIO_RESUME: "best_effort",
     Topics.AUDIO_INBOUND: "best_effort",
     Topics.AUDIO_STREAM: "best_effort",
-    Topics.VOICE_WARM: "durable",
     Topics.VOICE_SEGMENTATION_FEEDBACK: "durable",
     Topics.SYSTEM_TICK: "durable",
     Topics.MEMORY_SURFACED: "durable",
