@@ -380,61 +380,45 @@ class ConversationHistoryStore:
             logger.error(f"Failed to fetch last interaction: {e}")
             return None
 
-    async def update_last_assistant_message(
-        self, content: str, *, message_id: uuid.UUID | None = None
-    ):
-        """Update/truncate the content of the very last assistant message in the current session.
+    async def rewrite_assistant_message(self, content: str, *, message_id: uuid.UUID):
+        """Rewrite one stored assistant message, addressed by the id it was
+        logged under (`log_message(..., message_id=)`); nothing if that row
+        does not exist (its insert failed).
 
-        With `message_id`, rewrites exactly that assistant row instead, or
-        nothing if it does not exist (its insert failed). "The newest
-        assistant row" is the previous reply when this one was never stored,
-        a newer reply when it was, and arbitrary on a timestamp tie.
+        There is deliberately no "rewrite the newest assistant message"
+        form: that was the previous reply when this one was never stored, a
+        newer reply when it was, and arbitrary on a timestamp tie (ADR-003).
         """
         if not self.pool or not self.current_session_id:
             return
-
-        if message_id is not None:
-            sql = (
-                "UPDATE messages SET content = $1 "
-                "WHERE id = $2 AND session_id = $3 AND role = 'assistant'"
-            )
-            args = [content, message_id, self.current_session_id]
-        else:
-            sql = """
-                    UPDATE messages
-                    SET content = $1
-                    WHERE id = (
-                        SELECT id FROM messages
-                        WHERE session_id = $2 AND role = 'assistant'
-                        ORDER BY timestamp DESC
-                        LIMIT 1
-                    )
-                    """
-            args = [content, self.current_session_id]
         try:
             async with self.pool.acquire() as conn:
-                result = await conn.execute(sql, *args)
-                # Check rowcount attribute if available (backend-agnostic).
-                # The SQLite fallback returns None: unknown, not zero.
+                result = await conn.execute(
+                    "UPDATE messages SET content = $1 "
+                    "WHERE id = $2 AND session_id = $3 AND role = 'assistant'",
+                    content,
+                    message_id,
+                    self.current_session_id,
+                )
+                # asyncpg returns "UPDATE n"; the SQLite fallback returns
+                # None (unknown, not zero).
                 rowcount = getattr(result, "rowcount", None)
                 if rowcount is None and isinstance(result, str):
-                    # PostgreSQL "UPDATE n" status string
                     try:
                         rowcount = int(result.split()[-1])
                     except (ValueError, IndexError):
                         rowcount = None
-
                 if rowcount:
                     logger.info(
-                        f"Updated last assistant message to {len(content)} characters"
+                        f"Rewrote assistant message to {len(content)} characters"
                     )
-                elif rowcount == 0 and message_id is not None:
+                elif rowcount == 0:
                     logger.info(
                         "Interrupted reply not rewritten: its history row does "
                         "not exist (the insert failed)"
                     )
         except Exception as e:
-            logger.error(f"Failed to update last assistant message: {e}")
+            logger.error(f"Failed to rewrite assistant message: {e}")
 
     async def close(self):
         """Close the database connection pool."""

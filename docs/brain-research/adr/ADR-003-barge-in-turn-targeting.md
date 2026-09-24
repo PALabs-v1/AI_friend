@@ -49,7 +49,7 @@ History rules, each from a review finding (01-problems.md, R2/R3/R4):
 * **Only the reply's own row is rewritten, addressed by id.** The brain
   generates the history row id when it stores a reply
   (`log_message(..., message_id=)`) and a cut rewrites exactly that row
-  (`update_last_assistant_message(heard, message_id=)`), or nothing if the
+  (`rewrite_assistant_message(heard, message_id=)`, the id is required), or nothing if the
   row does not exist. Addressing "the newest assistant row" rewrote the
   previous reply when this one was never stored, or a newer reply; addressing
   by content (the R3 fix) rewrote an older reply with identical text (R4-1).
@@ -79,8 +79,15 @@ History rules, each from a review finding (01-problems.md, R2/R3/R4):
   TRUNCATED: a facial startle publishes a stop for the active turn on every
   startle, even while idle, and transport may repeat a completed frame.
 * **CANCELLED only while the reply is still generating**
-  (`_reply_generating`). It is cleared on every path that ends generation:
-  normal end, a stop's cancellation, and replacement. So replacing a
+  (`_reply_generating`), and once. It is cleared when generation ends
+  normally, when a stop cancels it, and on replacement. (A flow that raises
+  after its reset leaves it set; the task is already done, so nothing can
+  record it CANCELLED later except a replacement of that finished task,
+  which checks `.done()` first.)
+* **A superseded reply that plays to the end is recorded COMPLETED.** Its
+  completed frame arrives after the next turn took over and lands in the
+  superseded snapshot; it records COMPLETED there and leaves nothing for a
+  later stop to cut. So replacing a
   proactive turn, or a turn still in its pacing sleep, never records a
   reply CANCELLED after it finished or was already cut.
 
@@ -93,6 +100,11 @@ Known and not changed here (pre-existing):
   it, so a later "stop" cuts nothing for A.
 * A stop at offset 0, or at or past the end without `completed`, records no
   terminal outcome.
+* A completed frame that arrives before the reply finished generating
+  (transport sends it after `done`, so not in practice) can be followed by
+  a CANCELLED from replacement.
+* A fully generated reply whose flow is cancelled while it waits for the
+  final `_turn_state_lock` section is not stored and is recorded CANCELLED.
 * A startle while a new user turn is in its pacing sleep cancels that turn
   before its user row is logged.
 * A startle in that window also no longer cuts the reply still playing: the
@@ -111,21 +123,26 @@ flush-without-abort semantics in the voice agent; see `07-future-research.md` §
 `test_stage2_falls_back_to_own_turn_without_interrupted_id`.
 
 `tests/test_barge_in_real_flow.py` drives the real `_on_chat_input` flow with
-a scripted core (proactive turns honour their delay, so a later turn really
-replaces a running one) and a history double implementing every store
-contract the brain has used: the current `message_id=`, R3's `expected=` and
-the original newest-row rewrite. Run against older brain code, the double
-therefore writes what that code would really have written; the tests that
-fail on b993dd8 fail on history or record contents, not on signatures. The
-id contract is also tested on the real `ConversationHistoryStore` (SQLite),
-row by row, with two identical rows.
+a scripted core (proactive turns honour their delay; a script can pause after
+committing its intent; pacing is settable) and a history double implementing
+every store contract the brain has used, so a run against older brain code
+writes what that code really would have. The id contract is also tested on
+the real `ConversationHistoryStore` (SQLite) row by row, with two identical
+rows. Most tests that guard a fix fail on the commit before it on history
+or record contents; two (`..._stuck_insert_...`, `..._real_store_...`) fail
+on b993dd8 on the missing constant and keyword, and their behaviour is
+pinned by the mutations `M8` and `M11` instead.
 
-`tests/test_barge_in_truncation.py`, `tests/test_brain_agent_turn_state_lock.py` and `tests/test_embodied_feedback.py`
-set up a stored reply the way the turn flow leaves it (owner, row id), so they
-exercise the production path; the newest-row fallback is gone.
+`tests/test_barge_in_truncation.py`, `tests/test_brain_agent_turn_state_lock.py`
+and `tests/test_embodied_feedback.py` set up a stored reply the way the turn
+flow leaves it (owner, row id), so they exercise the production path.
 
-Mutation check (15 mutations of the gates, run against the four barge-in
-modules plus `test_brain_v2_regressions.py`): 14 are killed. The survivor is
-not setting `_reply_resolved` when `_replace_active_generation` records
-CANCELLED; it is equivalent, because that path also nulls the intent, so no
-later record can be attributed to the reply.
+**Mutation check, reproducible:** `python scripts/barge_in_mutations.py`
+applies each of 27 mutations of these gates and the store SQL to a
+temporary copy of `backend/` and runs the barge-in modules against it.
+25 are killed. The two survivors are listed in the script as equivalent,
+with the reason: not setting `_reply_resolved` when replacement records
+CANCELLED (the same section nulls the intent), and dropping `role =
+'assistant'` from the rewrite (ids are fresh UUIDs). The script exits
+non-zero on any other survivor; `tests/test_barge_in_mutation_patterns.py`
+fails on every commit where a pattern no longer matches the code.

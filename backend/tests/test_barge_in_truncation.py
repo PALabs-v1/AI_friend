@@ -22,9 +22,7 @@ def _agent(progress=None, response=REPLY):
     agent = object.__new__(BrainAgent)
     agent.last_audio_progress = progress
     agent.last_assistant_response = response
-    agent.conversation_store = SimpleNamespace(
-        update_last_assistant_message=AsyncMock()
-    )
+    agent.conversation_store = SimpleNamespace(rewrite_assistant_message=AsyncMock())
     # P1-4: a confirmed stop now also cancels the interrupted turn's
     # generation task (`_on_audio_stop` -> `_cancel_active_generation`),
     # which reads this state -- set here the same way BrainAgent.__init__
@@ -159,8 +157,8 @@ def test_real_playback_progress_still_truncates_where_it_says():
 
     asyncio.run(agent._on_audio_stop(_stop()))
 
-    agent.conversation_store.update_last_assistant_message.assert_awaited_once()
-    call = agent.conversation_store.update_last_assistant_message.await_args
+    agent.conversation_store.rewrite_assistant_message.assert_awaited_once()
+    call = agent.conversation_store.rewrite_assistant_message.await_args
     assert call.kwargs == {"message_id": "row-1"}  # this reply's row, no other
     stored = call.args[0]
     assert stored == REPLY[:26].strip()
@@ -180,7 +178,7 @@ def test_an_interruption_without_progress_does_not_invent_a_cut_point(caplog):
     with caplog.at_level("INFO"):
         asyncio.run(agent._on_audio_stop(_stop()))
 
-    agent.conversation_store.update_last_assistant_message.assert_not_awaited()
+    agent.conversation_store.rewrite_assistant_message.assert_not_awaited()
     assert any("keeping the full" in r.getMessage() for r in caplog.records)
 
 
@@ -195,7 +193,7 @@ def test_a_speculative_stop_never_rewrites_history():
 
     asyncio.run(agent._on_audio_stop(_stop(speculative=True)))
 
-    agent.conversation_store.update_last_assistant_message.assert_not_awaited()
+    agent.conversation_store.rewrite_assistant_message.assert_not_awaited()
 
 
 def test_progress_is_cleared_even_when_nothing_was_truncated():
@@ -210,7 +208,7 @@ def test_progress_is_cleared_even_when_nothing_was_truncated():
 
     asyncio.run(agent._on_audio_stop(_stop()))
 
-    agent.conversation_store.update_last_assistant_message.assert_not_awaited()
+    agent.conversation_store.rewrite_assistant_message.assert_not_awaited()
     assert agent.last_audio_progress is None
 
 
@@ -242,7 +240,7 @@ def test_an_out_of_range_offset_leaves_the_reply_alone(offset):
 
     asyncio.run(agent._on_audio_stop(_stop()))
 
-    agent.conversation_store.update_last_assistant_message.assert_not_awaited()
+    agent.conversation_store.rewrite_assistant_message.assert_not_awaited()
 
 
 def _chat_input_agent():

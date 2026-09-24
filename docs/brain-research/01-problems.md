@@ -149,3 +149,19 @@ could not fail, the defect class R4-2 was filed for.
 | R5-4 | LOW | TRUNCATED recorded for a reply history keeps uncut; only the insert wait is bounded | documented (records describe delivery; the UPDATE was unbounded before) |
 | R5-5 | LOW | The newest-row fallback existed only for test doubles, so the old truncation tests exercised a path production never takes | fallback removed; those tests set owner and row id |
 
+## Sixth adversarial review (of the R5 fixes)
+
+A sixth fresh reviewer found the behaviour correct (400-seed fuzz: no
+history anomalies; every R5 repro fixed), scored the change 7/10, and
+returned **FAIL**: three gates still had no test that fails when they are
+removed (27 of its own mutations, 3 non-equivalent survivors).
+
+| # | Sev | Finding | Resolution |
+|---|---|---|---|
+| R6-1 | MEDIUM | No test for the R5-2 single critical section (N4), the CANCELLED resolved-once guard (N3), or the R3-1 owner guard in its realistic order (N5, pre-existing) | three real-flow tests ported from the reviewer's probes; each kills its mutation |
+| R6-2 | LOW | ADR claim that every guarding test fails on behaviour, not signatures, was false for two; the mutation claim was not reproducible | ADR corrected; `scripts/barge_in_mutations.py` committed (27 mutations, 25 killed, 2 equivalent with reasons) plus a gate test keeping its patterns in step |
+| R6-3 | LOW | The store's newest-row UPDATE was dead code and still the default without an id | replaced by `rewrite_assistant_message(content, *, message_id)`; no newest-row form exists |
+| R6-4 | LOW | ADR "cleared on every path that ends generation" was wider than the code | wording matches the code, with why the remaining path is harmless |
+| R6-5 | LOW (pre-existing) | A superseded reply that played to the end got no terminal record (its completed frame landed in the superseded slot) | recorded COMPLETED there, once; test |
+| R6-6 | LOW (pre-existing) | COMPLETED then CANCELLED if a completed frame precedes the end of generation; a fully generated reply cancelled at the final lock is not stored | listed in ADR-003 "Known and not changed here" |
+

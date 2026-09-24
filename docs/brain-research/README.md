@@ -14,14 +14,14 @@ a test, or is labelled as unverified with the experiment that would settle it.
 | Keyword traps in the top 3 | 0.31 | 0.02 | E3 |
 | Retrieval latency, SQLite, 5,000 memories (p50 / p95) | 56.9 / 68.3 ms | 3.9 / 6.6 ms | latency harness |
 | Valence runaway from mood 0.6 (turns saturated at +1.0 of 200) | 143 | 0 | `04-affect-dynamics.md` |
-| Backend tests | 2,388 passed | 2,523 passed, 0 failed | `pytest` |
+| Backend tests | 2,388 passed | 2,529 passed, 0 failed | `pytest` |
 
 Also fixed (each with a test that fails on the old code): graph relations
 never loading into retrieval (M-4), dropped retrieval-outage markers (M-7),
 SQLite timestamp parsing that could blank all retrieval (M-9), barge-in
 "stop" addressed to the wrong turn (V-1), unsanitised memories in the
 proactive prompt (S-1), and an interrupted reply overwriting the previous
-turn's stored reply (R2-2b). Five independent adversarial reviews and their
+turn's stored reply (R2-2b). Six independent adversarial reviews and their
 findings are in `01-problems.md`.
 
 Not solved, with measured stakes and a plan: stale facts after a preference

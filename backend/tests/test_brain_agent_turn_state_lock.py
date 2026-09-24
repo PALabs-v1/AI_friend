@@ -48,7 +48,7 @@ async def test_turn_state_lock_blocks_a_concurrent_reset_during_truncation(
 
     db_write_started = asyncio.Event()
     db_write_may_finish = asyncio.Event()
-    real_update = store.update_last_assistant_message
+    real_update = store.rewrite_assistant_message
 
     async def slow_update(text, **kwargs):
         # _truncate_interrupted_reply calls this from inside its locked
@@ -59,7 +59,7 @@ async def test_turn_state_lock_blocks_a_concurrent_reset_during_truncation(
         await db_write_may_finish.wait()
         return await real_update(text, **kwargs)
 
-    store.update_last_assistant_message = slow_update
+    store.rewrite_assistant_message = slow_update
 
     # Progress-known branch: the one that performs the awaited DB write.
     class _Progress:

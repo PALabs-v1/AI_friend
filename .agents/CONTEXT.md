@@ -17089,3 +17089,15 @@ insert task set in one critical section; `_reply_generating` cleared on every
 path that ends generation (CANCELLED once); the newest-row fallback removed,
 with the three older truncation tests now set up as the turn flow leaves a
 stored reply. Backend suite 2,523 passed, 8 skipped.
+
+### 2026-09-24 -- Brain V2 sixth adversarial review fix round
+
+Sixth reviewer: behaviour correct, 7/10, FAIL on three unpinned gates (N3
+CANCELLED once, N4 single critical section, N5 owner check). Tests ported for
+each; `scripts/barge_in_mutations.py` committed (27 mutations on a temp copy,
+25 killed, 2 equivalent with reasons; exits non-zero on any other survivor)
+with `tests/test_barge_in_mutation_patterns.py` as the gate that keeps its
+patterns matching. The store method is now
+`rewrite_assistant_message(content, *, message_id)`; the newest-row UPDATE is
+gone. A superseded reply that plays to the end is recorded COMPLETED.
+Backend suite 2,529 passed, 8 skipped.
