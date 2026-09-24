@@ -38,18 +38,39 @@ Accepting it must not act on the *current* turn's state. By the time Stage 2
 publishes the stop, the new utterance has already reset
 `last_assistant_response` and `last_audio_progress`, and the running task is
 the "stop" utterance's own turn. So `_begin_turn` snapshots the superseded
-reply (`_SupersededReply`: text, playback progress, intent, history state),
+reply (`_SupersededReply`: text, playback progress, intent, the task storing it),
 playback progress for that turn keeps updating the snapshot, and an accepted
 stop truncates the snapshot to what was heard without cancelling the current
 turn. The superseded reply's generation had already ended: it finished, or
 `_replace_active_generation` cancelled it when the new utterance arrived.
 
-History is written to the right row: a reply whose generation was cancelled
-never reached `log_message`, so its heard portion is appended rather than
-overwriting "the last assistant message" (which was the previous turn's
-reply; a pre-existing defect found here). A logged reply is rewritten only
-after its spawned insert has landed. A turn cancelled by the next utterance
-gets exactly one terminal outcome record (CANCELLED), not a second TRUNCATED.
+History rules, each from a review finding (01-problems.md, R2/R3):
+
+* **Only the reply's own row is rewritten.** The cut calls
+  `update_last_assistant_message(heard, expected=full_reply)`, which rewrites
+  the newest assistant row still holding exactly that reply, or nothing.
+  Unguarded, "the last assistant message" was the previous turn's reply when
+  this one was never stored (cancelled mid-generation, or an insert the store
+  swallowed), or a newer reply. The rewrite waits for the reply's own spawned
+  insert first.
+* **Nothing is appended.** A reply cancelled before it was stored gets no
+  row: appending its heard part landed after the user's "stop", where it
+  read as the answer to "stop". Consequence, accepted: the words the user
+  heard from a reply cut off mid-generation are not in history.
+* **The text must belong to the stopped turn.** `last_assistant_response`
+  is reset only by user turns, so while a proactive (subconscious) turn
+  speaks it still holds the previous user reply. `_reply_turn_id` records
+  whose text it is; a stop for another turn cuts nothing.
+* **A reply is resolved once.** A facial startle publishes a stop for the
+  active turn on every startle, even while idle; after the first cut,
+  later stops neither rewrite nor record it again (`_reply_resolved`).
+* A turn cancelled by the next utterance gets exactly one terminal outcome
+  record (CANCELLED), not a second TRUNCATED.
+
+Known, pre-existing, not changed here: with three utterances in quick
+succession (A, then "stop" B, then C before B's Stage 2), B's stop for A is
+dropped as stale, and `_replace_active_generation` can record CANCELLED for
+A's intent although A had finished generating.
 
 ## Not solved here
 
@@ -58,16 +79,14 @@ flush-without-abort semantics in the voice agent; see `07-future-research.md` §
 
 ## Tests
 
+`tests/test_brain_v2_regressions.py`:
 `test_stage2_signal_targets_the_interrupted_reply[stop|resume]`,
-`test_stage2_falls_back_to_own_turn_without_interrupted_id`,
-and in `tests/test_brain_v2_regressions.py`:
-`test_superseded_stop_truncates_the_playing_reply_to_what_was_heard`,
-`test_superseded_progress_does_not_leak_into_the_new_turn`,
-`test_superseded_turn_is_honoured_once`,
-`test_brain_still_ignores_a_genuinely_stale_stop`,
-`test_brain_rejects_non_command_stop_for_the_superseded_turn`,
-`test_stop_for_the_active_turn_still_cancels_and_truncates`,
-`test_truncating_an_unlogged_reply_appends_instead_of_overwriting_the_previous_one`,
-`test_truncation_waits_for_the_pending_history_insert`,
-`test_replaced_turn_gets_one_terminal_record_not_two`.
-All but the active-turn test fail on the code before the second review's fixes.
+`test_stage2_falls_back_to_own_turn_without_interrupted_id`.
+
+`tests/test_barge_in_real_flow.py` drives the real `_on_chat_input` flow with
+a scripted core and a history store double with the real store's semantics;
+each test names the finding it pins. The three review-3 history defects, the
+failed-insert overwrite and the append-dimension case fail on the code the
+third review judged (f39c59f); the finished-reply cut fails on the code the
+second review judged (the reply was never cut). The store's content guard is
+tested against the real `ConversationHistoryStore` on SQLite.

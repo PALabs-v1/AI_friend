@@ -92,11 +92,27 @@ regression. Every finding below has a test that fails on the code it reviewed.
 | # | Sev | Finding | Resolution |
 |---|---|---|---|
 | R2-1 | HIGH | The startup warm-up on an empty wing stored `dim=None`; every later write took the append path, which never set it, so `top_k` returned `[]` for the life of the process with no error (a fresh install never recalled anything) | the append adopts the dimension of the first rows it loads; unit and end-to-end tests |
-| R2-2 | MEDIUM | Accepting Stage 2's stop for the superseded reply cancelled the *new* turn (the "stop" utterance's own flow) and truncated nothing, because that turn had already reset the reply state | superseded reply snapshotted in `_begin_turn`; its playback progress keeps updating the snapshot; the stop truncates the snapshot and leaves the current turn running (ADR-003) |
-| R2-2b | MEDIUM (pre-existing, found while fixing R2-2) | Truncating a reply whose generation was cancelled overwrote the *previous* turn's stored reply (the cancelled one was never logged); a logged reply's UPDATE could also race its spawned INSERT | unlogged replies are appended; logged ones rewritten after the insert lands; tests |
+| R2-2 | MEDIUM | Accepting Stage 2's stop for the superseded reply cancelled the *new* turn (the "stop" utterance's own flow) and truncated nothing, because that turn had already reset the reply state | superseded reply snapshotted in `_begin_turn`; its playback progress keeps updating the snapshot; the stop truncates the snapshot and leaves the current turn running (ADR-003). The first version of this fix introduced R3-1..R3-3 |
+| R2-2b | MEDIUM (pre-existing, found while fixing R2-2) | Truncating a reply whose generation was cancelled overwrote the *previous* turn's stored reply (the cancelled one was never logged); a logged reply's UPDATE could also race its spawned INSERT | first fix (append) was wrong, see R3-2; final: the store rewrites only the row still holding the reply (`expected=`), after the insert lands |
 | R2-3 | LOW | A write landing between a rebuild's key read and its fetch was indexed twice after the next append | appends skip ids already present; test |
 | R2-4 | LOW | `last_search_error` for a dimension mismatch was cleared by a 15 s L1 cache hit; a partly re-embedded store lost old rows silently | degraded results are not cached; skipped rows traced and logged per rebuild; tests. Downstream consumption stays open (05, P7-FIX-06) |
 | R2-5 | LOW | Under `actr_v1` results had no `relevance`, so surfacing published the unbounded ACT-R score (R-7 back on rollback) | `relevance` on every result under both policies; test |
 | R2-6 | LOW | Same id reinserted at the same rowid with a new embedding (re-embedding promotion) was invisible to the staleness key | promotion invalidates the wing in-process; cross-process residual documented in 05 |
 | R2-7 | LOW (docs) | 03 said "~1,100 probes per cell" (JSON: 1,707); ef_search under a filter can still return fewer than the pool | 03 corrected from the JSON; 05 states the filter limit |
+
+## Third adversarial review (of the R2 fixes)
+
+A third fresh reviewer drove the real `_on_chat_input` flow end to end and
+returned **FAIL**: the retrieval fixes held (R2-1, R2-3..R2-7 resolved), but
+the first R2-2/R2-2b history code wrote wrong rows. The history design was
+replaced rather than patched (ADR-003, "History rules").
+
+| # | Sev | Finding | Resolution |
+|---|---|---|---|
+| R3-1 | HIGH | A "stop" during a proactive utterance cut the previous *user* reply's text at the proactive turn's offset and wrote it over the proactive turn's row; also a second outcome record for the old intent | `_reply_turn_id` records whose text `last_assistant_response` is; a stop for another turn cuts nothing |
+| R3-2 | MEDIUM | The heard part of a reply cancelled mid-generation was appended after the user's "stop" row | nothing is appended; such a reply has no row (accepted loss, ADR-003) |
+| R3-3 | HIGH | Every later confirmed stop (a facial startle fires one per startle, even idle) re-appended the full unheard partial and recorded it again | a reply is resolved once (`_reply_resolved`) |
+| R3-4 | LOW | `log_message` swallows insert failures, so "insert failed" was never detected and the cut overwrote the previous reply | the rewrite is content-addressed in the store (`expected=`), so a missing row means no write |
+| R3-5 | LOW | After an empty warm-up the first append took the rows' majority dimension over the query's | the query's dimension wins; test |
+| R3-6 | LOW (tests) | Some "fails on the old code" tests failed only on a missing helper; the history double had no roles, so it could not see R3-1..R3-3 | barge-in tests moved to `tests/test_barge_in_real_flow.py`, real flow, role-aware history, real-store guard test |
 

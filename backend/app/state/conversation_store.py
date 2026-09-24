@@ -374,27 +374,37 @@ class ConversationHistoryStore:
             logger.error(f"Failed to fetch last interaction: {e}")
             return None
 
-    async def update_last_assistant_message(self, content: str):
-        """Update/truncate the content of the very last assistant message in the current session."""
+    async def update_last_assistant_message(
+        self, content: str, *, expected: str | None = None
+    ):
+        """Update/truncate the content of the very last assistant message in the current session.
+
+        With `expected`, rewrites the newest assistant row that still holds
+        exactly `expected` -- that reply's own row -- or nothing. Without it
+        a truncation rewrote whichever reply was newest: the previous turn's
+        when this one was never stored, a newer one when it had been, or
+        either on a timestamp tie.
+        """
         if not self.pool or not self.current_session_id:
             return
 
-        try:
-            async with self.pool.acquire() as conn:
-                result = await conn.execute(
-                    """
+        match_content = " AND content = $3" if expected is not None else ""
+        sql = f"""
                     UPDATE messages
                     SET content = $1
                     WHERE id = (
                         SELECT id FROM messages
-                        WHERE session_id = $2 AND role = 'assistant'
+                        WHERE session_id = $2 AND role = 'assistant'{match_content}
                         ORDER BY timestamp DESC
                         LIMIT 1
                     )
-                    """,
-                    content,
-                    self.current_session_id,
-                )
+                    """  # nosec B608 - match_content is one of two literals; values are bound
+        args = [content, self.current_session_id]
+        if expected is not None:
+            args.append(expected)
+        try:
+            async with self.pool.acquire() as conn:
+                result = await conn.execute(sql, *args)
                 # Check rowcount attribute if available (backend-agnostic)
                 rowcount = getattr(result, "rowcount", None)
                 if rowcount is None:
@@ -411,6 +421,11 @@ class ConversationHistoryStore:
                 if rowcount > 0:
                     logger.info(
                         f"Updated last assistant message to {len(content)} characters"
+                    )
+                elif expected is not None:
+                    logger.info(
+                        "Interrupted reply not rewritten: no stored assistant "
+                        "message holds it (it was never stored)"
                     )
         except Exception as e:
             logger.error(f"Failed to update last assistant message: {e}")

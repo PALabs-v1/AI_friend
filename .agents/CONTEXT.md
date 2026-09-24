@@ -17049,3 +17049,16 @@ the trace, `relevance` under both ranking policies, index invalidation on
 re-embedding promotion, doc corrections. Register: docs/brain-research/01-problems.md.
 Backend suite 2,512 passed, 8 skipped.
 
+
+### 2026-09-24 -- Brain V2 third adversarial review fix round
+
+A third cold reviewer drove the real `_on_chat_input` flow and failed the R2
+history fix: a stop during a proactive utterance cut the previous user reply's
+text over the proactive row (R3-1), cancelled replies were appended after the
+user's "stop" (R3-2), and repeated stops re-appended them (R3-3). Replaced, not
+patched: `ConversationHistoryStore.update_last_assistant_message(...,
+expected=)` rewrites only the row still holding the reply; nothing is appended;
+`BrainAgent._reply_turn_id` / `_reply_resolved` make a cut apply to the turn
+that owns the text, once. Tests: `tests/test_barge_in_real_flow.py` (real flow,
+role-aware history, real-store guard). Also R3-5: first append after an empty
+warm-up takes the query's dimension. Backend suite 2,513 passed, 8 skipped.

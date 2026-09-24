@@ -759,3 +759,23 @@ async def test_v1_results_also_carry_absolute_relevance(sqlite_store, monkeypatc
         "unrelated query", threshold=-99, refresh_on_recall=False
     )
     assert results and all(r["relevance"] == 0.0 for r in results)
+
+
+@pytest.mark.asyncio
+async def test_first_append_takes_the_querys_dimension_not_the_rows_majority(
+    sqlite_conn,
+):
+    """R3-5: after an empty warm-up, the first append picked the majority
+    dimension of the new rows, so a query in the minority (current) model's
+    dimension returned [] with no error."""
+    from app.state.sqlite_vector_index import SQLiteVectorIndex
+
+    index = SQLiteVectorIndex(scan_limit=100)
+    await index.ensure(sqlite_conn, "personal")  # warm-up, empty
+    await _insert(sqlite_conn, "old1", _vec(0, 4))
+    await _insert(sqlite_conn, "old2", _vec(1, 4))
+    await _insert(sqlite_conn, "new", _vec(2, 8))
+    assert await index.top_k(sqlite_conn, "personal", _vec(2, 8), 3) == [
+        ("new", pytest.approx(1.0))
+    ]
+    assert index.skipped_dimension("personal") == 2

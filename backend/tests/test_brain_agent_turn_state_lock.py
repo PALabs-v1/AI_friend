@@ -44,14 +44,14 @@ async def test_turn_state_lock_blocks_a_concurrent_reset_during_truncation(
     db_write_may_finish = asyncio.Event()
     real_update = store.update_last_assistant_message
 
-    async def slow_update(text):
+    async def slow_update(text, **kwargs):
         # _truncate_interrupted_reply calls this from inside its locked
         # critical section on the progress-known branch. Stalling here
         # forces a real suspension point mid-lock, the exact window the
         # finding described.
         db_write_started.set()
         await db_write_may_finish.wait()
-        return await real_update(text)
+        return await real_update(text, **kwargs)
 
     store.update_last_assistant_message = slow_update
 

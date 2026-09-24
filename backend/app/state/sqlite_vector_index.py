@@ -163,7 +163,9 @@ class SQLiteVectorIndex:
         rows = await conn.fetch("SELECT id FROM memories WHERE rowid = ?", old_top)
         return bool(rows) and str(rows[0]["id"]) == old_top_id
 
-    async def _append(self, conn, wing: str, index: _WingIndex, key) -> _WingIndex:
+    async def _append(
+        self, conn, wing: str, index: _WingIndex, key, dim: int | None = None
+    ) -> _WingIndex:
         rows = await conn.fetch(
             "SELECT rowid, id, room, embedding FROM memories "
             "WHERE wing = ? AND rowid > ? AND rowid <= ? ORDER BY rowid",
@@ -176,11 +178,12 @@ class SQLiteVectorIndex:
         # already loaded but newer than the cache key; drop the re-fetch.
         rows = [r for r in rows if str(r["id"]) not in present]
         dim, ids, rowids, rooms, new, skipped = await asyncio.to_thread(
-            _stack, rows, index.dim
+            _stack, rows, index.dim if index.dim is not None else dim
         )
         if index.dim is None:
-            # Built on an empty wing (the startup warm-up): the first rows
-            # decide the dimension. Keeping None made every query miss.
+            # Built on an empty wing (the startup warm-up): the query's
+            # dimension, else the first rows' majority, decides it. Keeping
+            # None made every query miss.
             index.dim = dim
         if ids:
             index.matrix = np.vstack([index.matrix, new]) if index.matrix.size else new
@@ -221,7 +224,7 @@ class SQLiteVectorIndex:
                 and await self._still_same_top(conn, index)
             )
             if appended:
-                index = await self._append(conn, wing, index, key)
+                index = await self._append(conn, wing, index, key, dim)
             else:
                 index = await self._rebuild(conn, wing, key, dim)
             self._wings[wing] = index

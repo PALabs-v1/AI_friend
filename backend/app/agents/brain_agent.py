@@ -64,11 +64,10 @@ class _SupersededReply:
     """
 
     turn_id: str
-    text: str | None
+    text: str | None  # None unless this text is that turn's own, unresolved reply
     progress: AudioPlaybackProgress | None
     intent: Any
     log_task: asyncio.Task | None
-    unlogged: bool
 
 
 def _char_offset_after_word(text: str, word_count: int) -> int:
@@ -168,13 +167,17 @@ class BrainAgent(BaseAgent):
         # must accept it alongside the active turn.
         self._superseded_turn_id: str | None = None
         self._superseded_reply: _SupersededReply | None = None
-        # The task writing the current reply to history, and whether this
-        # turn's reply has not been logged at all yet (its generation was
-        # cancelled before `log_message` ran). Truncation rewrites the last
-        # stored assistant message only when it is this reply's; otherwise
-        # it would overwrite the previous turn's reply.
+        # Which turn `last_assistant_response` belongs to, whether it has
+        # already been truncated, and the task writing it to history.
+        # `last_assistant_response` is only reset by user turns, so while a
+        # subconscious turn speaks it still holds the previous user turn's
+        # reply; truncating it against the subconscious turn's playback
+        # offset rewrote the wrong row. A truncated reply is resolved: a
+        # second stop (a facial startle fires one for the active turn even
+        # while idle) must not cut or record it again.
+        self._reply_turn_id: str | None = None
+        self._reply_resolved = False
         self._reply_log_task: asyncio.Task | None = None
-        self._reply_unlogged = False
         # Phase 1 causal slice (§22, §38): the ActionIntent Stage 6 committed
         # for the turn currently generating/playing, and the last terminal
         # OutcomeRecord emitted for one. Both are read-mostly diagnostics
@@ -515,29 +518,24 @@ class BrainAgent(BaseAgent):
             await self._emit_outcome_record(intent, status="CANCELLED", error=reason)
 
     async def _store_heard_reply(
-        self, text: str, log_task: asyncio.Task | None, unlogged: bool
+        self, original: str, heard: str, log_task: asyncio.Task | None
     ) -> None:
-        """Make `text` the stored version of the interrupted reply.
+        """Rewrite this reply's history row from `original` to `heard`.
 
-        A reply whose generation was cancelled mid-stream never reached
-        `log_message`; rewriting "the last assistant message" then overwrote
-        the previous turn's reply with this one's heard portion. Such a reply
-        is appended instead. A logged reply is rewritten in place, after its
-        (spawned) insert has landed so the UPDATE cannot hit the row before it.
+        The row is addressed by content: the store rewrites the newest
+        assistant row only if it still holds `original`. A reply cancelled
+        before `log_message` ran has no row, and a newer reply may already
+        be the newest row; both used to be overwritten as "the last
+        assistant message". Waits for the reply's own (spawned) insert first
+        so the rewrite cannot run ahead of it.
         """
         if not self.conversation_store:
             return
         if log_task is not None and not log_task.done():
             await asyncio.wait({log_task})
-        logged = (
-            log_task is not None
-            and not log_task.cancelled()
-            and log_task.exception() is None
+        await self.conversation_store.update_last_assistant_message(
+            heard, expected=original
         )
-        if unlogged or (log_task is not None and not logged):
-            await self.conversation_store.log_message("assistant", text)
-        else:
-            await self.conversation_store.update_last_assistant_message(text)
 
     async def _truncate_interrupted_reply(self, reply: _SupersededReply | None = None):
         """Rewrite the stored assistant reply down to what was actually
@@ -565,10 +563,19 @@ class BrainAgent(BaseAgent):
                 progress = self.last_audio_progress
                 intent = getattr(self, "_active_action_intent", None)
                 log_task = getattr(self, "_reply_log_task", None)
-                unlogged = getattr(self, "_reply_unlogged", False)
+                owner = getattr(self, "_reply_turn_id", None)
+                active = getattr(self, "_active_response_turn_id", None)
+                if getattr(self, "_reply_resolved", False) or (
+                    owner is not None and active is not None and owner != active
+                ):
+                    # Already truncated, or the active turn is not the one
+                    # that produced this text (a subconscious turn speaking).
+                    text = None
+                else:
+                    self._reply_resolved = True
             else:
                 text, progress, intent = reply.text, reply.progress, reply.intent
-                log_task, unlogged = reply.log_task, reply.unlogged
+                log_task = reply.log_task
             if progress and not progress.completed and text:
                 offset = progress.character_offset
                 if 0 < offset < len(text):
@@ -578,7 +585,7 @@ class BrainAgent(BaseAgent):
                     logger.info(
                         f"Truncating history (via progress): original_length={original_length}, truncated_length={truncated_length}, offset={offset}"
                     )
-                    await self._store_heard_reply(truncated_text, log_task, unlogged)
+                    await self._store_heard_reply(text, truncated_text, log_task)
                     await self._emit_outcome_record(
                         intent,
                         status="TRUNCATED",
@@ -612,9 +619,6 @@ class BrainAgent(BaseAgent):
                     "reply (%d chars) rather than guessing a cut point.",
                     len(text),
                 )
-                if unlogged:
-                    # "Keeping" it means it has to be in history at all.
-                    await self._store_heard_reply(text, log_task, unlogged)
                 # Still a terminal record for this intent -- best-known
                 # offset (the full text) rather than no record at all, same
                 # honesty tradeoff as the log line above: this is what we
@@ -862,15 +866,26 @@ class BrainAgent(BaseAgent):
             self._superseded_turn_id = interrupted_turn_id
             # The previous turn's generation has already been cancelled (or
             # had finished) by `_replace_active_generation`, so this is its
-            # final state; its audio may still be playing.
+            # final state; its audio may still be playing. The reply text is
+            # carried only if it is that turn's own and not yet truncated.
+            owns_reply = (
+                interrupted_turn_id is not None
+                and getattr(self, "_reply_turn_id", None) == interrupted_turn_id
+                and not getattr(self, "_reply_resolved", False)
+            )
             self._superseded_reply = (
                 _SupersededReply(
                     turn_id=interrupted_turn_id,
-                    text=getattr(self, "last_assistant_response", None),
+                    text=self.last_assistant_response if owns_reply else None,
                     progress=getattr(self, "last_audio_progress", None),
-                    intent=getattr(self, "_active_action_intent", None),
-                    log_task=getattr(self, "_reply_log_task", None),
-                    unlogged=getattr(self, "_reply_unlogged", False),
+                    intent=(
+                        getattr(self, "_active_action_intent", None)
+                        if owns_reply
+                        else None
+                    ),
+                    log_task=(
+                        getattr(self, "_reply_log_task", None) if owns_reply else None
+                    ),
                 )
                 if interrupted_turn_id
                 else None
@@ -959,7 +974,8 @@ class BrainAgent(BaseAgent):
                 self.last_audio_progress = None
                 self._active_action_intent = None
                 self._reply_log_task = None
-                self._reply_unlogged = True
+                self._reply_turn_id = turn_id
+                self._reply_resolved = False
             process_kwargs = {
                 "percept": self.last_percept,
                 "workspace": workspace_snapshot,
@@ -1024,8 +1040,8 @@ class BrainAgent(BaseAgent):
             )
             if not is_subconscious:
                 async with self._turn_state_lock:
-                    self._reply_log_task = log_task
-                    self._reply_unlogged = False
+                    if self._reply_turn_id == turn_id:
+                        self._reply_log_task = log_task
 
     async def _on_audio_playback_progress(self, data: dict[str, Any]):
         """Tracks the current word/character progress of the audio playback."""
