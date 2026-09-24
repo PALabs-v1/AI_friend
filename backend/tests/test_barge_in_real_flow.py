@@ -689,8 +689,7 @@ async def test_stopping_a_proactive_turn_that_started_while_the_reply_played():
     """R6 (N5, R3-1 in its realistic order): A is stored and still playing
     when a proactive turn S starts; A's completed frame then arrives for the
     superseded slot, so A is not resolved through the live state. A startle
-    stopping S must not cut A's text at S's offset. A still gets its
-    COMPLETED record (it played to the end), exactly once."""
+    stopping S must not cut A's text at S's offset."""
     history = History()
     thought = "By the way, I remembered your sister's birthday"
     agent = _agent(
@@ -710,7 +709,9 @@ async def test_stopping_a_proactive_turn_that_started_while_the_reply_played():
         ["assistant", REPLY_A],
         ["assistant", thought],
     ]
-    assert _outcomes(agent) == [("A", "COMPLETED", REPLY_A)]
+    # A gets no terminal record: a superseded reply's completed frame is not
+    # recorded (ADR-003 "Known"); what matters here is that A is not cut.
+    assert _outcomes(agent) == []
 
 
 @pytest.mark.asyncio
@@ -736,12 +737,12 @@ async def test_a_stop_queued_behind_the_end_of_generation_still_cuts_the_row():
     await asyncio.sleep(0)
     while "A" not in agent.finished_turns:
         await asyncio.sleep(0)
-    for _ in range(2):
-        await asyncio.sleep(
-            0
-        )  # the flow is now queued at its end-of-generation section
+    lock = agent._turn_state_lock
+    while not lock._waiters:  # the flow is queued at its end-of-generation section
+        await asyncio.sleep(0)
     stop = asyncio.create_task(_startle(agent, "A"))
-    await asyncio.sleep(0)  # the stop queues right behind it
+    while len(lock._waiters) < 2:  # the stop queues right behind it
+        await asyncio.sleep(0)
     release.set()
     await asyncio.gather(turn_a, held, stop, return_exceptions=True)
     await _settle(agent, 0.2)
@@ -774,4 +775,54 @@ async def test_stopping_a_queued_proactive_turn_leaves_the_playing_reply_alone()
         ["assistant", REPLY_A],
         ["assistant", thought],
     ]
-    assert _outcomes(agent) == [("A", "COMPLETED", REPLY_A)]
+    # A gets no terminal record: a superseded reply's completed frame is not
+    # recorded (ADR-003 "Known"); what matters here is that A is not cut.
+    assert _outcomes(agent) == []
+
+
+@pytest.mark.asyncio
+async def test_a_later_reply_is_still_cut_after_an_earlier_one_resolved():
+    """R7 (X17): resolving a reply must not stick to the next one; each user
+    turn's reset makes its own reply cuttable."""
+    history = History()
+    second = "Second reply goes here now"
+    agent = _agent(
+        history, {"tell me": {"pieces": [REPLY_A]}, "again": {"pieces": [second]}}
+    )
+    await _finished_reply_a(agent)
+    await _progress(agent, "A", len(REPLY_A), completed=True)  # A resolved
+    turn_b = await _say(agent, "again", "B")
+    await turn_b
+    await _settle(agent)
+    await _progress(agent, "B", 11)
+    await _startle(agent, "B")
+    await _settle(agent)
+    assert history.rows[-1] == ["assistant", second[:11].strip()]
+    assert _outcomes(agent)[-1] == ("B", "TRUNCATED", second[:11].strip())
+
+
+@pytest.mark.asyncio
+async def test_a_stop_for_a_proactive_turn_never_cuts_the_user_reply_it_superseded():
+    """R7 (X12): A is stored and unresolved when proactive turn S speaks; the
+    user's "stop" (Stage 2, addressed to S as the superseded turn) must not
+    carry A's text into the snapshot and cut it at S's offset."""
+    history = History()
+    thought = "By the way, I remembered your sister's birthday"
+    agent = _agent(
+        history,
+        {
+            "tell me": {"pieces": [REPLY_A]},
+            "think": {"pieces": [thought]},
+            "stop": {"stop": True},
+        },
+    )
+    await _finished_reply_a(agent)  # stored, playing, unresolved
+    proactive = await _say(agent, "think", "S", subconscious=True)
+    await proactive
+    await _settle(agent)
+    await _progress(agent, "S", 12)
+    turn_b = await _say(agent, "stop", "B")
+    await turn_b
+    await _settle(agent)
+    assert ["assistant", REPLY_A] in history.rows
+    assert ("A", "TRUNCATED") not in [o[:2] for o in _outcomes(agent)]

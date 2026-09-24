@@ -17101,3 +17101,15 @@ patterns matching. The store method is now
 `rewrite_assistant_message(content, *, message_id)`; the newest-row UPDATE is
 gone. A superseded reply that plays to the end is recorded COMPLETED.
 Backend suite 2,529 passed, 8 skipped.
+
+### 2026-09-24 -- Brain V2 seventh adversarial review fix round
+
+Seventh reviewer: 6/10, FAIL on unpinned gates in the R6 superseded-COMPLETED
+branch, two older unpinned gates (X12, X17) and a mutation tool that counted
+"no pytest" as kills. The branch is removed: no `completed=True` frame is
+produced live (voice agent publishes raw PCM; transport sets done only from
+dict payloads), so every COMPLETED path is test-only -- recorded in ADR-003
+"Known" as a contract gap. X12/X17 pinned by real-flow tests.
+`scripts/barge_in_mutations.py` now runs a baseline first (exit 2 if it
+fails) and counts only pytest exit 1 as a kill: 33 mutations, 26 killed, 7
+equivalent with reasons. Backend suite 2,531 passed, 8 skipped.

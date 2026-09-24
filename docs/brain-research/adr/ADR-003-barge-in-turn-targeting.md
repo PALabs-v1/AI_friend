@@ -83,15 +83,23 @@ History rules, each from a review finding (01-problems.md, R2/R3/R4):
   normally, when a stop cancels it, and on replacement. (A flow that raises
   after its reset leaves it set; the task is already done, so nothing can
   record it CANCELLED later except a replacement of that finished task,
-  which checks `.done()` first.)
-* **A superseded reply that plays to the end is recorded COMPLETED.** Its
-  completed frame arrives after the next turn took over and lands in the
-  superseded snapshot; it records COMPLETED there and leaves nothing for a
-  later stop to cut. So replacing a
-  proactive turn, or a turn still in its pacing sleep, never records a
-  reply CANCELLED after it finished or was already cut.
+  which checks `.done()` first.) So replacing a proactive turn, or a turn
+  still in its pacing sleep, never records a reply CANCELLED after it
+  finished or was already cut.
 
 Known and not changed here (pre-existing):
+* **No COMPLETED record fires in production.** The Rust voice agent
+  publishes raw PCM on `audio.stream` (`crates/voice-agent/src/main.rs`),
+  and the transport marks an utterance done only from dict payloads
+  (`transport_agent.py`), so `audio.playback.progress` never carries
+  `completed=True` live. Every COMPLETED path here is exercised by tests
+  only. Fixing it is a voice-agent/transport contract change, out of scope.
+  (A superseded-reply COMPLETED branch was added and removed during review:
+  dead in production, and it could record audio the user never heard, since
+  the completion marker fires when the last frame is buffered, up to ~1 s
+  ahead of the speaker.)
+* A superseded reply's completed frame is not recorded: it lands in the
+  superseded snapshot, which only a stop reads.
 * With A, then "stop" B, then C before B's Stage 2, B's stop for A is
   dropped as stale.
 * An ordinary barge-in (`confirmed_user_speech`) flushes the playing reply's
@@ -101,8 +109,8 @@ Known and not changed here (pre-existing):
 * A stop at offset 0, or at or past the end without `completed`, records no
   terminal outcome.
 * A completed frame that arrives before the reply finished generating
-  (transport sends it after `done`, so not in practice) can be followed by
-  a CANCELLED from replacement.
+  (none arrives live, see the first item) can be followed by a CANCELLED
+  from replacement.
 * A fully generated reply whose flow is cancelled while it waits for the
   final `_turn_state_lock` section is not stored and is recorded CANCELLED.
 * A startle while a new user turn is in its pacing sleep cancels that turn
@@ -138,11 +146,14 @@ and `tests/test_embodied_feedback.py` set up a stored reply the way the turn
 flow leaves it (owner, row id), so they exercise the production path.
 
 **Mutation check, reproducible:** `python scripts/barge_in_mutations.py`
-applies each of 27 mutations of these gates and the store SQL to a
-temporary copy of `backend/` and runs the barge-in modules against it.
-25 are killed. The two survivors are listed in the script as equivalent,
-with the reason: not setting `_reply_resolved` when replacement records
-CANCELLED (the same section nulls the intent), and dropping `role =
-'assistant'` from the rewrite (ids are fresh UUIDs). The script exits
-non-zero on any other survivor; `tests/test_barge_in_mutation_patterns.py`
-fails on every commit where a pattern no longer matches the code.
+(run it with the interpreter that has the backend's dev requirements)
+applies each of 33 mutations of these gates and the store SQL to a temporary
+copy of `backend/`, after first checking that the unmutated copy passes, and
+runs the barge-in modules against each. A mutant counts as killed only when
+tests fail (pytest exit 1); a mutant that cannot run is an error. 26 are
+killed. The 7 survivors are listed in the script as equivalent, each with
+its reason (e.g. not resolving on a cancel before any content: the only
+caller resolves the reply on the next line). The script exits non-zero on
+any other survivor or error, and exits 2 without a verdict when the baseline
+does not pass. `tests/test_barge_in_mutation_patterns.py` fails on every
+commit where a pattern no longer matches the code.

@@ -158,10 +158,26 @@ removed (27 of its own mutations, 3 non-equivalent survivors).
 
 | # | Sev | Finding | Resolution |
 |---|---|---|---|
-| R6-1 | MEDIUM | No test for the R5-2 single critical section (N4), the CANCELLED resolved-once guard (N3), or the R3-1 owner guard in its realistic order (N5, pre-existing) | three real-flow tests ported from the reviewer's probes; each kills its mutation |
+| R6-1 | MEDIUM | No test for the R5-2 single critical section (N4), the CANCELLED resolved-once guard (N3), or the R3-1 owner guard in its realistic order (N5, pre-existing) | four real-flow tests (three ported from the reviewer's probes, one queued-proactive variant); each of N3, N4, N5 killed |
 | R6-2 | LOW | ADR claim that every guarding test fails on behaviour, not signatures, was false for two; the mutation claim was not reproducible | ADR corrected; `scripts/barge_in_mutations.py` committed (27 mutations, 25 killed, 2 equivalent with reasons) plus a gate test keeping its patterns in step |
 | R6-3 | LOW | The store's newest-row UPDATE was dead code and still the default without an id | replaced by `rewrite_assistant_message(content, *, message_id)`; no newest-row form exists |
 | R6-4 | LOW | ADR "cleared on every path that ends generation" was wider than the code | wording matches the code, with why the remaining path is harmless |
-| R6-5 | LOW (pre-existing) | A superseded reply that played to the end got no terminal record (its completed frame landed in the superseded slot) | recorded COMPLETED there, once; test |
+| R6-5 | LOW (pre-existing) | A superseded reply that played to the end got no terminal record (its completed frame landed in the superseded slot) | a COMPLETED branch was added, then removed in R7 (dead in production, overstated delivery); listed as known in ADR-003 |
 | R6-6 | LOW (pre-existing) | COMPLETED then CANCELLED if a completed frame precedes the end of generation; a fully generated reply cancelled at the final lock is not stored | listed in ADR-003 "Known and not changed here" |
+
+## Seventh adversarial review (of the R6 fixes)
+
+A seventh fresh reviewer confirmed R6-1 resolved (N3, N4, N5 each killed
+15/15), found no new fuzz anomaly class, scored the change 6/10 and returned
+**FAIL**: its own mutations found four unpinned gates in the superseded
+COMPLETED branch added in R6, two older unpinned gates, and a mutation tool
+that reported all mutants killed when no test could run.
+
+| # | Sev | Finding | Resolution |
+|---|---|---|---|
+| R7-1 | MEDIUM | Four untested gates in the R6 superseded-COMPLETED branch (once, owner, intent attribution, slot consumption) | branch removed: the reviewer also showed no `completed=True` frame is produced in production (voice agent publishes raw PCM), so it was dead code that could overstate delivery; the gap is listed in ADR-003 "Known" |
+| R7-2 | MEDIUM | Resetting `_reply_resolved` at a user turn's start (X17) and the text-owner term in `_begin_turn`'s snapshot (X12) were unpinned | real-flow test for each; both mutations killed |
+| R7-3 | MEDIUM | `barge_in_mutations.py` counted any non-zero exit as a kill and had no baseline, so an interpreter without pytest printed "27 killed" | baseline run first (exit 2 without a verdict if it fails); only pytest exit 1 is a kill; 33 mutations, 26 killed, 7 equivalent with reasons |
+| R7-4 | LOW | N4 test relied on exactly two event-loop hops; stale ADR sentences; R6-1 row said three tests | N4 test waits on the lock's waiters; docs corrected |
+| R7-5 | LOW (pre-existing) | No `completed=True` frame is produced live, so no COMPLETED record fires in production | documented in ADR-003 "Known"; a voice-agent/transport contract change |
 

@@ -1123,20 +1123,6 @@ class BrainAgent(BaseAgent):
                     # Still playing after the user took the floor: this is
                     # the cut point a confirmed "stop" for it will use.
                     superseded.progress = progress
-                    if progress.completed and superseded.text:
-                        # It played to the end after all: its terminal
-                        # record, and nothing left for a later stop to cut.
-                        await self._emit_outcome_record(
-                            superseded.intent,
-                            status="COMPLETED",
-                            actual_delivered_text=superseded.text,
-                            character_offset=min(
-                                progress.character_offset, len(superseded.text)
-                            ),
-                        )
-                        superseded.text = superseded.intent = None
-                        if getattr(self, "_reply_turn_id", None) == superseded.turn_id:
-                            self._reply_resolved = True  # a proactive turn took over
                     return
                 if active_turn_id and progress.utterance_id != active_turn_id:
                     logger.debug(
