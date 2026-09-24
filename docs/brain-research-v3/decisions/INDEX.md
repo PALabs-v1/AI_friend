@@ -21,5 +21,9 @@
 | [DR-017](DR-017-diminishing-returns-resurfacing.md) | 5 | Resurfacing model | Diminishing returns — re-raise probability drops each time a thought is ignored, eventually to zero. Wires dead GoalRecord/review_due_goals. |
 | [DR-018](DR-018-context-aware-initiation.md) | 5 | Context awareness | Yes — time-of-day/activity patterns gate initiation, heuristic-first for now. |
 | [DR-019](DR-019-self-initiated-thought.md) | 5 | Self-initiated thought | Yes, its own category alongside useful-to-user, per DR-002. Stricter gating than useful-to-user. |
+| [DR-020](DR-020-self-authored-evolution.md) | 6 | Evolution approval | No external approval, ever — the humanoid evolves itself, like a human. `LearningReviewQueue` is the wrong abstraction; new workstream W11. |
+| [DR-021](DR-021-evidence-driven-drift-rate.md) | 6 | Drift rate | Evidence-driven, no explicit cap — the 0.8 confidence bar is the only throttle. |
+| [DR-022](DR-022-opaque-evolution.md) | 6 | Evolution visibility | Opaque by design — no product-facing change log, matching how human personality change isn't self-reported. |
+| [DR-023](DR-023-confidence-threshold.md) | 6 | Confidence threshold | Keep 0.8 — now the sole gate on evolution rate. |
 
-Round 5 (autonomy/proactive) complete. Next: Round 6 (learning and personality evolution).
+Round 6 (learning/evolution) complete. Next: Round 7 (executive control/reflexes).
