@@ -297,8 +297,14 @@ class ConversationHistoryStore:
             logger.error(f"Failed to start session: {e}")
             return self.current_session_id
 
-    async def log_message(self, role: str, content: str):
-        """Log a message to the current session."""
+    async def log_message(
+        self, role: str, content: str, *, message_id: uuid.UUID | None = None
+    ):
+        """Log a message to the current session.
+
+        `message_id` lets the caller address this row later (the brain cuts
+        an interrupted reply's own row by it); a new id is used otherwise.
+        """
         if not self.pool or not self.current_session_id:
             return
 
@@ -319,7 +325,7 @@ class ConversationHistoryStore:
                     INSERT INTO messages (id, session_id, role, content, timestamp)
                     VALUES ($1, $2, $3, $4, NOW())
                     """,
-                    uuid.uuid4(),
+                    message_id or uuid.uuid4(),
                     self.current_session_id,
                     role,
                     content,
@@ -375,57 +381,57 @@ class ConversationHistoryStore:
             return None
 
     async def update_last_assistant_message(
-        self, content: str, *, expected: str | None = None
+        self, content: str, *, message_id: uuid.UUID | None = None
     ):
         """Update/truncate the content of the very last assistant message in the current session.
 
-        With `expected`, rewrites the newest assistant row that still holds
-        exactly `expected` -- that reply's own row -- or nothing. Without it
-        a truncation rewrote whichever reply was newest: the previous turn's
-        when this one was never stored, a newer one when it had been, or
-        either on a timestamp tie.
+        With `message_id`, rewrites exactly that assistant row instead, or
+        nothing if it does not exist (its insert failed). "The newest
+        assistant row" is the previous reply when this one was never stored,
+        a newer reply when it was, and arbitrary on a timestamp tie.
         """
         if not self.pool or not self.current_session_id:
             return
 
-        match_content = " AND content = $3" if expected is not None else ""
-        sql = f"""
+        if message_id is not None:
+            sql = (
+                "UPDATE messages SET content = $1 "
+                "WHERE id = $2 AND session_id = $3 AND role = 'assistant'"
+            )
+            args = [content, message_id, self.current_session_id]
+        else:
+            sql = """
                     UPDATE messages
                     SET content = $1
                     WHERE id = (
                         SELECT id FROM messages
-                        WHERE session_id = $2 AND role = 'assistant'{match_content}
+                        WHERE session_id = $2 AND role = 'assistant'
                         ORDER BY timestamp DESC
                         LIMIT 1
                     )
-                    """  # nosec B608 - match_content is one of two literals; values are bound
-        args = [content, self.current_session_id]
-        if expected is not None:
-            args.append(expected)
+                    """
+            args = [content, self.current_session_id]
         try:
             async with self.pool.acquire() as conn:
                 result = await conn.execute(sql, *args)
-                # Check rowcount attribute if available (backend-agnostic)
+                # Check rowcount attribute if available (backend-agnostic).
+                # The SQLite fallback returns None: unknown, not zero.
                 rowcount = getattr(result, "rowcount", None)
-                if rowcount is None:
-                    # Fallback: parse string result for PostgreSQL "UPDATE n" format
+                if rowcount is None and isinstance(result, str):
+                    # PostgreSQL "UPDATE n" status string
                     try:
-                        rowcount = (
-                            int(result.split()[-1])
-                            if result and isinstance(result, str)
-                            else 0
-                        )
-                    except (ValueError, IndexError, AttributeError):
-                        rowcount = 0
+                        rowcount = int(result.split()[-1])
+                    except (ValueError, IndexError):
+                        rowcount = None
 
-                if rowcount > 0:
+                if rowcount:
                     logger.info(
                         f"Updated last assistant message to {len(content)} characters"
                     )
-                elif expected is not None:
+                elif rowcount == 0 and message_id is not None:
                     logger.info(
-                        "Interrupted reply not rewritten: no stored assistant "
-                        "message holds it (it was never stored)"
+                        "Interrupted reply not rewritten: its history row does "
+                        "not exist (the insert failed)"
                     )
         except Exception as e:
             logger.error(f"Failed to update last assistant message: {e}")

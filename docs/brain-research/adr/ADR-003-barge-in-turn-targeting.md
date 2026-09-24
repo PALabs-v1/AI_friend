@@ -44,33 +44,49 @@ stop truncates the snapshot to what was heard without cancelling the current
 turn. The superseded reply's generation had already ended: it finished, or
 `_replace_active_generation` cancelled it when the new utterance arrived.
 
-History rules, each from a review finding (01-problems.md, R2/R3):
+History rules, each from a review finding (01-problems.md, R2/R3/R4):
 
-* **Only the reply's own row is rewritten.** The cut calls
-  `update_last_assistant_message(heard, expected=full_reply)`, which rewrites
-  the newest assistant row still holding exactly that reply, or nothing.
-  Unguarded, "the last assistant message" was the previous turn's reply when
-  this one was never stored (cancelled mid-generation, or an insert the store
-  swallowed), or a newer reply. The rewrite waits for the reply's own spawned
-  insert first.
-* **Nothing is appended.** A reply cancelled before it was stored gets no
-  row: appending its heard part landed after the user's "stop", where it
-  read as the answer to "stop". Consequence, accepted: the words the user
-  heard from a reply cut off mid-generation are not in history.
+* **Only the reply's own row is rewritten, addressed by id.** The brain
+  generates the history row id when it stores a reply
+  (`log_message(..., message_id=)`) and a cut rewrites exactly that row
+  (`update_last_assistant_message(heard, message_id=)`), or nothing if the
+  row does not exist. Addressing "the newest assistant row" rewrote the
+  previous reply when this one was never stored, or a newer reply; addressing
+  by content (the R3 fix) rewrote an older reply with identical text (R4-1).
+* **Nothing is appended.** A reply cancelled before it was stored has no id
+  and gets no write: appending its heard part landed after the user's
+  "stop", where it read as the answer to "stop". Consequence, accepted: the
+  words the user heard from a reply cut off mid-generation are not in history.
+* **The wait for the reply's insert is bounded** (`REPLY_INSERT_WAIT_S`, 2 s):
+  it runs under `_turn_state_lock` and the store's pool has no command
+  timeout. A reply whose insert is still pending after that stays uncut.
 * **The text must belong to the stopped turn.** `last_assistant_response`
   is reset only by user turns, so while a proactive (subconscious) turn
   speaks it still holds the previous user reply. `_reply_turn_id` records
-  whose text it is; a stop for another turn cuts nothing.
-* **A reply is resolved once.** A facial startle publishes a stop for the
-  active turn on every startle, even while idle; after the first cut,
-  later stops neither rewrite nor record it again (`_reply_resolved`).
-* A turn cancelled by the next utterance gets exactly one terminal outcome
-  record (CANCELLED), not a second TRUNCATED.
+  whose text it is; a stop for another turn cuts nothing, and a proactive
+  turn's completed playback does not record the user reply COMPLETED again.
+* **A reply is resolved once** (`_reply_resolved`): its first terminal
+  outcome (COMPLETED, TRUNCATED or CANCELLED) ends it. A facial startle
+  publishes a stop for the active turn on every startle, even while idle.
+* **CANCELLED only when the reply's generation was cut.** Replacing a
+  proactive turn, or a turn still in its pacing sleep, after the user reply
+  finished generating no longer records that reply CANCELLED
+  (`_reply_generating`).
 
-Known, pre-existing, not changed here: with three utterances in quick
-succession (A, then "stop" B, then C before B's Stage 2), B's stop for A is
-dropped as stale, and `_replace_active_generation` can record CANCELLED for
-A's intent although A had finished generating.
+Known and not changed here (pre-existing):
+* With A, then "stop" B, then C before B's Stage 2, B's stop for A is
+  dropped as stale.
+* An ordinary barge-in (`confirmed_user_speech`) flushes the playing reply's
+  audio but does not cut its history row.
+* One superseded slot: a proactive turn that starts while A still plays takes
+  it, so a later "stop" cuts nothing for A.
+* A stop at offset 0, or at or past the end without `completed`, records no
+  terminal outcome.
+* A startle while a new user turn is in its pacing sleep cancels that turn
+  before its user row is logged.
+* A startle in that window also no longer cuts the reply still playing: the
+  stop is addressed to the new turn, whose audio has not started, and the
+  voice agent does not stop the old reply for it either.
 
 ## Not solved here
 
@@ -84,9 +100,13 @@ flush-without-abort semantics in the voice agent; see `07-future-research.md` §
 `test_stage2_falls_back_to_own_turn_without_interrupted_id`.
 
 `tests/test_barge_in_real_flow.py` drives the real `_on_chat_input` flow with
-a scripted core and a history store double with the real store's semantics;
-each test names the finding it pins. The three review-3 history defects, the
-failed-insert overwrite and the append-dimension case fail on the code the
-third review judged (f39c59f); the finished-reply cut fails on the code the
-second review judged (the reply was never cut). The store's content guard is
-tested against the real `ConversationHistoryStore` on SQLite.
+a scripted core and a history double that mirrors the store's id contract;
+the same contract is tested on the real `ConversationHistoryStore` (SQLite).
+It also pins the invariants: superseded progress never becomes the new
+turn's, a superseded stop is honoured once, a genuinely stale stop neither
+cancels nor cuts. The reviewer's three mutations of those invariants each
+fail the module. Against earlier commits, some tests fail on the changed
+store contract (`message_id=`) rather than on behaviour; the behavioural
+evidence for R4-1 is the reviewer's collision repro, which rewrote an older
+identical reply on b993dd8 and leaves it intact now (real store, both the
+startle and the spoken-stop path).

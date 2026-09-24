@@ -68,6 +68,12 @@ class _SupersededReply:
     progress: AudioPlaybackProgress | None
     intent: Any
     log_task: asyncio.Task | None
+    message_id: uuid.UUID | None
+
+
+# How long a cut waits for the reply's own history insert before giving up
+# (it runs under `_turn_state_lock`; the store's pool has no command timeout).
+REPLY_INSERT_WAIT_S = 2.0
 
 
 def _char_offset_after_word(text: str, word_count: int) -> int:
@@ -178,6 +184,11 @@ class BrainAgent(BaseAgent):
         self._reply_turn_id: str | None = None
         self._reply_resolved = False
         self._reply_log_task: asyncio.Task | None = None
+        # The history row id the reply is stored under (generated here, so a
+        # cut can address that row and no other), and whether its generation
+        # is still running (None: unknown, e.g. state seeded outside a turn).
+        self._reply_message_id: uuid.UUID | None = None
+        self._reply_generating: bool | None = None
         # Phase 1 causal slice (§22, §38): the ActionIntent Stage 6 committed
         # for the turn currently generating/playing, and the last terminal
         # OutcomeRecord emitted for one. Both are read-mostly diagnostics
@@ -518,23 +529,42 @@ class BrainAgent(BaseAgent):
             await self._emit_outcome_record(intent, status="CANCELLED", error=reason)
 
     async def _store_heard_reply(
-        self, original: str, heard: str, log_task: asyncio.Task | None
+        self,
+        heard: str,
+        log_task: asyncio.Task | None,
+        message_id: uuid.UUID | None,
+        *,
+        owner_known: bool,
     ) -> None:
-        """Rewrite this reply's history row from `original` to `heard`.
+        """Rewrite this reply's own history row to `heard`.
 
-        The row is addressed by content: the store rewrites the newest
-        assistant row only if it still holds `original`. A reply cancelled
-        before `log_message` ran has no row, and a newer reply may already
-        be the newest row; both used to be overwritten as "the last
-        assistant message". Waits for the reply's own (spawned) insert first
-        so the rewrite cannot run ahead of it.
+        The row is addressed by the id the brain generated when it stored
+        the reply. Addressing "the newest assistant row" rewrote the previous
+        reply when this one was never stored, and addressing by content
+        rewrote an older reply with the same text. A reply with no id was
+        never stored (cancelled mid-generation) and gets no write. Waits,
+        bounded, for the reply's own spawned insert so the rewrite cannot
+        run ahead of it. `owner_known=False` is state seeded outside a turn
+        flow, which keeps the historical newest-row rewrite.
         """
         if not self.conversation_store:
             return
+        if not owner_known:
+            await self.conversation_store.update_last_assistant_message(heard)
+            return
+        if message_id is None:
+            logger.info("Interrupted reply was never stored; no history row to cut.")
+            return
         if log_task is not None and not log_task.done():
-            await asyncio.wait({log_task})
+            await asyncio.wait({log_task}, timeout=REPLY_INSERT_WAIT_S)
+            if not log_task.done():
+                logger.warning(
+                    "Reply insert still pending after %.1f s; leaving it uncut.",
+                    REPLY_INSERT_WAIT_S,
+                )
+                return
         await self.conversation_store.update_last_assistant_message(
-            heard, expected=original
+            heard, message_id=message_id
         )
 
     async def _truncate_interrupted_reply(self, reply: _SupersededReply | None = None):
@@ -563,7 +593,9 @@ class BrainAgent(BaseAgent):
                 progress = self.last_audio_progress
                 intent = getattr(self, "_active_action_intent", None)
                 log_task = getattr(self, "_reply_log_task", None)
+                message_id = getattr(self, "_reply_message_id", None)
                 owner = getattr(self, "_reply_turn_id", None)
+                owner_known = owner is not None
                 active = getattr(self, "_active_response_turn_id", None)
                 if getattr(self, "_reply_resolved", False) or (
                     owner is not None and active is not None and owner != active
@@ -575,7 +607,8 @@ class BrainAgent(BaseAgent):
                     self._reply_resolved = True
             else:
                 text, progress, intent = reply.text, reply.progress, reply.intent
-                log_task = reply.log_task
+                log_task, message_id = reply.log_task, reply.message_id
+                owner_known = True
             if progress and not progress.completed and text:
                 offset = progress.character_offset
                 if 0 < offset < len(text):
@@ -585,7 +618,9 @@ class BrainAgent(BaseAgent):
                     logger.info(
                         f"Truncating history (via progress): original_length={original_length}, truncated_length={truncated_length}, offset={offset}"
                     )
-                    await self._store_heard_reply(text, truncated_text, log_task)
+                    await self._store_heard_reply(
+                        truncated_text, log_task, message_id, owner_known=owner_known
+                    )
                     await self._emit_outcome_record(
                         intent,
                         status="TRUNCATED",
@@ -676,6 +711,16 @@ class BrainAgent(BaseAgent):
             new_task = asyncio.create_task(coro)
             self._active_generation_task = new_task
 
+        # The intent belongs to the last user turn's reply. Record it
+        # CANCELLED only if that reply's generation was what got cut: the
+        # task replaced may be a proactive turn, or a later turn still in
+        # its pacing sleep, after that reply had finished (and been
+        # recorded COMPLETED or TRUNCATED on its own).
+        if (
+            cancelled_a_running_turn
+            and getattr(self, "_reply_generating", None) is False
+        ):
+            cancelled_a_running_turn = False
         if cancelled_a_running_turn:
             # FIX-CLD-05: a new incoming turn preempting one still in flight
             # never called `_cancel_active_generation`/`_truncate_interrupted_reply`
@@ -692,6 +737,8 @@ class BrainAgent(BaseAgent):
                 # this reply (a superseded "stop", ADR-003) must not add a
                 # second, disagreeing one.
                 self._active_action_intent = None
+                self._reply_resolved = True
+                self._reply_generating = False
             await self._emit_outcome_record(intent, status="CANCELLED", error=reason)
 
         return new_task
@@ -886,6 +933,9 @@ class BrainAgent(BaseAgent):
                     log_task=(
                         getattr(self, "_reply_log_task", None) if owns_reply else None
                     ),
+                    message_id=(
+                        getattr(self, "_reply_message_id", None) if owns_reply else None
+                    ),
                 )
                 if interrupted_turn_id
                 else None
@@ -974,8 +1024,10 @@ class BrainAgent(BaseAgent):
                 self.last_audio_progress = None
                 self._active_action_intent = None
                 self._reply_log_task = None
+                self._reply_message_id = None
                 self._reply_turn_id = turn_id
                 self._reply_resolved = False
+                self._reply_generating = True
             process_kwargs = {
                 "percept": self.last_percept,
                 "workspace": workspace_snapshot,
@@ -1033,15 +1085,21 @@ class BrainAgent(BaseAgent):
         if not is_subconscious:
             async with self._turn_state_lock:
                 self.last_assistant_response = full_response
+                if self._reply_turn_id == turn_id:
+                    self._reply_generating = False
 
         if self.conversation_store and full_response:
+            message_id = uuid.uuid4()
             log_task = self.spawn(
-                self.conversation_store.log_message("assistant", full_response)
+                self.conversation_store.log_message(
+                    "assistant", full_response, message_id=message_id
+                )
             )
             if not is_subconscious:
                 async with self._turn_state_lock:
                     if self._reply_turn_id == turn_id:
                         self._reply_log_task = log_task
+                        self._reply_message_id = message_id
 
     async def _on_audio_playback_progress(self, data: dict[str, Any]):
         """Tracks the current word/character progress of the audio playback."""
@@ -1074,11 +1132,22 @@ class BrainAgent(BaseAgent):
                     # starting to play, not just being queued -- the moment
                     # _on_chat_input's grace period below measures from.
                     self._last_audio_onset_at = time.time()
-                if progress.completed:
+                owner = getattr(self, "_reply_turn_id", None)
+                if progress.completed and (
+                    owner is None
+                    or (
+                        owner == progress.utterance_id
+                        and not getattr(self, "_reply_resolved", False)
+                    )
+                ):
                     # Phase 1 causal slice (§22, §38): the turn's terminal,
                     # non-interrupted outcome. `last_assistant_response` is
                     # the full text this same handler's playback reports
-                    # finished delivering.
+                    # finished delivering. Only for the turn that owns that
+                    # text (a proactive turn finishing used to re-record the
+                    # previous user reply), and once.
+                    if owner is not None:
+                        self._reply_resolved = True
                     delivered = self.last_assistant_response or ""
                     # FIX-CLD-04: trust the playback-reported offset rather
                     # than assuming every COMPLETED frame delivered the full

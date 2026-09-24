@@ -17062,3 +17062,17 @@ expected=)` rewrites only the row still holding the reply; nothing is appended;
 that owns the text, once. Tests: `tests/test_barge_in_real_flow.py` (real flow,
 role-aware history, real-store guard). Also R3-5: first append after an empty
 warm-up takes the query's dimension. Backend suite 2,513 passed, 8 skipped.
+
+### 2026-09-24 -- Brain V2 fourth adversarial review fix round
+
+Supersedes the R3 entry's `expected=` design. The fourth reviewer showed the
+content-addressed rewrite cut an older reply with identical text (R4-1) and
+that R3 had deleted the invariant tests (three mutations survived, R4-2). Now:
+the brain generates each reply's history row id (`log_message(...,
+message_id=)`) and a cut rewrites exactly that row
+(`update_last_assistant_message(heard, message_id=)`); the insert wait is
+bounded (`REPLY_INSERT_WAIT_S`); COMPLETED only for the turn owning the text,
+CANCELLED only while that reply is still generating (`_reply_generating`).
+Invariant tests restored in `tests/test_barge_in_real_flow.py`; the three
+mutations each fail it. Register: docs/brain-research/01-problems.md (R4).
+Backend suite 2,520 passed, 8 skipped.

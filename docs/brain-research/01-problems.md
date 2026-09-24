@@ -93,7 +93,7 @@ regression. Every finding below has a test that fails on the code it reviewed.
 |---|---|---|---|
 | R2-1 | HIGH | The startup warm-up on an empty wing stored `dim=None`; every later write took the append path, which never set it, so `top_k` returned `[]` for the life of the process with no error (a fresh install never recalled anything) | the append adopts the dimension of the first rows it loads; unit and end-to-end tests |
 | R2-2 | MEDIUM | Accepting Stage 2's stop for the superseded reply cancelled the *new* turn (the "stop" utterance's own flow) and truncated nothing, because that turn had already reset the reply state | superseded reply snapshotted in `_begin_turn`; its playback progress keeps updating the snapshot; the stop truncates the snapshot and leaves the current turn running (ADR-003). The first version of this fix introduced R3-1..R3-3 |
-| R2-2b | MEDIUM (pre-existing, found while fixing R2-2) | Truncating a reply whose generation was cancelled overwrote the *previous* turn's stored reply (the cancelled one was never logged); a logged reply's UPDATE could also race its spawned INSERT | first fix (append) was wrong, see R3-2; final: the store rewrites only the row still holding the reply (`expected=`), after the insert lands |
+| R2-2b | MEDIUM (pre-existing, found while fixing R2-2) | Truncating a reply whose generation was cancelled overwrote the *previous* turn's stored reply (the cancelled one was never logged); a logged reply's UPDATE could also race its spawned INSERT | first fix (append) was wrong, see R3-2; final (R4-1): the reply's own row, addressed by a brain-generated id, rewritten after its insert lands |
 | R2-3 | LOW | A write landing between a rebuild's key read and its fetch was indexed twice after the next append | appends skip ids already present; test |
 | R2-4 | LOW | `last_search_error` for a dimension mismatch was cleared by a 15 s L1 cache hit; a partly re-embedded store lost old rows silently | degraded results are not cached; skipped rows traced and logged per rebuild; tests. Downstream consumption stays open (05, P7-FIX-06) |
 | R2-5 | LOW | Under `actr_v1` results had no `relevance`, so surfacing published the unbounded ACT-R score (R-7 back on rollback) | `relevance` on every result under both policies; test |
@@ -112,7 +112,25 @@ replaced rather than patched (ADR-003, "History rules").
 | R3-1 | HIGH | A "stop" during a proactive utterance cut the previous *user* reply's text at the proactive turn's offset and wrote it over the proactive turn's row; also a second outcome record for the old intent | `_reply_turn_id` records whose text `last_assistant_response` is; a stop for another turn cuts nothing |
 | R3-2 | MEDIUM | The heard part of a reply cancelled mid-generation was appended after the user's "stop" row | nothing is appended; such a reply has no row (accepted loss, ADR-003) |
 | R3-3 | HIGH | Every later confirmed stop (a facial startle fires one per startle, even idle) re-appended the full unheard partial and recorded it again | a reply is resolved once (`_reply_resolved`) |
-| R3-4 | LOW | `log_message` swallows insert failures, so "insert failed" was never detected and the cut overwrote the previous reply | the rewrite is content-addressed in the store (`expected=`), so a missing row means no write |
+| R3-4 | LOW | `log_message` swallows insert failures, so "insert failed" was never detected and the cut overwrote the previous reply | first fix (content-addressed, `expected=`) was wrong, see R4-1; final: rows addressed by a brain-generated id, so a missing row means no write |
 | R3-5 | LOW | After an empty warm-up the first append took the rows' majority dimension over the query's | the query's dimension wins; test |
 | R3-6 | LOW (tests) | Some "fails on the old code" tests failed only on a missing helper; the history double had no roles, so it could not see R3-1..R3-3 | barge-in tests moved to `tests/test_barge_in_real_flow.py`, real flow, role-aware history, real-store guard test |
+
+## Fourth adversarial review (of the R3 fixes)
+
+A fourth fresh reviewer confirmed R3-1..R3-3 and R3-5 resolved (fuzz: wrong
+rows 3 → 0, rows inserted after "stop" 46 → 0, repeated records 10 → 0) and
+returned **FAIL** on two MEDIUM findings.
+
+| # | Sev | Finding | Resolution |
+|---|---|---|---|
+| R4-1 | MEDIUM | The content-addressed rewrite cut an older reply with identical text when this reply had no row ("Sure thing." → "Sure") | rows addressed by a brain-generated message id; real-store test with identical rows |
+| R4-2 | MEDIUM | R3 deleted the tests for three ADR-003 invariants; three mutations survived the whole suite, and `turn_b.cancelled()` could never fail | invariant tests restored in the real-flow module; survival checked by a flag the turn sets after Stage 2; all three mutations now fail the module |
+| R4-3 | LOW (pre-existing sibling of R3-1) | A proactive turn's completed playback recorded the previous user reply COMPLETED again | COMPLETED only for the turn owning the text, once |
+| R4-4 | LOW (pre-existing) | Replacing a proactive turn recorded CANCELLED for a user reply that had finished | CANCELLED only while that reply is still generating (`_reply_generating`) |
+| R4-5 | LOW | The cut awaited the reply's insert under `_turn_state_lock` with no bound; the pool has no command timeout | bounded wait (2 s), reply left uncut after it; test |
+| R4-6 | LOW | The history double did not match the real store; SQLite logged every successful rewrite as "not rewritten"; SQLite timestamp ties | double mirrors the id contract; SQLite's unknown rowcount no longer logged as zero; ties irrelevant with id addressing |
+
+Remaining pre-existing barge-in gaps are listed in ADR-003 ("Known and not
+changed here").
 

@@ -7,11 +7,15 @@ outlives the turn: what conversation history says the agent said. History is
 what memory consolidation and the persona prompt read back, so a wrong row is
 a false memory, not a cosmetic bug.
 
-The history double behaves like `ConversationHistoryStore`: rows in insertion
-order, `log_message` swallows its own failures, and
-`update_last_assistant_message(..., expected=...)` rewrites the newest
-assistant row only if it still holds `expected`. The guard itself is tested
-against the real store at the bottom.
+The history double mirrors `ConversationHistoryStore`: rows in insertion
+order, `log_message(..., message_id=)` stores the row under the caller's id
+and swallows its own failures, and `update_last_assistant_message(...,
+message_id=)` rewrites exactly that row or nothing. The same contract is
+tested against the real store (SQLite) at the bottom.
+
+"Turn B survived" is checked with a flag the fake pipeline sets after
+Stage 2; `_on_chat_input` swallows its flow's CancelledError, so the outer
+task's `cancelled()` can never show it.
 """
 
 import asyncio
@@ -29,21 +33,26 @@ PIECES_A = ["I went to the market ", "and bought apples ", "and pears and more"]
 
 class History:
     def __init__(self):
-        self.rows: list[list[str]] = []  # [role, content]
+        self._rows: list[list] = []  # [id, role, content]
         self.fail_inserts = False
 
-    async def log_message(self, role, content):
+    @property
+    def rows(self):
+        return [[role, content] for _, role, content in self._rows]
+
+    async def log_message(self, role, content, message_id=None):
         await asyncio.sleep(0.001)
         if self.fail_inserts and role == "assistant":
             return  # the real store logs and swallows insert failures
-        self.rows.append([role, content])
+        self._rows.append([message_id, role, content])
 
-    async def update_last_assistant_message(self, content, expected=None):
+    async def update_last_assistant_message(self, content, message_id=None):
         await asyncio.sleep(0.001)
-        for row in reversed(self.rows):
-            if row[0] == "assistant":
-                if expected is None or row[1] == expected:
-                    row[1] = content
+        for row in reversed(self._rows):
+            if row[1] != "assistant":
+                continue
+            if message_id is None or row[0] == message_id:
+                row[2] = content
                 return
 
 
@@ -99,6 +108,8 @@ def _agent(history, scripts):
                     "turn_id": md.get("interrupted_turn_id") or md["turn_id"],
                 },
             )
+            await asyncio.sleep(0.02)  # the stop is delivered while B still runs
+            agent.finished_turns.append(md["turn_id"])
             return
         intent = build_action_intent(
             turn_id=md["turn_id"],
@@ -111,6 +122,7 @@ def _agent(history, scripts):
         for piece in script["pieces"]:
             yield {"type": "content", "data": piece}
             await asyncio.sleep(script.get("delay", 0))
+        agent.finished_turns.append(md["turn_id"])
         yield {"type": "done"}
 
     async def proactive(thought_prompt):
@@ -118,6 +130,7 @@ def _agent(history, scripts):
             yield {"type": "content", "data": piece}
         yield {"type": "done"}
 
+    agent.finished_turns = []
     core.process_event = process_event
     core.generate_proactive_response = proactive
     agent.cognitive_core = core
@@ -195,7 +208,7 @@ async def test_stop_while_a_finished_reply_plays_cuts_it_to_what_was_heard():
         ["User", "stop"],
     ]
     assert _outcomes(agent) == [("A", "TRUNCATED", REPLY_A[:22].strip())]
-    assert not turn_b.cancelled()
+    assert "B" in agent.finished_turns  # the "stop" turn itself was not cancelled
 
 
 @pytest.mark.asyncio
@@ -332,7 +345,7 @@ async def test_non_command_stop_for_the_superseded_reply_is_stale():
     await turn_b
     await _settle(agent)
     assert ["assistant", REPLY_A] in history.rows
-    assert not turn_b.cancelled()
+    assert "B" in agent.finished_turns  # the "stop" turn itself was not cancelled
 
 
 @pytest.mark.asyncio
@@ -341,10 +354,10 @@ async def test_rewrite_waits_for_the_replys_own_pending_insert():
     gate = asyncio.Event()
     real_log = history.log_message
 
-    async def slow_log(role, content):
+    async def slow_log(role, content, message_id=None):
         if role == "assistant":
             await gate.wait()
-        await real_log(role, content)
+        await real_log(role, content, message_id)
 
     history.log_message = slow_log
     agent = _agent(history, {"tell me": {"pieces": [REPLY_A]}})
@@ -361,8 +374,175 @@ async def test_rewrite_waits_for_the_replys_own_pending_insert():
 
 
 @pytest.mark.asyncio
-async def test_store_rewrites_only_the_row_that_still_holds_the_reply():
-    """The guard in the real `ConversationHistoryStore` (SQLite fallback)."""
+async def test_cut_never_touches_an_older_reply_with_the_same_text():
+    """R4-1: content-addressed rewrites cut the newest row *holding the same
+    text* -- an older identical reply when this one was never stored."""
+    history = History()
+    agent = _agent(
+        history,
+        {
+            "hi": {"pieces": ["Sure thing."]},
+            "again": {"pieces": ["Sure thing.", " And one more thing"], "delay": 0.1},
+        },
+    )
+    turn = await _say(agent, "hi", "Z")
+    await turn
+    await _settle(agent)
+    turn_a = await _say(agent, "again", "A")
+    await asyncio.sleep(0.05)  # "Sure thing." streamed, A not stored yet
+    await _progress(agent, "A", 5)
+    await _startle(agent, "A")
+    await asyncio.gather(turn_a, return_exceptions=True)
+    await _settle(agent)
+    assert history.rows == [
+        ["User", "hi"],
+        ["assistant", "Sure thing."],
+        ["User", "again"],
+    ]
+
+
+@pytest.mark.asyncio
+async def test_superseded_reply_progress_never_becomes_the_new_turns_progress():
+    history = History()
+    agent = _agent(
+        history, {"tell me": {"pieces": [REPLY_A]}, "hi": {"pieces": ["hey"]}}
+    )
+    await _finished_reply_a(agent)
+    turn_b = await _say(agent, "hi", "B")
+    while agent._active_response_turn_id != "B":
+        await asyncio.sleep(0)
+    await _progress(agent, "A", 30)
+    live = agent.last_audio_progress
+    assert live is None or live.character_offset != 30  # A's frame stayed out
+    assert agent._superseded_reply.progress.character_offset == 30
+    await turn_b
+    await _settle(agent)
+
+
+@pytest.mark.asyncio
+async def test_superseded_stop_is_honoured_once():
+    history = History()
+    agent = _agent(history, {"tell me": {"pieces": [REPLY_A]}, "stop": {"stop": True}})
+    await _finished_reply_a(agent)
+    turn_b = await _say(agent, "stop", "B")
+    await _progress(agent, "A", 22)
+    await turn_b
+    await _settle(agent)
+    await _progress(agent, "A", 30)
+    await agent._on_audio_stop(
+        {
+            "interrupt": True,
+            "speculative": False,
+            "reason": "confirmed_command",
+            "turn_id": "A",
+        }
+    )
+    await _settle(agent)
+    assert history.rows[1] == ["assistant", REPLY_A[:22].strip()]
+    assert [o[1] for o in _outcomes(agent)] == ["TRUNCATED"]
+
+
+@pytest.mark.asyncio
+async def test_a_genuinely_stale_command_stop_neither_cancels_nor_cuts():
+    history = History()
+    agent = _agent(
+        history,
+        {"tell me": {"pieces": [REPLY_A]}, "hi": {"pieces": ["hey"], "delay": 0.05}},
+    )
+    await _finished_reply_a(agent)
+    turn_b = await _say(agent, "hi", "B")
+    while agent._active_response_turn_id != "B":
+        await asyncio.sleep(0)
+    await agent._on_audio_stop(
+        {
+            "interrupt": True,
+            "speculative": False,
+            "reason": "confirmed_command",
+            "turn_id": "turn-from-yesterday",
+        }
+    )
+    await turn_b
+    await _settle(agent)
+    assert "B" in agent.finished_turns
+    assert ["assistant", REPLY_A] in history.rows
+
+
+@pytest.mark.asyncio
+async def test_a_finishing_proactive_turn_does_not_re_record_the_user_reply():
+    """R4-3 (pre-existing sibling of R3-1): a proactive turn's completed
+    playback re-recorded the previous user reply's intent as COMPLETED."""
+    history = History()
+    agent = _agent(
+        history, {"tell me": {"pieces": [REPLY_A]}, "think": {"pieces": ["hm"]}}
+    )
+    await _finished_reply_a(agent)
+    await _progress(agent, "A", len(REPLY_A), completed=True)
+    proactive = await _say(agent, "think", "S", subconscious=True)
+    await proactive
+    await _settle(agent)
+    await _progress(agent, "S", 2, completed=True)
+    assert [o[:2] for o in _outcomes(agent)] == [("A", "COMPLETED")]
+
+
+@pytest.mark.asyncio
+async def test_replacing_a_later_turn_does_not_cancel_a_finished_reply():
+    """R4-4 (pre-existing): replacing a proactive turn (or any turn started
+    after the user reply finished generating) recorded CANCELLED for that
+    finished reply's intent."""
+    history = History()
+    agent = _agent(
+        history,
+        {
+            "tell me": {"pieces": [REPLY_A]},
+            "think": {"pieces": ["one", " two", " three"], "delay": 0.1},
+            "hi": {"pieces": ["hey"]},
+        },
+    )
+    await _finished_reply_a(agent)
+    await _progress(agent, "A", len(REPLY_A), completed=True)
+    await _say(agent, "think", "S", subconscious=True)
+    await asyncio.sleep(0.05)
+    turn_c = await _say(agent, "hi", "C")
+    await turn_c
+    await _settle(agent)
+    assert ("A", "CANCELLED") not in [o[:2] for o in _outcomes(agent)]
+
+
+@pytest.mark.asyncio
+async def test_a_stuck_insert_bounds_the_wait_and_leaves_the_reply_uncut(monkeypatch):
+    """The cut waits for the reply's insert under `_turn_state_lock`; the
+    store's pool has no command timeout, so the wait must be bounded."""
+    from app.agents import brain_agent
+
+    monkeypatch.setattr(brain_agent, "REPLY_INSERT_WAIT_S", 0.05)
+    history = History()
+    never = asyncio.Event()
+    real_log = history.log_message
+
+    async def stuck_log(role, content, message_id=None):
+        if role == "assistant":
+            await never.wait()
+        await real_log(role, content, message_id)
+
+    history.log_message = stuck_log
+    agent = _agent(history, {"tell me": {"pieces": [REPLY_A]}})
+    turn = await _say(agent, "tell me", "A")
+    await turn
+    await _progress(agent, "A", 10)
+    await asyncio.wait_for(_startle(agent, "A"), timeout=1.0)
+    assert not agent._turn_state_lock.locked()
+    never.set()
+    await _settle(agent)
+    assert history.rows[-1] == ["assistant", REPLY_A]
+
+
+@pytest.mark.asyncio
+async def test_real_store_rewrites_exactly_the_addressed_row():
+    """The contract the double mirrors, on the real `ConversationHistoryStore`
+    (SQLite fallback): by id, identical text elsewhere untouched, a missing
+    id writes nothing."""
+    import uuid
+
     from app.state.conversation_store import ConversationHistoryStore
 
     store = ConversationHistoryStore()
@@ -376,14 +556,14 @@ async def test_store_rewrites_only_the_row_that_still_holds_the_reply():
                 rows = await conn.fetch("SELECT content FROM messages")
             return sorted(r["content"] for r in rows)
 
-        await store.log_message("assistant", "the previous reply")
-        # This reply was never stored: no row holds it, nothing is rewritten.
-        await store.update_last_assistant_message("cut", expected=REPLY_A)
-        assert await contents() == ["the previous reply"]
-
-        await store.log_message("assistant", REPLY_A)
+        older, mine = uuid.uuid4(), uuid.uuid4()
+        await store.log_message("assistant", "Sure thing.", message_id=older)
+        await store.log_message("assistant", "Sure thing.", message_id=mine)
         await store.log_message("assistant", "a newer reply")
-        await store.update_last_assistant_message("I went to", expected=REPLY_A)
-        assert await contents() == ["I went to", "a newer reply", "the previous reply"]
+        await store.update_last_assistant_message("Sure", message_id=mine)
+        assert await contents() == ["Sure", "Sure thing.", "a newer reply"]
+
+        await store.update_last_assistant_message("cut", message_id=uuid.uuid4())
+        assert await contents() == ["Sure", "Sure thing.", "a newer reply"]
     finally:
         await store.close()

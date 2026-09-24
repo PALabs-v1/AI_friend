@@ -12,7 +12,7 @@ behind it.
 | Memory ranking | raw ACT-R sum + substring ×5 | z(cos) + bounded whole-word BM25 + small ACT-R prior | ADR-001 | same |
 | Retrieval trace | log line | `MemoryStore.last_search_trace` (ids + per-term scores, no text) | — | — |
 | Reappraisal | `w1, w2` adapted and persisted every turn | prediction error still fires hormones; weights fixed at defaults | ADR-002 | `REAPPRAISAL_WEIGHT_LEARNING_ENABLED=true` |
-| Barge-in | stop addressed to the new utterance; truncation read the new turn's (reset) state and rewrote whichever assistant row was newest | stop addressed to the reply that is playing; that reply is cut from a snapshot, only its own history row is rewritten, once; the new turn is not cancelled | ADR-003 | — |
+| Barge-in | stop addressed to the new utterance; truncation read the new turn's (reset) state and rewrote whichever assistant row was newest | stop addressed to the reply that is playing; that reply is cut from a snapshot, only its own history row (by id) is rewritten, once; the new turn is not cancelled | ADR-003 | — |
 | Proactive prompt | raw memory text | injection-gated, delimited | S-1 | — |
 | Graph relations in retrieval | never loaded (neo4j `Record` ≠ `dict`) | loaded (V1 policy) | M-4 | — |
 | SQLite timestamps | default converter, whole-query failure on some offsets | ISO-8601 converter, per-field degradation | M-9 | — |
