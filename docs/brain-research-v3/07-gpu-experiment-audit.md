@@ -4,6 +4,18 @@ Independent audit of `backend/experiments/gpu/` before running it for real. Writ
 committed before reading Codex C2's independent cold audit (see `codex-log.md`), so the two
 are provably independent.
 
+**Codex C2 caught three real things this audit missed** (agreed with everything else,
+including the collision fix once applied): my arm count in item 5 was wrong (17, not the
+actual 27); `embed_st()` reconstructs the sentence-transformers model from scratch on every
+single (regime, seed) call — up to 60 reloads per model in the default sweep — which I never
+checked, only that `PrecomputedEmbedder` itself didn't re-embed per arm; and H-R3's decision
+rule needs a *paired* delta (prefixed − unprefixed on the same seed/probe), which running the
+script twice with different `--prefix` values cannot produce — each run only pairs its arms
+against `v1@sqlite` internally, never against the other run. All three are fixed below (items
+5, 6 updated; new fixes: model caching in `embed_st`, a `--compare-prefix` flag). Also caught:
+the ToM docstring's "already runs on every turn" overclaims past the deterministic/greeting
+short-circuit in `decision.py:402` — fixed in `tom_valence_affect.py`'s docstring.
+
 ## 1. Does the synthetic scenario generator generalize to real embeddings?
 
 Not fully answerable yet — `build_history` (evals/cognitive/scenarios.py) is a hand-authored
@@ -80,50 +92,72 @@ update.
 
 ## 5. Expected runtime / redundant embedding calls
 
-**No issue found, verified by reading `run_lab` (`evals/cognitive/lab.py:309-334`).**
-`build_embedder()` computes every document and query vector exactly once per (regime, seed) —
-before the arm loop — and stores them in the `PrecomputedEmbedder` dict. `run_lab` is then
-called once per arm (17 arms) but only ever does dict lookups via `embedder.embed(...)`, never
-a fresh model call. So the real cost is `3 regimes × 20 seeds = 60` embedding batch calls per
-model (each batching a few hundred texts), not `60 × 17`. This is already optimal; no caching
-fix needed. Rough wall-clock estimate from this: at Ollama's typical ~50-150ms/text on this
-GPU for a 274MB model like nomic-embed-text, 60 batches of ~300 texts ≈ 60 × ~20s ≈ 20 minutes
-per embedding model for the full tune-seed sweep; sentence-transformers models are faster
-per-text on GPU (batched matrix ops) once loaded. Confirmed against a live timed smoke run
-before committing to the full sweep — see `04-local-infrastructure.md`.
+**Partially right, and Codex C2 found the real issue.** `ARMS` is actually **27 arms** (7
+explicit + `HYBRID_WEIGHT_GRID`'s 4×5=20 combinations), not the 17 I first counted — corrected
+here. `build_embedder()` does compute every document/query vector exactly once per (regime,
+seed) — before the arm loop — and `run_lab` only does dict lookups via `embedder.embed(...)`
+after that, never a fresh model call per arm; that part of my original finding holds. But
+**`embed_st()` reconstructed the `SentenceTransformer` from scratch on every `build_embedder()`
+call** — up to `3 regimes × 20 seeds = 60` model loads per sentence-transformers model in the
+default sweep, something I didn't check because I was only looking at the embedder's per-arm
+behavior, not the model's per-scenario behavior. **Fixed**: `embed_st()` now caches the loaded
+model in a module-level dict keyed by model id, so it loads once per process and every
+subsequent call reuses it. `--backend ollama` was never affected (Ollama keeps the model
+resident server-side regardless of client behavior).
+
+Wall-clock estimate, now that the fix is in: at Ollama's typical ~50-150ms/text on this GPU for
+a 274MB model like nomic-embed-text, 60 batches of ~300 texts ≈ 60 × ~20s ≈ 20 minutes per
+embedding model for the full tune-seed sweep; sentence-transformers models are now loaded once
+and encode via batched GPU matrix ops, so they should be faster than that once warm. Confirmed
+against a live timed smoke run before committing to the full sweep — see
+`04-local-infrastructure.md`.
 
 ## 6. Output schema compatibility with `evals.cognitive.report`
 
-Cell keys here are `f"{args.backend}:{args.model}"` (e.g. `ollama:nomic-embed-text`) paired
-with a regime, e.g. `("ollama:nomic-embed-text", "verbatim")` — `mx.summarize` turns tuple keys
-into `/`-joined strings (confirmed by reading `mx.summarize`, which the tune/heldout output
-already exercises the same way with `nomic_like/verbatim`-style keys built from the same
-tuple-join). So `python -m evals.cognitive.report memory <out> <experiment>` works unmodified
-against this script's output — there is no `experiment` wrapper here (this script has one
-implicit experiment per invocation, not `mx.experiment_definitions()`'s named set), so the
-right call is `report.memory_worst_case(json.load(open(out)), None)`-style direct use of
-`memory_categories`/`memory_worst_case` against `report["results"]` rather than
-`report["experiments"][name]["results"]`. Minor, not a bug: the report renderer takes a
-`report["experiments"][experiment]` shape, and this script's top-level `report` dict has no
-`"experiments"` key — it *is* the single experiment. Fixed by wrapping the real-embedding
-report's `results` under a synthetic top-level key before rendering, in the results-writeup
-tooling, not by changing the experiment script's output shape (the shape matches
-`evals.cognitive memory`'s per-experiment inner structure exactly, which is what matters for
-reuse).
+Cell keys here are `f"{args.backend}:{args.model}"` paired with a regime (e.g.
+`ollama:nomic-embed-text/verbatim`) via the same tuple-join `mx.summarize` uses everywhere.
+I called this "not a bug, minor" because the inner shape matches one experiment's `results`
+field exactly. **Codex C2 was right to push back harder than that**: run
+`python -m evals.cognitive.report memory <out> <experiment>` against this script's raw output
+literally as the README told you to, and it throws `KeyError: 'experiments'` — the top-level
+`report` dict here has no `"experiments"` key at all, so the command in the original README
+would fail for anyone who actually tried it, not just look "minor." **Fixed**: the README now
+shows the correct one-line wrap (`{"experiments": {"x": report}}`) before calling the renderer,
+and states plainly that the output is the inner shape, not the full command's shape.
 
 ## 7. Are H-R1/H-R2/H-R3/ToM rules still well-specified?
 
 Checked `HYBRID_WEIGHT_GRID` (`evals/cognitive/memory_experiments.py:175-179`):
 `w_lex ∈ {0.0, 0.5, 1.0, 2.0}`, `w_act ∈ {0.0, 0.15, 0.3, 0.6, 1.0}`. H-R2 describes the
 plateau as "w_lex 1-2, w_act 0.15-0.3" — both bounds are grid points in the actual grid, no
-drift. No other staleness found: `ARMS` in `real_embedding_retrieval.py` references
-`mx._policy`, `mx.GENERATORS`, `mx.HYBRID_WEIGHT_GRID` directly (not copy-pasted values), so it
-cannot silently drift from the shipped grid. All four decision rules remain actionable as
-written.
+drift.
+
+**H-R3 was not actually computable as originally specified — Codex C2 caught this, I missed
+it.** The decision rule needs "prefixed − unprefixed hit@3, paired, CI excluding 0." The README
+suggested running the script twice with `--prefix none` and `--prefix nomic`, but each run's
+`paired_vs_baseline` is only ever computed against `v1@sqlite` *within that run* — nothing
+paired the two runs against each other, and the raw per-probe results needed for that pairing
+are never persisted to JSON (only aggregated means survive `mx.summarize`). **Fixed**: added
+`--compare-prefix`, which embeds every scenario both ways in one process (so the raw
+`ProbeResult` lists exist simultaneously) and reports `metrics.paired_delta` directly under
+`report["hr3_prefix_paired_delta"]`, keyed by regime → arm. Verified with a synthetic-backend
+smoke test (delta is exactly 0.0, as expected — the synthetic embedder ignores prefixes
+entirely, so this only proves the plumbing runs, not anything about H-R3 itself).
+
+H-R1 and the ToM rule remain actionable as written; Codex noted H-R1's "hybrid − V1" is
+underspecified about which V1 arm (`v1@sqlite` vs `v1@vec60`) — true, but the code has always
+used `v1@sqlite` consistently as the baseline for every paired delta (`mx.summarize(grouped,
+"v1@sqlite")`), so this is a documentation clarity nit, not an ambiguity that affects the
+actual numbers produced.
 
 ## Overall verdict
 
-The package is sound and ready to run for real. One latent fragility fixed (item 2, now
-gated by a test). One caveat documented for W2's future implementation scope, not the
-experiment itself (item 3). One real environment gap closed before running (item 4: GPU-box
-extras were never installed). Nothing else needed fixing.
+Three real fixes landed as a direct result of Codex C2's independent audit catching what mine
+missed: `embed_st()` no longer reloads the model 60 times per sweep, H-R3 now has a script path
+that actually produces the paired comparison its decision rule requires, and the README no
+longer tells the reader to run a report command that throws `KeyError`. Plus the collision
+guard from my own pass (item 2) and the ToM stage-ordering caveat (item 3, confirmed
+independently by both audits). The package is now sound and ready to run for real, and the
+comparison itself is a data point for this cycle's methodology: a lone audit — mine, in this
+case — found the correctness-critical issue (item 2) but missed two feasibility-critical ones
+(items 5 and 7) that only a genuinely independent second pass caught.
