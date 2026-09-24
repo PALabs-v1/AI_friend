@@ -17,5 +17,9 @@
 | [DR-013](DR-013-hostility-trust-asymmetry.md) | 4 | Hostility → trust | Sharp drop, slow recovery — wires PersonModel's existing rupture/repair rule. Fixes register A-3. |
 | [DR-014](DR-014-reliability-vs-warmth.md) | 4 | Reliability vs warmth | Separate mechanisms — competence from outcome evidence, benevolence from emotional tenor. |
 | [DR-015](DR-015-trust-feeds-relationship-sentiment.md) | 4 | Trust vs relationship sentiment | Trust feeds relationship sentiment as a slow rolling summary; distinct but connected, not independent tracks. |
+| [DR-016](DR-016-importance-weighted-initiation.md) | 5 | Initiation trigger | Importance-weighted, not a flat timer — idle-time/cooldown as a floor, importance decides urgency. |
+| [DR-017](DR-017-diminishing-returns-resurfacing.md) | 5 | Resurfacing model | Diminishing returns — re-raise probability drops each time a thought is ignored, eventually to zero. Wires dead GoalRecord/review_due_goals. |
+| [DR-018](DR-018-context-aware-initiation.md) | 5 | Context awareness | Yes — time-of-day/activity patterns gate initiation, heuristic-first for now. |
+| [DR-019](DR-019-self-initiated-thought.md) | 5 | Self-initiated thought | Yes, its own category alongside useful-to-user, per DR-002. Stricter gating than useful-to-user. |
 
-Round 4 (trust/relationship) complete. Next: Round 5 (autonomy and proactive behavior).
+Round 5 (autonomy/proactive) complete. Next: Round 6 (learning and personality evolution).
