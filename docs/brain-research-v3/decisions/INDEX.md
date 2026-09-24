@@ -13,5 +13,9 @@
 | [DR-009](DR-009-single-extreme-event.md) | 3 | Single-event impact | Pattern required by default, but one exceptionally intense event can still leave a lasting mark. |
 | [DR-010](DR-010-affect-layers.md) | 3 | Affect layers | Three distinct layers: momentary emotion (fast), mood (medium), relationship sentiment (slow, near trust/attachment). |
 | [DR-011](DR-011-baseline-drift-rate.md) | 3 | Baseline drift | Slow personality set-point — weeks-long patterns only, never a single conversation. Slowest layer of all. |
+| [DR-012](DR-012-trust-dimensions.md) | 4 | Trust dimensions | Keep benevolence/competence/integrity genuinely separate; stop averaging into one value. |
+| [DR-013](DR-013-hostility-trust-asymmetry.md) | 4 | Hostility → trust | Sharp drop, slow recovery — wires PersonModel's existing rupture/repair rule. Fixes register A-3. |
+| [DR-014](DR-014-reliability-vs-warmth.md) | 4 | Reliability vs warmth | Separate mechanisms — competence from outcome evidence, benevolence from emotional tenor. |
+| [DR-015](DR-015-trust-feeds-relationship-sentiment.md) | 4 | Trust vs relationship sentiment | Trust feeds relationship sentiment as a slow rolling summary; distinct but connected, not independent tracks. |
 
-Round 3 (affect) complete. Next: Round 4 (trust and relationship).
+Round 4 (trust/relationship) complete. Next: Round 5 (autonomy and proactive behavior).
