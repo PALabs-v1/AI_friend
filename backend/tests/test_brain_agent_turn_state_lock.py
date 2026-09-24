@@ -13,6 +13,7 @@ the code's actual suspension point.
 """
 
 import asyncio
+import uuid
 
 import pytest
 
@@ -29,7 +30,8 @@ async def test_turn_state_lock_blocks_a_concurrent_reset_during_truncation(
     await store.start_session()
 
     original_text = "I was planning to buy a coffee, but I forgot my wallet."
-    await store.log_message("assistant", original_text)
+    row_id = uuid.uuid4()
+    await store.log_message("assistant", original_text, message_id=row_id)
 
     agent = BrainAgent(
         ollama_url="http://dummy",
@@ -38,6 +40,10 @@ async def test_turn_state_lock_blocks_a_concurrent_reset_during_truncation(
         conversation_store=store,
     )
     agent.last_assistant_response = original_text
+    # As `_process_chat_input_flow` leaves a stored reply: owned by the
+    # active turn and addressed by its row id.
+    agent._reply_turn_id = agent._active_response_turn_id = "t1"
+    agent._reply_message_id = row_id
     agent.last_audio_progress = None  # forces the "no progress" branch below
 
     db_write_started = asyncio.Event()

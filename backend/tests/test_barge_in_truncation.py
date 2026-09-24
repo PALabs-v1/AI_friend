@@ -37,6 +37,11 @@ def _agent(progress=None, response=REPLY):
     # for the same reason the two locks above are, since object.__new__
     # skips BrainAgent.__init__ entirely.
     agent._turn_state_lock = asyncio.Lock()
+    # The reply is turn "t1"'s and stored under a known row id, as
+    # `_process_chat_input_flow` leaves it; the cut rewrites that row only.
+    agent._reply_turn_id = "t1"
+    agent._active_response_turn_id = "t1"
+    agent._reply_message_id = "row-1"
     return agent
 
 
@@ -155,7 +160,9 @@ def test_real_playback_progress_still_truncates_where_it_says():
     asyncio.run(agent._on_audio_stop(_stop()))
 
     agent.conversation_store.update_last_assistant_message.assert_awaited_once()
-    stored = agent.conversation_store.update_last_assistant_message.await_args.args[0]
+    call = agent.conversation_store.update_last_assistant_message.await_args
+    assert call.kwargs == {"message_id": "row-1"}  # this reply's row, no other
+    stored = call.args[0]
     assert stored == REPLY[:26].strip()
 
 

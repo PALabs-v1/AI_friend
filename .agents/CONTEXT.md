@@ -17076,3 +17076,16 @@ CANCELLED only while that reply is still generating (`_reply_generating`).
 Invariant tests restored in `tests/test_barge_in_real_flow.py`; the three
 mutations each fail it. Register: docs/brain-research/01-problems.md (R4).
 Backend suite 2,520 passed, 8 skipped.
+
+### 2026-09-24 -- Brain V2 fifth adversarial review fix round
+
+The fifth reviewer found the R4 behaviour correct but two regression tests
+unable to fail (fake proactive turn ignored its delay; real-store test compared
+sorted contents), so gate mutations survived. Tests now discriminate: the
+history double implements every store contract the brain has used, the store
+test checks rows by id, and a 15-mutation check kills 14 (the survivor is
+equivalent; ADR-003 "Tests"). Code: reply text, generation end, row id and
+insert task set in one critical section; `_reply_generating` cleared on every
+path that ends generation (CANCELLED once); the newest-row fallback removed,
+with the three older truncation tests now set up as the turn flow leaves a
+stored reply. Backend suite 2,523 passed, 8 skipped.

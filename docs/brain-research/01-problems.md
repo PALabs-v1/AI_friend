@@ -134,3 +134,18 @@ returned **FAIL** on two MEDIUM findings.
 Remaining pre-existing barge-in gaps are listed in ADR-003 ("Known and not
 changed here").
 
+## Fifth adversarial review (of the R4 fixes)
+
+A fifth fresh reviewer confirmed the R4 behaviour correct (history anomalies
+in a 400-seed fuzz: none; the identical-row cut correct on real SQLite and
+real PostgreSQL 16) and returned **FAIL** because two new regression tests
+could not fail, the defect class R4-2 was filed for.
+
+| # | Sev | Finding | Resolution |
+|---|---|---|---|
+| R5-1 | MEDIUM | The R4-4 test was vacuous (the fake proactive turn ignored its delay, so nothing was replaced); the R4-1 real-store test compared sorted contents, so it passed whichever identical row was cut; the R4-1 flow test passed on b993dd8 only through a swallowed TypeError; mutations of the `_reply_generating` gate and a wrong-identical-row store survived the suite | fake honours delays and the test asserts the replacement happens; real-store test compares row by row by id; the double implements every past store contract; three new tests separate the paths; 14 of 15 mutations killed, the survivor shown equivalent (ADR-003) |
+| R5-2 | LOW | The row id was set in a second critical section after generation ended, so a stop in between cut nothing | text, generation end, id and insert task set in one critical section |
+| R5-3 | LOW | CANCELLED was not resolved-once: a stop's cancellation left `_reply_generating` set, so a later replacement recorded the cut reply CANCELLED again | every path that ends generation clears it; test |
+| R5-4 | LOW | TRUNCATED recorded for a reply history keeps uncut; only the insert wait is bounded | documented (records describe delivery; the UPDATE was unbounded before) |
+| R5-5 | LOW | The newest-row fallback existed only for test doubles, so the old truncation tests exercised a path production never takes | fallback removed; those tests set owner and row id |
+

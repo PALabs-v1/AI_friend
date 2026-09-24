@@ -46,14 +46,23 @@ class History:
             return  # the real store logs and swallows insert failures
         self._rows.append([message_id, role, content])
 
-    async def update_last_assistant_message(self, content, message_id=None):
+    async def update_last_assistant_message(
+        self, content, message_id=None, expected=None
+    ):
+        """Every contract the brain has used, so a test run against older
+        brain code sees what that code would really have written:
+        `message_id` (exact row), `expected` (newest row holding that text,
+        b993dd8) and neither (newest assistant row)."""
         await asyncio.sleep(0.001)
         for row in reversed(self._rows):
             if row[1] != "assistant":
                 continue
-            if message_id is None or row[0] == message_id:
-                row[2] = content
-                return
+            if message_id is not None and row[0] != message_id:
+                continue
+            if expected is not None and row[2] != expected:
+                continue
+            row[2] = content
+            return
 
 
 class _Runtime:
@@ -126,8 +135,10 @@ def _agent(history, scripts):
         yield {"type": "done"}
 
     async def proactive(thought_prompt):
-        for piece in scripts[thought_prompt]["pieces"]:
+        script = scripts[thought_prompt]
+        for piece in script["pieces"]:
             yield {"type": "content", "data": piece}
+            await asyncio.sleep(script.get("delay", 0))
         yield {"type": "done"}
 
     agent.finished_turns = []
@@ -440,6 +451,8 @@ async def test_superseded_stop_is_honoured_once():
     await _settle(agent)
     assert history.rows[1] == ["assistant", REPLY_A[:22].strip()]
     assert [o[1] for o in _outcomes(agent)] == ["TRUNCATED"]
+    # The second stop was not accepted at all: one interruption felt, once.
+    agent.cognitive_core.state.release_adrenaline.assert_awaited_once()
 
 
 @pytest.mark.asyncio
@@ -502,6 +515,7 @@ async def test_replacing_a_later_turn_does_not_cancel_a_finished_reply():
     await _progress(agent, "A", len(REPLY_A), completed=True)
     await _say(agent, "think", "S", subconscious=True)
     await asyncio.sleep(0.05)
+    assert not agent._active_generation_task.done()  # C really replaces S
     turn_c = await _say(agent, "hi", "C")
     await turn_c
     await _settle(agent)
@@ -551,19 +565,87 @@ async def test_real_store_rewrites_exactly_the_addressed_row():
     try:
         await store.start_session()
 
-        async def contents():
+        async def by_id():
             async with store.pool.acquire() as conn:
-                rows = await conn.fetch("SELECT content FROM messages")
-            return sorted(r["content"] for r in rows)
+                rows = await conn.fetch("SELECT id, content FROM messages")
+            return {str(r["id"]): r["content"] for r in rows}
 
-        older, mine = uuid.uuid4(), uuid.uuid4()
+        older, mine, newer = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
         await store.log_message("assistant", "Sure thing.", message_id=older)
         await store.log_message("assistant", "Sure thing.", message_id=mine)
-        await store.log_message("assistant", "a newer reply")
+        await store.log_message("assistant", "a newer reply", message_id=newer)
         await store.update_last_assistant_message("Sure", message_id=mine)
-        assert await contents() == ["Sure", "Sure thing.", "a newer reply"]
+        expected = {
+            str(older): "Sure thing.",  # identical text, not addressed
+            str(mine): "Sure",
+            str(newer): "a newer reply",
+        }
+        assert await by_id() == expected
 
         await store.update_last_assistant_message("cut", message_id=uuid.uuid4())
-        assert await contents() == ["Sure", "Sure thing.", "a newer reply"]
+        assert await by_id() == expected
     finally:
         await store.close()
+
+
+@pytest.mark.asyncio
+async def test_a_repeated_completed_frame_records_completed_once():
+    history = History()
+    agent = _agent(history, {"tell me": {"pieces": [REPLY_A]}})
+    await _finished_reply_a(agent)
+    for _ in range(2):
+        await _progress(agent, "A", len(REPLY_A), completed=True)
+    assert _outcomes(agent) == [("A", "COMPLETED", REPLY_A)]
+
+
+@pytest.mark.asyncio
+async def test_replacing_a_proactive_turn_while_the_finished_reply_still_plays():
+    """R4-4 with the reply generated but not yet played out (no completed
+    frame, so it is unresolved): only "is it still generating" can tell
+    that replacing the proactive turn did not cancel it."""
+    history = History()
+    agent = _agent(
+        history,
+        {
+            "tell me": {"pieces": [REPLY_A]},
+            "think": {"pieces": ["one", " two", " three"], "delay": 0.1},
+            "hi": {"pieces": ["hey"]},
+        },
+    )
+    await _finished_reply_a(agent)  # generated and stored, still playing
+    await _say(agent, "think", "S", subconscious=True)
+    await asyncio.sleep(0.05)
+    assert not agent._active_generation_task.done()
+    turn_c = await _say(agent, "hi", "C")
+    await turn_c
+    await _settle(agent)
+    assert ("A", "CANCELLED") not in [o[:2] for o in _outcomes(agent)]
+
+
+@pytest.mark.asyncio
+async def test_a_reply_cut_mid_generation_is_not_cancelled_again_later():
+    """R5: a startle cancels and cuts A mid-generation; a proactive turn then
+    runs and is replaced by the next user turn. A's generation ended at the
+    cut, so the replacement must not record A CANCELLED on top."""
+    history = History()
+    agent = _agent(
+        history,
+        {
+            "tell me": {"pieces": PIECES_A, "delay": 0.1},
+            "think": {"pieces": ["one", " two", " three"], "delay": 0.1},
+            "hi": {"pieces": ["hey"]},
+        },
+    )
+    turn_a = await _say(agent, "tell me", "A")
+    await asyncio.sleep(0.15)
+    await _progress(agent, "A", 14)
+    await _startle(agent, "A")
+    await asyncio.gather(turn_a, return_exceptions=True)
+    await _settle(agent)
+    await _say(agent, "think", "S", subconscious=True)
+    await asyncio.sleep(0.05)
+    assert not agent._active_generation_task.done()
+    turn_c = await _say(agent, "hi", "C")
+    await turn_c
+    await _settle(agent)
+    assert [o[:2] for o in _outcomes(agent) if o[0] == "A"] == [("A", "TRUNCATED")]

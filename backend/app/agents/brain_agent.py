@@ -525,7 +525,13 @@ class BrainAgent(BaseAgent):
         async with self._turn_state_lock:
             produced_nothing = not self.last_assistant_response
             intent = getattr(self, "_active_action_intent", None)
-        if produced_nothing:
+            already_resolved = getattr(self, "_reply_resolved", False)
+            # Whatever was running has stopped; a later replacement must not
+            # record this reply CANCELLED again.
+            self._reply_generating = False
+            if produced_nothing:
+                self._reply_resolved = True
+        if produced_nothing and not already_resolved:
             await self._emit_outcome_record(intent, status="CANCELLED", error=reason)
 
     async def _store_heard_reply(
@@ -533,8 +539,6 @@ class BrainAgent(BaseAgent):
         heard: str,
         log_task: asyncio.Task | None,
         message_id: uuid.UUID | None,
-        *,
-        owner_known: bool,
     ) -> None:
         """Rewrite this reply's own history row to `heard`.
 
@@ -544,13 +548,9 @@ class BrainAgent(BaseAgent):
         rewrote an older reply with the same text. A reply with no id was
         never stored (cancelled mid-generation) and gets no write. Waits,
         bounded, for the reply's own spawned insert so the rewrite cannot
-        run ahead of it. `owner_known=False` is state seeded outside a turn
-        flow, which keeps the historical newest-row rewrite.
+        run ahead of it.
         """
         if not self.conversation_store:
-            return
-        if not owner_known:
-            await self.conversation_store.update_last_assistant_message(heard)
             return
         if message_id is None:
             logger.info("Interrupted reply was never stored; no history row to cut.")
@@ -595,7 +595,6 @@ class BrainAgent(BaseAgent):
                 log_task = getattr(self, "_reply_log_task", None)
                 message_id = getattr(self, "_reply_message_id", None)
                 owner = getattr(self, "_reply_turn_id", None)
-                owner_known = owner is not None
                 active = getattr(self, "_active_response_turn_id", None)
                 if getattr(self, "_reply_resolved", False) or (
                     owner is not None and active is not None and owner != active
@@ -608,7 +607,6 @@ class BrainAgent(BaseAgent):
             else:
                 text, progress, intent = reply.text, reply.progress, reply.intent
                 log_task, message_id = reply.log_task, reply.message_id
-                owner_known = True
             if progress and not progress.completed and text:
                 offset = progress.character_offset
                 if 0 < offset < len(text):
@@ -618,9 +616,7 @@ class BrainAgent(BaseAgent):
                     logger.info(
                         f"Truncating history (via progress): original_length={original_length}, truncated_length={truncated_length}, offset={offset}"
                     )
-                    await self._store_heard_reply(
-                        truncated_text, log_task, message_id, owner_known=owner_known
-                    )
+                    await self._store_heard_reply(truncated_text, log_task, message_id)
                     await self._emit_outcome_record(
                         intent,
                         status="TRUNCATED",
@@ -716,9 +712,8 @@ class BrainAgent(BaseAgent):
         # task replaced may be a proactive turn, or a later turn still in
         # its pacing sleep, after that reply had finished (and been
         # recorded COMPLETED or TRUNCATED on its own).
-        if (
-            cancelled_a_running_turn
-            and getattr(self, "_reply_generating", None) is False
+        if cancelled_a_running_turn and (
+            getattr(self, "_reply_generating", None) is False
         ):
             cancelled_a_running_turn = False
         if cancelled_a_running_turn:
@@ -1082,24 +1077,34 @@ class BrainAgent(BaseAgent):
             incoming_latency_metadata=latency_metadata,
         )
 
+        store_reply = bool(self.conversation_store and full_response)
+        message_id = uuid.uuid4() if store_reply else None
         if not is_subconscious:
+            # One critical section: a stop must never see this reply as
+            # finished but without the row id its insert is about to use
+            # (it would cut nothing while the full text lands in history).
+            # Spawning does not yield, so the insert task is recorded here too.
             async with self._turn_state_lock:
                 self.last_assistant_response = full_response
+                log_task = (
+                    self.spawn(
+                        self.conversation_store.log_message(
+                            "assistant", full_response, message_id=message_id
+                        )
+                    )
+                    if store_reply
+                    else None
+                )
                 if self._reply_turn_id == turn_id:
                     self._reply_generating = False
-
-        if self.conversation_store and full_response:
-            message_id = uuid.uuid4()
-            log_task = self.spawn(
+                    self._reply_log_task = log_task
+                    self._reply_message_id = message_id
+        elif store_reply:
+            self.spawn(
                 self.conversation_store.log_message(
                     "assistant", full_response, message_id=message_id
                 )
             )
-            if not is_subconscious:
-                async with self._turn_state_lock:
-                    if self._reply_turn_id == turn_id:
-                        self._reply_log_task = log_task
-                        self._reply_message_id = message_id
 
     async def _on_audio_playback_progress(self, data: dict[str, Any]):
         """Tracks the current word/character progress of the audio playback."""
