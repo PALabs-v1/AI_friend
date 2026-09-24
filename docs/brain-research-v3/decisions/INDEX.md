@@ -25,5 +25,8 @@
 | [DR-021](DR-021-evidence-driven-drift-rate.md) | 6 | Drift rate | Evidence-driven, no explicit cap — the 0.8 confidence bar is the only throttle. |
 | [DR-022](DR-022-opaque-evolution.md) | 6 | Evolution visibility | Opaque by design — no product-facing change log, matching how human personality change isn't self-reported. |
 | [DR-023](DR-023-confidence-threshold.md) | 6 | Confidence threshold | Keep 0.8 — now the sole gate on evolution rate. |
+| [DR-024](DR-024-latency-budgets.md) | 7 | Latency budgets | Confirmed: reflex <50ms, interactive 300-500ms to first audio byte, deliberative seconds-OK, background never delays foreground. Pending Phase 3 validation. |
+| [DR-025](DR-025-regulation-can-win.md) | 7 | Regulation vs speak | Yes — fixes register A-6's pinned urgency, gated on the same significant-event detector as DR-009. |
+| [DR-026](DR-026-significant-thought-can-interrupt.md) | 7 | Self-thought priority | Rare exception — a sufficiently significant self-initiated thought can interrupt. New case for W5's interleaving matrix. |
 
-Round 6 (learning/evolution) complete. Next: Round 7 (executive control/reflexes).
+Round 7 (executive control) complete. Next: Round 8 (voice and turn-taking).
