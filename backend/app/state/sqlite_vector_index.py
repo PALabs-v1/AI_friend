@@ -223,7 +223,7 @@ class SQLiteVectorIndex:
                 and key[0] - index.key[0] == key[1] - index.key[1] > 0
                 and await self._still_same_top(conn, index)
             )
-            if appended:
+            if appended and index is not None:
                 index = await self._append(conn, wing, index, key, dim)
             else:
                 index = await self._rebuild(conn, wing, key, dim)

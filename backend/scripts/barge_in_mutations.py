@@ -314,8 +314,8 @@ MUTATIONS = [
     Mutation(
         "N18_proactive_turn_takes_the_row_id",
         BRAIN,
-        "        elif store_reply:\n            self.spawn(",
-        "        elif store_reply:\n"
+        "        elif store is not None:\n            self.spawn(",
+        "        elif store is not None:\n"
         "            self._reply_message_id = message_id\n"
         "            self.spawn(",
         equivalent="once a proactive turn is active the owner check stops any "

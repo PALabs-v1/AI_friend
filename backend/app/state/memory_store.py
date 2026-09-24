@@ -3744,7 +3744,7 @@ class MemoryStore:
             for w in re.findall(r"\b\w{3,}\b", query_text.lower())
             if w not in stop_words
         ]
-        results = []
+        results: list[dict[str, Any]] = []
         for cand in ranked:
             if limit and len(results) >= limit:
                 break

@@ -1077,8 +1077,19 @@ class BrainAgent(BaseAgent):
             incoming_latency_metadata=latency_metadata,
         )
 
-        store_reply = bool(self.conversation_store and full_response)
-        message_id = uuid.uuid4() if store_reply else None
+        await self._finish_reply(turn_id, full_response, is_subconscious)
+
+    async def _finish_reply(
+        self, turn_id: str, full_response: str, is_subconscious: bool
+    ) -> None:
+        """Record the finished reply and store it in history (ADR-003).
+
+        For a user turn, the text, the end of generation, the history row id
+        and the insert task are set in one critical section; a proactive
+        turn's reply is only stored.
+        """
+        store = self.conversation_store if full_response else None
+        message_id = uuid.uuid4() if store is not None else None
         if not is_subconscious:
             # One critical section: a stop must never see this reply as
             # finished but without the row id its insert is about to use
@@ -1088,22 +1099,20 @@ class BrainAgent(BaseAgent):
                 self.last_assistant_response = full_response
                 log_task = (
                     self.spawn(
-                        self.conversation_store.log_message(
+                        store.log_message(
                             "assistant", full_response, message_id=message_id
                         )
                     )
-                    if store_reply
+                    if store is not None
                     else None
                 )
                 if self._reply_turn_id == turn_id:
                     self._reply_generating = False
                     self._reply_log_task = log_task
                     self._reply_message_id = message_id
-        elif store_reply:
+        elif store is not None:
             self.spawn(
-                self.conversation_store.log_message(
-                    "assistant", full_response, message_id=message_id
-                )
+                store.log_message("assistant", full_response, message_id=message_id)
             )
 
     async def _on_audio_playback_progress(self, data: dict[str, Any]):
