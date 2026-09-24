@@ -244,8 +244,28 @@ MUTATIONS = [
         BRAIN,
         "            if produced_nothing:\n                self._reply_resolved = True\n",
         "",
-        equivalent="its only caller, _on_audio_stop, runs _truncate_interrupted_reply "
-        "next, which resolves the active turn's own reply on the same path",
+    ),
+    Mutation(
+        "Z17_superseded_cut_does_not_wait_for_insert",
+        BRAIN,
+        "                log_task, message_id = reply.log_task, reply.message_id\n",
+        "                log_task, message_id = None, reply.message_id\n",
+    ),
+    Mutation(
+        "Z42_superseded_slot_takes_any_old_frame",
+        BRAIN,
+        "                    and progress.utterance_id == superseded.turn_id\n",
+        "                    and superseded.turn_id is not None\n",
+    ),
+    Mutation(
+        "Y20_record_offset_is_trimmed_length",
+        BRAIN,
+        '                        status="TRUNCATED",\n'
+        "                        actual_delivered_text=truncated_text,\n"
+        "                        character_offset=offset,\n",
+        '                        status="TRUNCATED",\n'
+        "                        actual_delivered_text=truncated_text,\n"
+        "                        character_offset=len(truncated_text),\n",
     ),
     Mutation(
         "N9_timed_out_wait_still_writes",
@@ -370,32 +390,6 @@ def classify(returncode: int | None, output: str) -> str:
     if re.search(r"\berrors?\b", summary) or returncode not in (0, 1):
         return "error"
     return "killed" if returncode == 1 else "passed"
-
-
-def _copy_backend(dest: Path) -> Path:
-    ignore = shutil.ignore_patterns("crates", "target", "__pycache__", ".venv", "*.db")
-    shutil.copytree(BACKEND, dest, ignore=ignore)
-    return dest
-
-
-def _run_tests(root: Path) -> subprocess.CompletedProcess:
-    return subprocess.run(
-        [
-            sys.executable,
-            "-m",
-            "pytest",
-            "-p",
-            "no:cacheprovider",
-            "-q",
-            "-x",
-            *TEST_MODULES,
-        ],
-        cwd=root,
-        env={**os.environ, "CI": "1"},
-        capture_output=True,
-        text=True,
-        check=False,
-    )
 
 
 def main(argv: list[str]) -> int:

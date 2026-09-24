@@ -17123,3 +17123,15 @@ gates (Y14 progress reset, Y19 final reply text). Tool now runs without `-x`,
 with a timeout, and `classify()` (gate-tested) makes errors and hangs ERROR.
 N9, Y14, Y19 pinned by real-flow tests. Tool: 35 mutations, 29 killed, 6
 equivalent. Backend suite 2,535 passed, 8 skipped.
+
+### 2026-09-24 -- Brain V2 ninth adversarial review; critic loop stopped
+
+Ninth reviewer: 5/10, FAIL. The R8 runner fix was dead code (a stale second
+`_run_tests` with `-x` shadowed it) -- deleted and pinned by a gate test that
+checks the function the module actually binds. Z17 (superseded cut waits for
+the reply's insert), Z42 (only the superseded turn's frames move its cut
+point), N2 (not equivalent) and Y20 (record offset) pinned by tests. Tool: 38
+mutations, 33 killed, 5 equivalent. Backend suite 2,540 passed, 8 skipped.
+Scores over the last four rounds 7, 6, 6, 5: stall rule applied, loop stopped
+without a PASS; continuing is the maintainer's call (01-problems, "Critic loop
+stopped").

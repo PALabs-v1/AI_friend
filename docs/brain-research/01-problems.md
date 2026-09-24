@@ -198,3 +198,30 @@ change 6/10 and returned **FAIL**.
 Tool result on the committed code: 35 mutations, 29 killed, 6 listed as
 equivalent with reasons, no errors, exit 0.
 
+## Ninth adversarial review (of the R8 fixes)
+
+A ninth fresh reviewer (app code unchanged since R7) scored the change 5/10
+and returned **FAIL**.
+
+| # | Sev | Finding | Resolution |
+|---|---|---|---|
+| R9-1 | MEDIUM | The R8 runner fix never ran: a stale second `_run_tests` (with `-x`, no timeout) shadowed it, so a hanging mutant hung the tool, and five doc/commit statements said otherwise | duplicate definitions deleted; a gate test pins the runner the module actually binds (no `-x`, timeout passed, a hang returns no verdict, no duplicate `def`); the reviewer's hang mutant now reports ERROR and the tool exits 1 |
+| R9-2 | MEDIUM | The superseded cut's wait for that reply's own insert (Z17) was unpinned: a slow insert let the UPDATE run first and history kept unheard words | real-flow test; mutation added and killed |
+| R9-3 | MEDIUM | Superseded progress routing matching the superseded turn id (Z42) was unpinned: a late frame from an older reply moved the cut point | real-flow test; mutation added and killed |
+| R9-4 | MEDIUM (diagnostic records) | The N2 equivalence claim was false when the active turn is not the reply's owner (duplicate CANCELLED) | removed from the equivalents; test; killed |
+| R9-5 | LOW | Offset assertions could not tell the playback offset from the trimmed text length (Y20); ADR redelivery bullet inaccurate | test at an offset where they differ; Y20 added and killed; bullet corrected |
+
+Tool on the committed code: 38 mutations, 33 killed, 5 listed as equivalent
+(the reviewer's 10-scenario battery on the history double and real SQLite
+did not refute any of the 5), no errors.
+
+### Critic loop stopped (stall rule)
+
+Reviewer scores for the last four rounds: 7, 6, 6, 5. Every round's named
+findings were fixed and verified by the next reviewer, but each fresh
+reviewer's new mutations found further unpinned lines, and the score did not
+improve over three consecutive rounds. Per the working agreement the loop
+stops here without a PASS; the decision whether to continue is the
+maintainer's. The history-path behaviour itself has shown no anomaly in any
+fuzz since R4 (400 seeds, two mixes, every round).
+

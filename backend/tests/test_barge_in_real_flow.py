@@ -114,6 +114,7 @@ def _agent(history, scripts):
         md = raw_event["metadata"]
         script = scripts[raw_event["content"]]
         if script.get("stop"):  # Stage 2 confirmed the stop: pipeline ends here
+            await asyncio.sleep(script.get("stage2_delay", 0))  # Stages 1-2 take time
             await publish(
                 "audio.stop",
                 {
@@ -135,6 +136,8 @@ def _agent(history, scripts):
         )
         yield {"type": "action_intent", "data": intent.model_dump()}
         await asyncio.sleep(script.get("think", 0))  # committed, nothing said yet
+        if script.get("raise"):
+            raise RuntimeError("pipeline failed after committing its intent")
         for piece in script["pieces"]:
             yield {"type": "content", "data": piece}
             await asyncio.sleep(script.get("delay", 0))
@@ -921,3 +924,102 @@ async def test_a_cut_that_gave_up_waiting_is_not_issued_late(monkeypatch):
     await asyncio.sleep(0.4)
     await _settle(agent)
     assert history.rows[-1] == ["assistant", REPLY_A]
+
+
+@pytest.mark.asyncio
+async def test_the_superseded_cut_waits_for_that_replys_own_insert():
+    """R9 (Z17): A finished generating but its history insert is slow; the
+    user's "stop" (Stage 2, addressed to A) arrives first. The cut must wait
+    for A's insert, or the UPDATE runs before the row exists and history
+    keeps words the user never heard."""
+    history = History()
+    real_log = history.log_message
+
+    async def slow_assistant_insert(role, content, message_id=None):
+        await asyncio.sleep(0.15 if role == "assistant" else 0)
+        await real_log(role, content, message_id)
+
+    history.log_message = slow_assistant_insert
+    agent = _agent(history, {"tell me": {"pieces": [REPLY_A]}, "stop": {"stop": True}})
+    turn_a = await _say(agent, "tell me", "A")
+    await turn_a  # generated; its insert is still in flight
+    await _progress(agent, "A", 22)
+    turn_b = await _say(agent, "stop", "B")
+    await turn_b
+    await _settle(agent, 0.3)
+    assert ["assistant", REPLY_A[:22].strip()] in history.rows
+    assert ["assistant", REPLY_A] not in history.rows
+
+
+@pytest.mark.asyncio
+async def test_a_late_frame_from_an_older_reply_does_not_move_the_cut_point():
+    """R9 (Z42): A, then B (heard to offset 11), then the user says "stop"
+    (C); before C's Stage 2 confirms, a late frame from A's draining audio
+    arrives. Only frames of the superseded turn (B) may move its cut point."""
+    history = History()
+    second = "Second reply goes here now and then some more"
+    agent = _agent(
+        history,
+        {
+            "tell me": {"pieces": [REPLY_A]},
+            "again": {"pieces": [second]},
+            "stop": {"stop": True, "stage2_delay": 0.05},
+        },
+    )
+    await _finished_reply_a(agent)
+    turn_b = await _say(agent, "again", "B")
+    await turn_b
+    await _settle(agent)
+    await _progress(agent, "B", 11)
+    turn_c = await _say(agent, "stop", "C")
+    while agent._active_response_turn_id != "C":
+        await asyncio.sleep(0)
+    await _progress(agent, "A", 30)  # late frame of A, not of the superseded B
+    await turn_c
+    await _settle(agent)
+    assert ["assistant", second[:11].strip()] in history.rows
+    assert _outcomes(agent)[-1] == ("B", "TRUNCATED", second[:11].strip())
+
+
+@pytest.mark.asyncio
+async def test_a_failed_user_turn_is_recorded_cancelled_at_most_once():
+    """R9 (N2): user turn A's pipeline fails after committing its intent (the
+    fallback line is spoken; its reply text stays empty). Two proactive turns
+    are then each stopped. The first stop records A CANCELLED (the
+    misattribution is a Known item); the second must not record it again."""
+    history = History()
+    agent = _agent(
+        history,
+        {
+            "boom": {"pieces": [], "raise": True},
+            "p1": {"pieces": ["a b ", "c d"], "delay": 0.2},
+            "p2": {"pieces": ["e f ", "g h"], "delay": 0.2},
+        },
+    )
+    turn_a = await _say(agent, "boom", "A")
+    await asyncio.gather(turn_a, return_exceptions=True)
+    await _settle(agent)
+    for prompt in ("p1", "p2"):
+        proactive = await _say(agent, prompt, prompt.upper(), subconscious=True)
+        await asyncio.sleep(0.05)
+        await _startle(agent, prompt.upper())
+        await asyncio.gather(proactive, return_exceptions=True)
+        await _settle(agent)
+    assert [o[:2] for o in _outcomes(agent)].count(("A", "CANCELLED")) <= 1
+
+
+@pytest.mark.asyncio
+async def test_the_record_keeps_the_playback_offset_not_the_trimmed_length():
+    """R9 (Y20): cut at offset 10, where the heard text "I went to " trims to
+    9 characters. The record's offset is the playback position (10)."""
+    history = History()
+    agent = _agent(history, {"tell me": {"pieces": [REPLY_A]}})
+    turn = await _say(agent, "tell me", "A")
+    await turn
+    await _settle(agent)
+    await _progress(agent, "A", 10)
+    await _startle(agent, "A")
+    await _settle(agent)
+    assert REPLY_A[:10] == "I went to "
+    assert history.rows[-1] == ["assistant", "I went to"]
+    assert agent._outcome_history[-1].character_offset == 10

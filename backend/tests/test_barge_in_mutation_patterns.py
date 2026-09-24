@@ -40,3 +40,29 @@ def test_only_failing_tests_count_as_a_kill():
     assert classify(1, "1 failed, 26 passed, 1 error in 6.0s") == "error"
     assert classify(5, "no tests ran in 0.01s") == "error"
     assert classify(None, "") == "error"  # timed out
+
+
+def test_the_runner_actually_used_has_no_x_and_a_timeout(monkeypatch):
+    """R9: a stale second `_run_tests` (with `-x`, no timeout) shadowed the
+    fixed one, so the documented behaviour never ran. Pin the function the
+    module really binds, through the call it makes."""
+    import subprocess
+
+    tool = _load()
+    calls = []
+
+    def fake_run(args, **kwargs):
+        calls.append((args, kwargs))
+        raise subprocess.TimeoutExpired(args, kwargs.get("timeout"))
+
+    monkeypatch.setattr(tool.subprocess, "run", fake_run)
+    assert tool._run_tests(Path(".")) is None  # a hang is reported, not waited out
+    args, kwargs = calls[0]
+    assert "-x" not in args
+    assert kwargs["timeout"] == tool.RUN_TIMEOUT_S
+    assert tool.classify(None, "") == "error"
+    names = [n for n in vars(tool) if not n.startswith("__")]
+    assert len(names) == len(set(names))
+    source = SCRIPT.read_text()
+    for fn in ("_run_tests", "_copy_backend", "classify", "main", "check_patterns"):
+        assert source.count(f"\ndef {fn}(") == 1, fn  # no shadowed duplicate

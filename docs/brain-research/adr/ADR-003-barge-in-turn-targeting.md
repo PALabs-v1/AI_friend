@@ -117,8 +117,10 @@ Known and not changed here (pre-existing):
 * A user turn whose generator raised after committing its intent (the
   fallback line spoken, its text empty) can be recorded CANCELLED by a later
   stop of a proactive turn.
-* A chat.input redelivered with the same turn id finds itself as the
-  superseded turn; a stop in that case cuts nothing.
+* A chat.input redelivered with the same turn id becomes its own
+  superseded turn, with a snapshot taken at redelivery: a Stage 2 stop
+  addressed to it cuts the first delivery's row at that stale snapshot
+  offset, and a startle for it cuts nothing.
 * A startle while a new user turn is in its pacing sleep cancels that turn
   before its user row is logged.
 * A startle in that window also no longer cuts the reply still playing: the
@@ -153,13 +155,15 @@ flow leaves it (owner, row id), so they exercise the production path.
 
 **Mutation check, reproducible:** `python scripts/barge_in_mutations.py`
 (run it with the interpreter that has the backend's dev requirements)
-applies each of 35 mutations of these gates and the store SQL to a temporary
+applies each of 38 mutations of these gates and the store SQL to a temporary
 copy of `backend/` and runs the barge-in modules against each (no `-x`,
 10-minute timeout). The unmutated copy runs first and must pass, or the
 script exits 2 with no verdict. `classify()` counts a mutant as killed only
 when tests fail; a collection or import error, an erroring test, or a hang
-is an ERROR, never a kill (both are pinned by
-`tests/test_barge_in_mutation_patterns.py`, which also fails on every commit
-where a mutation pattern no longer matches the code). 29 are
-killed. The 6 survivors are listed in the script as equivalent, each
+is an ERROR, never a kill. `tests/test_barge_in_mutation_patterns.py` pins
+`classify()`, pins the runner the module actually binds (no `-x`, timeout
+passed, a hang returns no verdict; a stale duplicate definition once
+shadowed it), and fails on every commit where a mutation pattern no longer
+matches the code. 33 are
+killed. The 5 survivors are listed in the script as equivalent, each
 with its reason. The script exits non-zero on any other survivor or error.
