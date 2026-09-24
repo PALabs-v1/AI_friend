@@ -141,6 +141,11 @@ class BrainAgent(BaseAgent):
         self.last_audio_progress: AudioPlaybackProgress | None = None
         self.last_assistant_response: str | None = None
         self._active_response_turn_id: str | None = None
+        # The turn a new utterance superseded -- usually the reply still
+        # playing when the user barged in. Stage 2 addresses its confirmed
+        # stop / rejected-interruption resume to this id, so `_on_audio_stop`
+        # must accept it alongside the active turn.
+        self._superseded_turn_id: str | None = None
         # Phase 1 causal slice (§22, §38): the ActionIntent Stage 6 committed
         # for the turn currently generating/playing, and the last terminal
         # OutcomeRecord emitted for one. Both are read-mostly diagnostics
@@ -788,6 +793,8 @@ class BrainAgent(BaseAgent):
             return
 
         async with self._turn_state_lock:
+            interrupted_turn_id = self._active_response_turn_id
+            self._superseded_turn_id = interrupted_turn_id
             self._active_response_turn_id = turn_id
 
         # Pacing Conversational Turn: calculate silence duration and pause
@@ -829,6 +836,7 @@ class BrainAgent(BaseAgent):
                 "visual_evidence": self.last_visual_evidence,
                 "turn_id": turn_id,
                 "utterance_id": utterance_id,
+                "interrupted_turn_id": interrupted_turn_id,
             },
         }
 
@@ -998,10 +1006,11 @@ class BrainAgent(BaseAgent):
 
                 async with self._turn_state_lock:
                     active_turn_id = getattr(self, "_active_response_turn_id", None)
+                    superseded_turn_id = getattr(self, "_superseded_turn_id", None)
                 if (
                     stop_msg.turn_id
                     and active_turn_id
-                    and stop_msg.turn_id != active_turn_id
+                    and stop_msg.turn_id not in (active_turn_id, superseded_turn_id)
                 ):
                     logger.debug(
                         "Ignoring audio stop for stale turn %s; active turn is %s.",

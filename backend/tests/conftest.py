@@ -480,6 +480,20 @@ def mock_graph_db():
 
 
 @pytest.fixture
+def actr_v1_ranking(monkeypatch):
+    """Run a test against the V1 ACT-R ranker (`MEMORY_RANKING_POLICY="actr_v1"`).
+
+    Brain V2 made the hybrid ranker the default (ADR-001). Tests that specify
+    V1's own mechanics -- cue boost, PPR, MRL pool tiers, mood-congruent and
+    recency-over-relevance ordering -- still describe a selectable policy, so
+    they pin it rather than being deleted or rewritten to a new meaning.
+    """
+    from app.config import Config
+
+    monkeypatch.setattr(Config, "MEMORY_RANKING_POLICY", "actr_v1")
+
+
+@pytest.fixture
 def mock_memory_store():
     """Mock for PGVector MemoryStore"""
     store = MagicMock()

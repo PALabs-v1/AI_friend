@@ -300,6 +300,20 @@ class AppSettings(BaseSettings):
     ACTR_SPREAD_WEIGHT: float = 1.0
     ACTR_EMOTION_WEIGHT: float = 0.5
 
+    # Brain V2 retrieval (docs/brain-research/adr/ADR-001). "hybrid" selects a
+    # vector-similarity candidate pool and ranks it with z-scored relevance +
+    # whole-word BM25 + a small ACT-R history prior (app/state/memory_ranking.py).
+    # "actr_v1" is the previous ranker, kept for A/B comparison and rollback.
+    MEMORY_RANKING_POLICY: Literal["hybrid", "actr_v1"] = "hybrid"
+    # Candidates ranked per query, chosen by cosine similarity. 20 and 60 were
+    # within noise on the benchmark; 60 had the better worst case.
+    MEMORY_CANDIDATE_POOL: int = 60
+    # SQLite has no vector index, so the hybrid path computes similarity for
+    # up to this many most-recently-touched rows (in Rust) and keeps the top
+    # MEMORY_CANDIDATE_POOL. V1 scored only the 20 most recent rows, which is
+    # why a memory older than 20 newer ones could never be recalled.
+    MEMORY_SQLITE_SCAN_LIMIT: int = 5000
+
     MAUT_W_GOAL: float = 0.35
     MAUT_W_EMOTION: float = 0.25
     MAUT_W_IDENTITY: float = 0.20
@@ -309,6 +323,16 @@ class AppSettings(BaseSettings):
 
     REAPPRAISAL_ENABLED: bool = True
     REAPPRAISAL_LEARNING_RATE: float = 0.05
+    # Brain V2 (docs/brain-research/adr/ADR-002): adapting the appraisal->
+    # valence weights (w1, w2) from reappraisal outcomes is OFF by default.
+    # Measured with the real AgentState/AppraisalEngine/ReappraisalEngine
+    # (`python -m evals.cognitive affect`): it drives the per-turn valence
+    # loop gain above 1 (mood saturates at +1.0 and stays there), and any
+    # COMFORT turn drives w1 to its floor, persisted across restarts, so
+    # one sad conversation numbs the agent for good. The prediction error
+    # itself still fires the dopamine/cortisol bursts; only the weight
+    # update and hydration of previously learned weights are gated.
+    REAPPRAISAL_WEIGHT_LEARNING_ENABLED: bool = False
 
     RUNTIME_AUTO_BOOTSTRAP: bool = True
     RUNTIME_BOOTSTRAP_RETRIES: int = 12
@@ -447,6 +471,8 @@ class AppSettings(BaseSettings):
         "SYSTEM_TICK_INTERVAL",
         "TOKEN_RATE_LIMIT_MAX_REQUESTS",
         "TRANSPORT_AUDIO_QUEUE_SIZE",
+        "MEMORY_CANDIDATE_POOL",
+        "MEMORY_SQLITE_SCAN_LIMIT",
     )
 
     @model_validator(mode="after")

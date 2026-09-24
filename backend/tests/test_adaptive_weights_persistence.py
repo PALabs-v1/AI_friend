@@ -21,6 +21,15 @@ def store(tmp_path):
     return AdaptiveWeightsStore(db_path=str(tmp_path / "weights.db"))
 
 
+@pytest.fixture
+def weight_learning_on(monkeypatch):
+    """Reappraisal weight learning is opt-in (ADR-002); the persistence tests
+    below cover the opt-in path, so they switch it on explicitly."""
+    from app.config import Config
+
+    monkeypatch.setattr(Config, "REAPPRAISAL_WEIGHT_LEARNING_ENABLED", True)
+
+
 # --- AdaptiveWeightsStore itself -------------------------------------------
 
 
@@ -61,7 +70,7 @@ async def test_saving_again_updates_rather_than_duplicates(store):
 
 
 @pytest.mark.asyncio
-async def test_hydrate_restores_previously_learned_appraisal_weights(store):
+async def test_hydrate_restores_previously_learned_appraisal_weights(store, weight_learning_on):
     await store.save(
         "my friend", "reappraisal_weights", {"w1_g_to_v": 0.73, "w2_ri_to_v": 0.22}
     )
@@ -85,7 +94,7 @@ async def test_hydrate_with_nothing_saved_keeps_hardcoded_defaults(store):
 
 
 @pytest.mark.asyncio
-async def test_evaluate_outcome_persists_the_updated_weights(store):
+async def test_evaluate_outcome_persists_the_updated_weights(store, weight_learning_on):
     """If a real restart lost this write, a fresh engine's `hydrate()` would
     see nothing and reset to the hardcoded defaults -- reproducing #117."""
     engine = ReappraisalEngine(agent_name="my friend", store=store)
@@ -164,3 +173,29 @@ async def test_decide_persists_goal_utilities_after_maut_scoring(store):
     assert persisted is not None
     assert persisted["ENGAGE"] == pytest.approx(service.goal_utilities["ENGAGE"])
     assert persisted["ENGAGE"] != pytest.approx(1.0)
+
+
+# --- ADR-002: weight learning off by default ---------------------------------
+
+
+@pytest.mark.asyncio
+async def test_default_ignores_previously_learned_weights(store):
+    """Weights persisted under the old always-on rule can sit at a clamp
+    (runaway gain or numbed valence); with learning off, defaults apply."""
+    await store.save("my friend", "reappraisal_weights", {"w1_g_to_v": 0.9, "w2_ri_to_v": 0.9})
+    engine = ReappraisalEngine(agent_name="my friend", store=store)
+    await engine.hydrate()
+    assert engine.appraisal_weights["w1_g_to_v"] == 0.6
+    assert engine.appraisal_weights["w2_ri_to_v"] == 0.4
+
+
+@pytest.mark.asyncio
+async def test_default_still_reports_prediction_error_but_does_not_learn(store):
+    engine = ReappraisalEngine(agent_name="my friend", store=store)
+    engine.record_pre_response_state({"mood": 0.0})
+    engine.record_expected_outcome("COMFORT", 0.0)
+    rpe = await engine.evaluate_outcome(actual_text_valence=-0.8)
+    assert rpe is not None and rpe < 0  # worse than expected: cortisol still fires
+    assert engine.appraisal_weights["w1_g_to_v"] == 0.6
+    assert await store.load("my friend", "reappraisal_weights") is None
+

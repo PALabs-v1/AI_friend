@@ -4,8 +4,40 @@ import os
 import re
 import sqlite3
 import threading
+from datetime import date, datetime
 
 logger = logging.getLogger("sqlite_fallback")
+
+
+def _convert_timestamp(raw: bytes):
+    """TIMESTAMP column converter (registered below, used via PARSE_DECLTYPES).
+
+    The stdlib default converter cannot parse a UTC offset unless the value
+    happens to carry exactly six fractional digits (its truncation then cuts
+    the offset off by accident): "2026-01-01 00:00:00+00:00" raises
+    ValueError inside `fetchall()`. One such row -- any aware `current_time`
+    that lands on a whole second -- made every query touching the column
+    raise, so memory search on the SQLite fallback returned nothing for
+    every question. `fromisoformat` parses offsets, "Z" and any fractional
+    precision; an unparseable value is returned as text so it degrades one
+    field instead of the whole result set.
+    """
+    text = raw.decode("utf-8", "replace")
+    try:
+        return datetime.fromisoformat(text)
+    except ValueError:
+        logger.warning("Unparseable TIMESTAMP value left as text: %r", text[:40])
+        return text
+
+
+def _adapt_datetime(value: datetime) -> str:
+    # Same text the (deprecated in 3.12) default adapter wrote, made explicit.
+    return value.isoformat(" ")
+
+
+sqlite3.register_converter("timestamp", _convert_timestamp)
+sqlite3.register_adapter(datetime, _adapt_datetime)
+sqlite3.register_adapter(date, lambda value: value.isoformat())
 
 
 class SQLiteConnection:

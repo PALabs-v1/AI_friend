@@ -129,6 +129,7 @@ class _StopAfterGating(Exception):
         (True, False, False),  # and the inverse, so the override is real
     ],
 )
+@pytest.mark.usefixtures("actr_v1_ranking")
 @pytest.mark.asyncio
 async def test_the_pool_tier_can_be_asked_for_without_the_recall_refresh(
     refresh, explicit, expected

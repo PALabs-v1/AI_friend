@@ -63,6 +63,7 @@ def _make_row(
     }
 
 
+@pytest.mark.usefixtures("actr_v1_ranking")
 def test_calculate_utility_no_emotion(memory_store, mock_pool):
     """Basic ACT-R retrieval: single memory should pass threshold."""
     _pool, conn = mock_pool
@@ -76,6 +77,7 @@ def test_calculate_utility_no_emotion(memory_store, mock_pool):
         assert results[0]["score"] > 0.1
 
 
+@pytest.mark.usefixtures("actr_v1_ranking")
 def test_emotional_boost(memory_store, mock_pool):
     """Mood-congruent recall: emotionally aligned memory should rank higher."""
     _pool, conn = mock_pool
@@ -95,6 +97,7 @@ def test_emotional_boost(memory_store, mock_pool):
         assert results[0]["content"] == "Emotional Memory"
 
 
+@pytest.mark.usefixtures("actr_v1_ranking")
 def test_time_decay_ranking(memory_store, mock_pool):
     """ACT-R base-level activation: recent memories should outrank stale ones."""
     _pool, conn = mock_pool
@@ -112,6 +115,7 @@ def test_time_decay_ranking(memory_store, mock_pool):
         assert results[0]["content"] == "Recent memory"
 
 
+@pytest.mark.usefixtures("actr_v1_ranking")
 def test_recall_frequency_boost(memory_store, mock_pool):
     """ACT-R: frequently recalled memories should have higher activation."""
     _pool, conn = mock_pool
