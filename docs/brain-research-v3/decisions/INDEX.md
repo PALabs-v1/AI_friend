@@ -32,5 +32,8 @@
 | [DR-028](DR-028-ordinary-bargein-cuts-history.md) | 8 | Ordinary barge-in | Cuts history same as speculative — closes an ADR-003 "Known" gap directly. |
 | [DR-029](DR-029-self-correction-always-finishes.md) | 8 | Self-correction retry | Always finishes — defines V-2's flush semantics target behavior. |
 | [DR-030](DR-030-proactive-vs-user-priority.md) | 8 | Proactive vs user | Depends on significance — a highly important proactive turn gets a short grace window, not always-instant cede. New W5 interleaving case. |
+| [DR-031](DR-031-governor-scope-expanded.md) | 9 | Governor scope | Freeze the avoid-list/refusal fields too, alongside IMMUTABLE_CORE — mitigates DR-020's removal of human review. |
+| [DR-032](DR-032-affect-never-overrides-safety.md) | 9 | Affect vs safety | Absolute hard no — no affect state ever suppresses a boundary response. |
+| [DR-033](DR-033-no-reset-mechanism.md) | 9 | Reset capability | None, by design — one-directional evolution, "like a human." Raises the stakes on W11's governor testing. |
 
-Round 8 (voice/turn-taking) complete. Next: Round 9 (boundaries, privacy, security).
+Round 9 (boundaries/security) complete. Next: Round 10 (long-horizon edge cases) — final round.
