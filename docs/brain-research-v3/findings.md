@@ -28,7 +28,7 @@ Running record of pre-existing problems found during the Brain V3 cycle (Objecti
 - **Evidence**: the healthcheck command always exits 0 regardless of whether Qdrant is actually serving traffic — `--version` succeeding proves the binary runs, not that the service is ready. Found by Codex C1's independent infra audit (C0).
 - **Impact**: the "healthy" status Phase 0 reported for `brain_vectors` (`04-local-infrastructure.md`) is not proof of readiness, only proof the process started.
 - **Fix**: replace with a real readiness probe (Qdrant's `/readyz` or `/collections` endpoint).
-- **Status**: open. Not blocking Phase 0-1 since the container did in fact come up correctly (verified by direct client connection in Phase 4b, still pending), but the healthcheck itself should not be trusted going forward.
+- **Status**: open (healthcheck itself not yet fixed), but the container's actual readiness is now positively confirmed, not assumed: Phase 4b's `tools/memory_consistency.py` wrote and read back real vectors against it directly, and Phase 4a's GPU sweep did 8 real embedding models' worth of retrieval against it. The healthcheck's blindness to real failures is still a live gap for chaos testing (Phase 9) to hit deliberately.
 
 ## F-004: Postgres host port disagreement across `.env.example`, the setup wizard, and the prerequisite checker
 
@@ -37,3 +37,22 @@ Running record of pre-existing problems found during the Brain V3 cycle (Objecti
 - **Impact**: a fresh setup following `.env.example` or the wizard's output would generate a `DATABASE_URL` pointing at a port nothing listens on. This session's own tunnel setup used 5433 correctly only because I read `docker-compose.infra.yml` directly rather than `.env.example`.
 - **Fix**: define the host port once (5433, since that's what's actually bound) and make `.env.example`, the wizard, and the prereq checker agree.
 - **Status**: open. Found by Codex C1's infra audit (C0); not yet fixed.
+
+## F-005: production's fast model fails to produce parseable classification output most of the time (measured, not assumed)
+
+- **Severity**: high, pending confirmation of production impact
+- **Where**: `DecisionService._classify_intent_and_goal` (`backend/app/cognitive/decision.py:702`), the call that produces `intent`, `suggested_goal`, `implied_goals` AND `tom_inferences` from one JSON blob
+- **Evidence**: Phase 4a's ToM experiment (`09-gpu-experiment-results.md`) called this exact method directly against `llama3.2:3b` — production's configured `LLM_FAST_MODEL` — for 21 hand-labelled messages × 3 repeats (63 calls). **60/63 calls (95%) failed to produce a parseable JSON block** (`event.metadata.get("tom_inferences")` stayed `None`). The identical harness against `qwen2.5:3b` with the same 63 prompts had a 0% failure rate, ruling out a test-harness bug. Even the rare successful parses were often substantively wrong (e.g. "I got the job offer, I'm so happy!" parsed to `inferred_valence: 0.0`).
+- **What this does NOT establish**: whether production sees the same failure rate. This experiment calls the classifier in isolation (a single message, a fresh neutral agent state, no real conversation history/context) — production's real prompt includes fuller context that could behave differently. That's a real, untested hypothesis, not a confirmed mitigating factor.
+- **Impact if it generalizes**: since `intent`, `suggested_goal` and `implied_goals` come from the same parse as `tom_inferences`, a 95% failure rate on this call would mean production's own intent classification (not just the unused ToM fields) fails 95% of the time on `llama3.2:3b` — which would be a severe, currently-invisible production defect, not merely a ToM-adoption blocker. If it does NOT generalize, then something about this experiment's narrower prompt context specifically breaks `llama3.2:3b` in a way full production context does not, which would itself be worth understanding before ever running this model with less context in any other codepath.
+- **Fix**: not attempted this session (root-causing a specific model's structured-output reliability is outside Phase 4's scope). Recommended next step: capture raw LLM responses (not just the parsed result) for a handful of the failing calls, either by re-running this experiment with response logging added, or by adding temporary logging to `_classify_intent_and_goal` in a real running session, to see what `llama3.2:3b` is actually emitting before deciding whether this is a prompt problem, a parsing-regex problem, or a genuine model capability gap.
+- **Status**: open, unconfirmed for production. Flagged for priority follow-up given the severity if confirmed.
+
+## F-006: `qwen3:4b`'s thinking-mode output is completely unparseable by the current JSON extractor
+
+- **Severity**: low (qwen3:4b is not a configured production model; this is a forward-looking gap)
+- **Where**: `backend/app/cognitive/json_extract.py` (no handling for `<think>...</think>` reasoning blocks); surfaced via the same ToM experiment as F-005
+- **Evidence**: `qwen3:4b` failed to produce a parseable JSON block on **63/63 calls (100%)**, with a median latency of 20.2 seconds per call — 10-15x slower than the other two models tested, consistent with generating a long thinking trace before any answer. `grep -n think backend/app/cognitive/json_extract.py` returns nothing.
+- **Root cause (plausible, not confirmed with a captured raw transcript)**: Qwen3's default thinking mode prefixes its output with a `<think>...</think>` block; `extract_first_json_value` has no code path to skip past it, so it either finds no JSON or finds a malformed fragment inside the reasoning trace.
+- **Fix**: not attempted (qwen3:4b isn't used anywhere in production today; this only matters if it or a similar thinking-mode model is adopted later). If it is, either disable thinking mode in the Ollama request options or add think-block stripping to `json_extract.py` before the JSON search.
+- **Status**: open, low priority, informational for future model choices.
