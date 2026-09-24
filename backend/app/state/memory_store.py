@@ -21,7 +21,7 @@ import sqlite3
 import time
 import uuid
 from collections import Counter, OrderedDict
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -30,6 +30,7 @@ import orjson
 
 from ..config import Config
 from ..utils.background_tasks import spawn_background
+from .memory_ranking import hybrid_rank
 
 logger = logging.getLogger(__name__)
 
@@ -60,6 +61,15 @@ def _quantize(value: float, step: float) -> float:
     """Round `value` to the nearest multiple of `step`. For cache keys where
     near-identical floats should collide, not for anything that gets scored."""
     return round(value / step) * step
+
+
+def _clip_relevance(similarity) -> float:
+    """Cosine similarity clipped to [0, 1]: the query-comparable relevance
+    published as `SurfacedMemory.score` (ADR-001)."""
+    try:
+        return max(0.0, min(1.0, float(similarity or 0.0)))
+    except (TypeError, ValueError):
+        return 0.0
 
 
 def pool_is_sqlite(pool) -> bool:
@@ -496,6 +506,12 @@ class MemoryStore:
         # is the only thing that clears a stale failure.
         self.last_search_error: str | None = None
         self.last_search_error_at: float | None = None
+        # Diagnostics of the most recent hybrid retrieval (ids and score
+        # terms only, never memory text); see `_search_memories_hybrid`.
+        self.last_search_trace: dict | None = None
+        from .sqlite_vector_index import SQLiteVectorIndex
+
+        self._sqlite_vector_index = SQLiteVectorIndex(Config.MEMORY_SQLITE_SCAN_LIMIT)
 
         from .lexicon_store import MentalLexicon
         from .semantic_recall_store import SemanticRecallStore
@@ -1235,10 +1251,14 @@ class MemoryStore:
             "speaker": speaker,
             "record_type": record_type,
             "valid_from": (
-                valid_from.isoformat() if isinstance(valid_from, datetime) else valid_from
+                valid_from.isoformat()
+                if isinstance(valid_from, datetime)
+                else valid_from
             ),
             "valid_until": (
-                valid_until.isoformat() if isinstance(valid_until, datetime) else valid_until
+                valid_until.isoformat()
+                if isinstance(valid_until, datetime)
+                else valid_until
             ),
             "contradicts_id": contradicts_id,
             "recall_count": 1,
@@ -1722,10 +1742,15 @@ class MemoryStore:
                 },
                 use_cache=True,
             )
+            # `Mapping`, not `dict`: `GraphDB.execute_query` returns raw
+            # neo4j `Record`s, which are `tuple` + `Mapping` subclasses and
+            # never `dict`. Filtering on `dict` discarded every real row, so
+            # this relation query never ran and PPR only ever saw
+            # co-occurrence edges (tests passed because they mock dicts).
             entity_names = [
                 row.get("name")
                 for row in entity_records
-                if isinstance(row, dict) and row.get("name")
+                if isinstance(row, Mapping) and row.get("name")
             ]
             if not entity_names:
                 return entity_records, []
@@ -1882,6 +1907,7 @@ class MemoryStore:
             "modality": meta.get("modality"),
             "similarity": similarity,
             "last_recalled_at": last_recall_dt,
+            "importance_score": importance_score,
         }
 
     async def _score_qdrant_candidates(
@@ -2105,6 +2131,7 @@ class MemoryStore:
                     "modality": row.get("modality"),
                     "similarity": similarity,
                     "last_recalled_at": last_recall,
+                    "importance_score": row.get("importance_score"),
                 }
             )
         return raw_candidates, now_ts
@@ -2148,9 +2175,10 @@ class MemoryStore:
         last_recall = self._as_aware_utc(last_recall) or now
         hours_since = max(0.001, (now - last_recall).total_seconds() / 3600.0)
 
-        created = row.get("created_at")
-        if created and created.tzinfo is None:
-            created = created.replace(tzinfo=UTC)
+        # _as_aware_utc, not a bare `.tzinfo` check: the SQLite converter
+        # returns text for an unparseable stored value, and a string here
+        # used to raise AttributeError and fail the whole search.
+        created = self._as_aware_utc(row.get("created_at"))
 
         memory_valence = row.get("valence") or 0.0
         emotion_weight_row = row.get("emotional_weight") or 0.0
@@ -2179,15 +2207,10 @@ class MemoryStore:
 
         spread_activation = self.spread_weight * effective_similarity
         score = (
-            base_activation
-            + spread_activation
-            - ACTR_EMO_DISTANCE_PENALTY * dist_emo
+            base_activation + spread_activation - ACTR_EMO_DISTANCE_PENALTY * dist_emo
         )
 
-        if (
-            score <= (threshold - 2.5)
-            and (row.get("importance_score") or 0.5) < 0.7
-        ):
+        if score <= (threshold - 2.5) and (row.get("importance_score") or 0.5) < 0.7:
             return None
 
         raw_meta = row.get("metadata")
@@ -2221,6 +2244,7 @@ class MemoryStore:
             "modality": row.get("modality"),
             "similarity": similarity,
             "last_recalled_at": last_recall,
+            "importance_score": row.get("importance_score"),
         }
 
     async def _fetch_postgres_candidates(
@@ -2700,6 +2724,15 @@ class MemoryStore:
                     "modality": cand.get("modality"),
                 }
             )
+            # `score` is not absolute relevance under either policy: hybrid
+            # scores are relative to the pool (the top result scores ~2-3
+            # even for an irrelevant query) and V1 scores are an unbounded
+            # activation sum. `relevance` is the clipped cosine, comparable
+            # across queries, and is what the surfacing agent publishes.
+            if "similarity" in cand:
+                results[-1]["relevance"] = _clip_relevance(cand["similarity"])
+            if "score_terms" in cand:  # hybrid: why this memory ranked here
+                results[-1]["score_terms"] = cand["score_terms"]
         return results
 
     # --- L3 sub-conscious archive search and promotion -------------------
@@ -3157,6 +3190,7 @@ class MemoryStore:
             "relations": row.get("relations"),
             "relation_circles": row.get("relation_circles"),
             "modality": row.get("modality"),
+            "relevance": _clip_relevance(similarity),
         }
 
     async def _promote_archived_rows(
@@ -3205,6 +3239,10 @@ class MemoryStore:
             )
             if promoted is not None:
                 promoted_results.append(promoted)
+                if row_index in missing_indices:
+                    # Re-embedded on promotion: if SQLite reused the rowid of
+                    # the same id, the index key cannot tell the row changed.
+                    self._sqlite_vector_index.invalidate(row.get("wing") or "personal")
         return promoted_results
 
     async def _recall_from_archive(
@@ -3375,8 +3413,11 @@ class MemoryStore:
             )
             task.add_done_callback(_done_callback)
 
-        # Cache results in L1 memory cache before returning
-        self._l1_cache_put(cache_key, (now_ts, results))
+        # Cache results in L1 memory cache before returning. Not a degraded
+        # answer: a cache hit clears `last_search_error`, so a repeat query
+        # would report an outage as "nothing relevant".
+        if not self.last_search_error:
+            self._l1_cache_put(cache_key, (now_ts, results))
         return results
 
     async def _fetch_raw_candidates(
@@ -3488,6 +3529,378 @@ class MemoryStore:
         await self.lexicon.refresh()
         self._last_stop_words_update = now_ts
 
+    # ------------------------------------------------------------------
+    # Brain V2 hybrid retrieval (ADR-001). Selected by
+    # Config.MEMORY_RANKING_POLICY == "hybrid"; the V1 pipeline below is
+    # untouched and remains selectable for comparison and rollback.
+    # ------------------------------------------------------------------
+
+    _PG_SIMILARITY_SQL = """
+        SELECT *, (1 - (embedding <=> $1::vector))::double precision AS similarity
+        FROM memories
+        WHERE wing = $2 AND ($3::text IS NULL OR room = $3)
+        ORDER BY embedding <=> $1::vector
+        LIMIT $4
+    """
+
+    async def _fetch_similarity_candidates(
+        self, query_vector, *, wing, room, excluded, pool_size, current_time, now_ts
+    ) -> tuple[list, str]:
+        """The `pool_size` memories most similar to the query, as candidate
+        dicts, plus which backend produced them.
+
+        V1 chose candidates by recency (SQLite) or by the full ACT-R score
+        (Postgres), where similarity is a minor term -- so the relevant
+        memory was usually never scored at all. Every backend here selects by
+        cosine similarity; the ranker decides everything else.
+        """
+        neutral = {
+            "current_valence": 0.0,
+            "current_arousal": 0.5,
+            "current_cortisol": 0.0,
+        }
+        if self.qdrant_store.client:
+            # Filter by scope inside Qdrant (V1 post-filtered, so other wings
+            # could exhaust the pool) and over-fetch for exclusions.
+            scope = {"wing": wing} if room is None else {"wing": wing, "room": room}
+            try:
+                hits = await asyncio.to_thread(
+                    self.qdrant_store.search_vector_memories,
+                    query_vector=query_vector,
+                    limit=pool_size + len(excluded),
+                    filter_dict=scope,
+                )
+            except Exception as qe:
+                logger.error(f"Qdrant retrieval failed: {qe}")
+                hits = []
+            if hits:
+                candidates = await self._score_qdrant_candidates(
+                    hits,
+                    wing=wing,
+                    room=room,
+                    excluded=excluded,
+                    threshold=float("-inf"),
+                    current_time=current_time,
+                    now_ts=now_ts,
+                    **neutral,
+                )
+                if candidates:
+                    return candidates[:pool_size], "qdrant"
+
+        async with self.pool.acquire() as conn:
+            now = (
+                self._as_aware_utc(current_time)
+                if current_time is not None
+                else datetime.now(UTC)
+            )
+            if self.is_sqlite:
+                # In-process vector index over the wing's most recent
+                # MEMORY_SQLITE_SCAN_LIMIT rows (sqlite_vector_index.py);
+                # full rows are then read only for the winners. Over-fetch by
+                # the exclusion count so excluded contents cannot shrink the pool.
+                hits = await self._sqlite_vector_index.top_k(
+                    conn, wing, query_vector, pool_size + len(excluded), room=room
+                )
+                if not hits:
+                    index = await self._sqlite_vector_index.ensure(conn, wing)
+                    if index.skipped_dimension and not index.ids:
+                        # Rows exist but none share the query's dimension
+                        # (an embedding-model change): an outage, not "nothing
+                        # relevant", so say so.
+                        self.last_search_error = (
+                            "no stored embedding matches the query dimension "
+                            f"({len(query_vector)})"
+                        )
+                        self.last_search_error_at = time.time()
+                    return [], "sqlite"
+                similarity_by_id = dict(hits)
+                where, args = self._in_predicate("id", list(similarity_by_id))
+                sql = f"SELECT * FROM memories WHERE {where}"  # nosec B608 - where is "id IN (?,...)" from _in_predicate; values bound via args
+                rows = await conn.fetch(sql, *args)
+                candidates = []
+                for row in rows:
+                    row = dict(row)
+                    if row.get("content") in excluded:
+                        continue
+                    row["similarity"] = similarity_by_id.get(str(row.get("id")), 0.0)
+                    candidates.append(
+                        self._build_candidate_from_row(
+                            row, now, threshold=float("-inf"), **neutral
+                        )
+                    )
+                candidates.sort(key=lambda c: c.get("similarity") or 0.0, reverse=True)
+                return candidates[:pool_size], "sqlite"
+
+            # Over-fetch by the exclusion count, as the SQLite branch does, so
+            # excluded contents cannot shrink the pool. pgvector's HNSW scan
+            # returns at most `hnsw.ef_search` rows (default 40) -- fewer after
+            # the wing/room filter -- so raise it to the pool. Session-level on
+            # purpose: a higher ef_search left on a pooled connection only
+            # makes later HNSW scans more thorough, and it needs no transaction.
+            fetch_n = pool_size + len(excluded)
+            await conn.execute(f"SET hnsw.ef_search = {max(40, int(fetch_n))}")
+            rows = await conn.fetch(
+                self._PG_SIMILARITY_SQL, str(query_vector), wing, room, fetch_n
+            )
+            candidates = []
+            for row in rows:
+                row = dict(row)
+                if row.get("content") in excluded:
+                    continue
+                cand = self._build_candidate_from_row(
+                    row,
+                    now,
+                    threshold=float("-inf"),
+                    **neutral,
+                )
+                if cand is not None:
+                    candidates.append(cand)
+            return candidates[:pool_size], "postgres"
+
+    async def warm_retrieval_index(self, wing: str = "personal") -> None:
+        """Build the SQLite vector index before the first user turn needs it.
+
+        The first hybrid search on a SQLite store parses every stored
+        embedding (~1 s at 5,000 memories); afterwards a search costs a few
+        milliseconds. Agents call this at startup, off the critical path.
+        No-op for Postgres/Qdrant and for the V1 policy. Never raises.
+        """
+        if Config.MEMORY_RANKING_POLICY != "hybrid" or not self.is_sqlite:
+            return
+        try:
+            started = time.perf_counter()
+            async with self.pool.acquire() as conn:
+                index = await self._sqlite_vector_index.ensure(conn, wing)
+            logger.info(
+                "Retrieval index warm: %d memories in %.0f ms",
+                len(index.ids),
+                (time.perf_counter() - started) * 1000.0,
+            )
+        except Exception as e:
+            logger.warning(f"Retrieval index warm-up failed (will build lazily): {e}")
+
+    async def _fetch_archive_candidates(
+        self,
+        query_text,
+        *,
+        stop_words,
+        user_id,
+        wing,
+        query_vector,
+        excluded,
+        active_contents,
+        max_candidates,
+    ) -> list:
+        """Archived (L3) memories that lexically or semantically match the
+        query, shaped as ordinary candidates so they compete on the same
+        scale. Only those that win a top-k slot get promoted (see
+        `_materialize_hybrid_results`) -- V1 wrote up to five promotions back
+        to the active tier even when `limit` then discarded them."""
+        query_words = re.findall(r"\b\w{3,}\b", query_text.lower())
+        matched_cues = [w for w in query_words if w not in stop_words]
+        if not matched_cues:
+            return []
+        expanded = self._expand_archive_cues(
+            query_words, stop_words, matched_cues, set(), user_id
+        )
+        rows = await self._fetch_archive_rows(list(expanded), wing, str(query_vector))
+        candidates = []
+        for row in rows or []:
+            content = row.get("content")
+            if not content or content in excluded or content in active_contents:
+                continue
+            similarity = row.get("similarity_arch")
+            if similarity is None:
+                similarity = self._archive_similarity_fallback(row, query_vector)
+            candidates.append(
+                {
+                    "id": row.get("id"),
+                    "content": content,
+                    "raw_content": row.get("raw_content") or content,
+                    "wing": row.get("wing", "personal"),
+                    "room": row.get("room"),
+                    "valence": row.get("valence") or 0.0,
+                    "created_at": self._as_aware_utc(row.get("created_at")),
+                    "recall_count": max(1, row.get("recall_count") or 1),
+                    "metadata": row.get("metadata") or {},
+                    "similarity": float(similarity or 0.0),
+                    "last_recalled_at": self._as_aware_utc(row.get("last_recalled_at")),
+                    "importance_score": row.get("importance_score"),
+                    "_archive_row": row,
+                }
+            )
+        candidates.sort(key=lambda c: c["similarity"], reverse=True)
+        return candidates[:max_candidates]
+
+    async def _materialize_hybrid_results(
+        self, ranked, *, limit, stop_words, query_text, current_time
+    ) -> list:
+        """Walk the ranking best-first, promoting archived winners; an archived
+        winner whose promotion fails is skipped and the next candidate takes
+        its slot, so a failed write never surfaces a memory that is not
+        actually active."""
+        matched_cues = [
+            w
+            for w in re.findall(r"\b\w{3,}\b", query_text.lower())
+            if w not in stop_words
+        ]
+        results: list[dict[str, Any]] = []
+        for cand in ranked:
+            if limit and len(results) >= limit:
+                break
+            row = cand.pop("_archive_row", None)
+            if row is None:
+                results.extend(self._format_results([cand], float("-inf")))
+                continue
+            promoted = await self._promote_archived_rows(
+                [(cand["score"], cand["score"], cand["similarity"], row)],
+                matched_cues,
+                threshold=float("-inf"),
+                current_valence=0.0,
+                current_arousal=0.5,
+                current_cortisol=0.0,
+                current_time=current_time,
+            )
+            for item in promoted:
+                item["score"] = cand["score"]
+                item["score_terms"] = cand.get("score_terms")
+                item["relevance"] = _clip_relevance(cand.get("similarity"))
+                results.append(item)
+        return results
+
+    async def _search_memories_hybrid(
+        self,
+        query_text,
+        *,
+        wing,
+        room,
+        threshold,
+        limit,
+        refresh_on_recall,
+        exclude_contents,
+        current_valence,
+        current_arousal,
+        current_cortisol,
+        user_id,
+        is_self_reflection,
+        current_time,
+    ):
+        started = time.perf_counter()
+        cache_key = self._build_search_cache_key(
+            query_text,
+            wing,
+            room,
+            threshold,
+            limit,
+            current_valence,
+            current_arousal,
+            current_cortisol,
+            exclude_contents,
+            user_id,
+            is_self_reflection,
+            current_time,
+        ) + ("hybrid",)
+        now_ts = current_time.timestamp() if current_time is not None else time.time()
+        cache_hit = await self._l1_cache_hit(
+            cache_key,
+            now_ts,
+            refresh_on_recall=refresh_on_recall,
+            current_valence=current_valence,
+            current_time=current_time,
+        )
+        if cache_hit is not None:
+            return cache_hit
+
+        try:
+            await self._refresh_stop_words_if_stale(now_ts)
+            query_vector = await self.get_embedding(query_text)
+            if not query_vector:
+                self.last_search_error = "embedding service returned no vector"
+                self.last_search_error_at = time.time()
+                return []
+
+            excluded = {content for content in (exclude_contents or []) if content}
+            pool_size = Config.MEMORY_CANDIDATE_POOL
+            candidates, source = await self._fetch_similarity_candidates(
+                query_vector,
+                wing=wing,
+                room=room,
+                excluded=excluded,
+                pool_size=pool_size,
+                current_time=current_time,
+                now_ts=now_ts,
+            )
+            stop_words = self._resolve_dynamic_stop_words(user_id)
+            archived = await self._fetch_archive_candidates(
+                query_text,
+                stop_words=stop_words,
+                user_id=user_id,
+                wing=wing,
+                query_vector=query_vector,
+                excluded=excluded,
+                active_contents={c["content"] for c in candidates},
+                max_candidates=max(1, pool_size // 4),
+            )
+            now = (
+                self._as_aware_utc(current_time)
+                if current_time is not None
+                else datetime.now(UTC)
+            )
+            ranked = hybrid_rank(
+                candidates + archived,
+                query_text,
+                stop_words,
+                now,
+                limit=None,
+                decay=self.decay_rate,
+            )
+            results = await self._materialize_hybrid_results(
+                ranked,
+                limit=limit,
+                stop_words=stop_words,
+                query_text=query_text,
+                current_time=current_time,
+            )
+            # Observability (no memory text): which backend answered, how big
+            # the pool was, and why each winner won.
+            self.last_search_trace = {
+                "policy": "hybrid",
+                "source": source,
+                "pool": len(candidates),
+                "archived_candidates": len(archived),
+                "skipped_dimension": (
+                    self._sqlite_vector_index.skipped_dimension(wing)
+                    if source == "sqlite"
+                    else 0
+                ),
+                "error": self.last_search_error,
+                "ms": round((time.perf_counter() - started) * 1000.0, 2),
+                "results": [
+                    {
+                        "id": r.get("id"),
+                        "score": round(r["score"], 4),
+                        "terms": r.get("score_terms"),
+                    }
+                    for r in results
+                ],
+            }
+            logger.debug("Memory retrieval trace: %s", self.last_search_trace)
+            return self._finalize_search_results(
+                results,
+                query_text=query_text,
+                limit=limit,
+                refresh_on_recall=refresh_on_recall,
+                current_valence=current_valence,
+                current_time=current_time,
+                cache_key=cache_key,
+                now_ts=now_ts,
+            )
+        except Exception as e:
+            logger.exception("Memory search failed")
+            self.last_search_error = str(e)
+            self.last_search_error_at = time.time()
+            return []
+
     async def search_memories(
         self,
         query_text,
@@ -3527,6 +3940,23 @@ class MemoryStore:
         """
         self.last_search_error = None
         self.last_search_error_at = None
+
+        if getattr(Config, "MEMORY_RANKING_POLICY", "hybrid") == "hybrid":
+            return await self._search_memories_hybrid(
+                query_text,
+                wing=wing,
+                room=room,
+                threshold=threshold,
+                limit=limit,
+                refresh_on_recall=refresh_on_recall,
+                exclude_contents=exclude_contents,
+                current_valence=current_valence,
+                current_arousal=current_arousal,
+                current_cortisol=current_cortisol,
+                user_id=user_id,
+                is_self_reflection=is_self_reflection,
+                current_time=current_time,
+            )
 
         # L1 Cache lookup to bypass DB and math activation loops for active topics.
         # P3-9: valence/arousal/cortisol and current_time are quantized (see
@@ -4187,7 +4617,8 @@ class MemoryStore:
                     last_recalled_at = excluded.last_recalled_at,
                     importance_score = excluded.importance_score
                 """  # nosec B608 - placeholders contains only generated '?' markers
-            legacy_archive_sql = """
+            legacy_archive_sql = (
+                """
                 INSERT INTO archived_memories (
                     id, content, raw_content, wing, room, importance_score, emotional_weight,
                     valence, certainty, source, recall_count, last_recalled_at, created_at,
@@ -4198,12 +4629,15 @@ class MemoryStore:
                     valence, certainty, source, recall_count, last_recalled_at, created_at,
                     metadata, lifespan_stage, crisis, virtue, relations, relation_circles, modality, embedding
                 FROM memories
-                WHERE id IN (""" + placeholders + """)
+                WHERE id IN ("""
+                + placeholders
+                + """)
                 ON CONFLICT(id) DO UPDATE SET
                     recall_count = excluded.recall_count,
                     last_recalled_at = excluded.last_recalled_at,
                     importance_score = excluded.importance_score
                 """
+            )
             try:
                 await conn.execute(archive_sql, *to_delete)
             except Exception as exc:

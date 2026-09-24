@@ -16969,3 +16969,169 @@ carry many stale branches predating this pass (`phase-01`..`phase-07` for
 claude/codex/integration, assorted old `fix/*`/`feat/*` branches) — flagged
 to the user, not deleted, since branch deletion wasn't asked for and isn't
 reversible.
+
+## 2026-09-24 -- Brain V2 research pass: benchmark, hybrid retrieval, affect gate, defect fixes
+
+Branch `claude/sleepy-darwin-jhu8ha` (cloud session). Full write-up:
+`docs/brain-research/` (README, 00-07, ADR-001..003).
+
+Measured Baseline V1 with a new model-free cognitive benchmark
+(`backend/evals/cognitive`, `python -m evals.cognitive {memory,affect,latency}`):
+seeded multi-week histories, three embedding profiles, tune seeds 1-20 and
+held-out seeds 101-130, lab re-implementation proven equal to production
+(V1 0/279, hybrid 1/558 mismatches, gate-tested).
+
+Behaviour changes:
+
+- Memory retrieval default is now `MEMORY_RANKING_POLICY=hybrid` (ADR-001):
+  similarity-selected pool of 60 on every backend (SQLite via the new
+  `app/state/sqlite_vector_index.py`), ranked by `app/state/memory_ranking.py`
+  (z(cos) + 1.5*pool-BM25 + 0.2*z(ACT-R base level + 1.5*importance)).
+  Production-like cell hit@3 0.02 -> 0.69 held-out; SQLite p50 57.8 -> 4.1 ms
+  at 5k memories. `actr_v1` kept; V1-specification tests pinned to it via the
+  `actr_v1_ranking` fixture.
+- `REAPPRAISAL_WEIGHT_LEARNING_ENABLED=false` (ADR-002): learning drove valence
+  to +1.0 for 143/200 turns and numbed w1 persistently. Prediction-error
+  hormone bursts unchanged.
+- Barge-in stop/resume addressed to the interrupted reply (ADR-003, V-1).
+- Fixed: neo4j Record vs dict filter (M-4), unreachable outage branch (M-7),
+  SQLite TIMESTAMP converter blanking retrieval (M-9), proactive prompt memory
+  injection (S-1), text timestamps / zero importance in candidate building.
+
+Verification: backend 2,489 passed / 8 skipped (NATS auth tests need a
+nats-server binary); new tests in test_brain_v2_regressions.py,
+test_memory_ranking.py, test_cognitive_bench.py fail on the pre-fix code
+where noted. ruff check clean. Env: Python 3.12 venv; the repo requires 3.12
+(PEP 695 in app/vision/adapters.py). Run pytest with CI=1 to see summaries.
+
+NOT done / open: stale facts after preference changes (M-5; E7 upper bound
+says write-time validity is worth obsolete-wins 0.67 -> 0.00), user valence
+never reaching appraisal (A-1; GPU package measures the LLM ToM estimator),
+trust rising under hostility (A-3), self-correction retry cancelled by its
+own stop (V-2). An adversarial review returned FAIL on the first cut
+(vector-index staleness on rowid reuse, blocking rebuilds, append race,
+relevance semantics of hybrid `score`, stale-stop acceptance); fixes follow
+in the next commits on this branch.
+
+### 2026-09-24 -- Brain V2 adversarial-review fix round
+
+An independent reviewer returned FAIL (13 findings) on the first cut. All
+addressed (table in docs/brain-research/01-problems.md, R-1..R-13): the SQLite
+vector index now detects rowid reuse (key includes the id at max rowid, plus a
+same-top check before appending), parses in a worker thread (event-loop stall
+1,235 -> 91 ms), serialises `ensure` per wing with bounded appends, evicts
+least-recently-touched rows first, rebuilds for a new embedding dimension and
+reports an unanswerable dimension via `last_search_error`, and filters rooms
+before ranking. Hybrid results carry `relevance` (clipped cosine); the
+surfacing agent publishes it, so the decision layer's 0.75 relevance
+threshold no longer sees pool-relative scores. Postgres raises
+`hnsw.ef_search` to the pool size. Only Stage 2's `confirmed_command` may
+target the superseded turn, once. Benchmark CIs are now a cluster bootstrap
+over scenario seeds; held-out tables regenerated (means unchanged; headline
+delta +0.671 [0.649, 0.693]). Latency re-measured on an idle machine: SQLite
+5k memories p50/p95 3.9/6.6 ms vs V1 56.9/68.3 ms. Backend suite 2,499 passed,
+8 skipped. (The first push attempt hit a GitHub App 403; it succeeded once access was restored.)
+
+### 2026-09-24 -- Brain V2 second adversarial review fix round
+
+A cold re-review of the R-1..R-13 fixes returned FAIL on one HIGH regression:
+`warm_retrieval_index` on an empty wing left the SQLite vector index with
+`dim=None`, and the append path never set it, so a fresh install recalled
+nothing until restart (R2-1; append now adopts the dimension). MEDIUM R2-2: an
+accepted superseded "stop" cancelled the stop utterance's own turn and
+truncated nothing; `BrainAgent._begin_turn` now snapshots the superseded reply
+(`_SupersededReply`) and the stop truncates that. Found while fixing it
+(pre-existing): truncating a reply cancelled mid-generation overwrote the
+previous turn's stored reply, since the cancelled one was never logged
+(`_store_heard_reply` appends or rewrites accordingly). LOWs R2-3..R2-7: append
+dedupe, degraded results kept out of the L1 cache plus `skipped_dimension` in
+the trace, `relevance` under both ranking policies, index invalidation on
+re-embedding promotion, doc corrections. Register: docs/brain-research/01-problems.md.
+Backend suite 2,512 passed, 8 skipped.
+
+
+### 2026-09-24 -- Brain V2 third adversarial review fix round
+
+A third cold reviewer drove the real `_on_chat_input` flow and failed the R2
+history fix: a stop during a proactive utterance cut the previous user reply's
+text over the proactive row (R3-1), cancelled replies were appended after the
+user's "stop" (R3-2), and repeated stops re-appended them (R3-3). Replaced, not
+patched: `ConversationHistoryStore.update_last_assistant_message(...,
+expected=)` rewrites only the row still holding the reply; nothing is appended;
+`BrainAgent._reply_turn_id` / `_reply_resolved` make a cut apply to the turn
+that owns the text, once. Tests: `tests/test_barge_in_real_flow.py` (real flow,
+role-aware history, real-store guard). Also R3-5: first append after an empty
+warm-up takes the query's dimension. Backend suite 2,513 passed, 8 skipped.
+
+### 2026-09-24 -- Brain V2 fourth adversarial review fix round
+
+Supersedes the R3 entry's `expected=` design. The fourth reviewer showed the
+content-addressed rewrite cut an older reply with identical text (R4-1) and
+that R3 had deleted the invariant tests (three mutations survived, R4-2). Now:
+the brain generates each reply's history row id (`log_message(...,
+message_id=)`) and a cut rewrites exactly that row
+(`update_last_assistant_message(heard, message_id=)`); the insert wait is
+bounded (`REPLY_INSERT_WAIT_S`); COMPLETED only for the turn owning the text,
+CANCELLED only while that reply is still generating (`_reply_generating`).
+Invariant tests restored in `tests/test_barge_in_real_flow.py`; the three
+mutations each fail it. Register: docs/brain-research/01-problems.md (R4).
+Backend suite 2,520 passed, 8 skipped.
+
+### 2026-09-24 -- Brain V2 fifth adversarial review fix round
+
+The fifth reviewer found the R4 behaviour correct but two regression tests
+unable to fail (fake proactive turn ignored its delay; real-store test compared
+sorted contents), so gate mutations survived. Tests now discriminate: the
+history double implements every store contract the brain has used, the store
+test checks rows by id, and a 15-mutation check kills 14 (the survivor is
+equivalent; ADR-003 "Tests"). Code: reply text, generation end, row id and
+insert task set in one critical section; `_reply_generating` cleared on every
+path that ends generation (CANCELLED once); the newest-row fallback removed,
+with the three older truncation tests now set up as the turn flow leaves a
+stored reply. Backend suite 2,523 passed, 8 skipped.
+
+### 2026-09-24 -- Brain V2 sixth adversarial review fix round
+
+Sixth reviewer: behaviour correct, 7/10, FAIL on three unpinned gates (N3
+CANCELLED once, N4 single critical section, N5 owner check). Tests ported for
+each; `scripts/barge_in_mutations.py` committed (27 mutations on a temp copy,
+25 killed, 2 equivalent with reasons; exits non-zero on any other survivor)
+with `tests/test_barge_in_mutation_patterns.py` as the gate that keeps its
+patterns matching. The store method is now
+`rewrite_assistant_message(content, *, message_id)`; the newest-row UPDATE is
+gone. A superseded reply that plays to the end is recorded COMPLETED.
+Backend suite 2,529 passed, 8 skipped.
+
+### 2026-09-24 -- Brain V2 seventh adversarial review fix round
+
+Seventh reviewer: 6/10, FAIL on unpinned gates in the R6 superseded-COMPLETED
+branch, two older unpinned gates (X12, X17) and a mutation tool that counted
+"no pytest" as kills. The branch is removed: no `completed=True` frame is
+produced live (voice agent publishes raw PCM; transport sets done only from
+dict payloads), so every COMPLETED path is test-only -- recorded in ADR-003
+"Known" as a contract gap. X12/X17 pinned by real-flow tests.
+`scripts/barge_in_mutations.py` now runs a baseline first (exit 2 if it
+fails) and counts only pytest exit 1 as a kill: 33 mutations, 26 killed, 7
+equivalent with reasons. Backend suite 2,531 passed, 8 skipped.
+
+### 2026-09-24 -- Brain V2 eighth adversarial review fix round
+
+Eighth reviewer: 6/10, FAIL on the mutation tool still counting import errors
+as kills (pytest `-x` turns a collection error into exit 1), a false
+equivalence (N9 on the write-serialising SQLite fallback) and two unpinned
+gates (Y14 progress reset, Y19 final reply text). Tool now runs without `-x`,
+with a timeout, and `classify()` (gate-tested) makes errors and hangs ERROR.
+N9, Y14, Y19 pinned by real-flow tests. Tool: 35 mutations, 29 killed, 6
+equivalent. Backend suite 2,535 passed, 8 skipped.
+
+### 2026-09-24 -- Brain V2 ninth adversarial review; critic loop stopped
+
+Ninth reviewer: 5/10, FAIL. The R8 runner fix was dead code (a stale second
+`_run_tests` with `-x` shadowed it) -- deleted and pinned by a gate test that
+checks the function the module actually binds. Z17 (superseded cut waits for
+the reply's insert), Z42 (only the superseded turn's frames move its cut
+point), N2 (not equivalent) and Y20 (record offset) pinned by tests. Tool: 38
+mutations, 33 killed, 5 equivalent. Backend suite 2,540 passed, 8 skipped.
+Scores over the last four rounds 7, 6, 6, 5: stall rule applied, loop stopped
+without a PASS; continuing is the maintainer's call (01-problems, "Critic loop
+stopped").

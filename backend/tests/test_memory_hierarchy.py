@@ -74,6 +74,7 @@ async def test_memory_contract_validation():
     assert msg.provenance == "pgvector_actr"
 
 
+@pytest.mark.usefixtures("actr_v1_ranking")
 @pytest.mark.asyncio
 async def test_scoped_search_query_generation(memory_store, mock_pool):
     """Verify that search_memories routes queries using the correct function and parameters."""

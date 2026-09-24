@@ -226,6 +226,17 @@ class CognitivePipeline:
                     if session_state is not None
                     else event_metadata.get("turn_id")
                 )
+                # The stop/resume must address the reply that is *playing*,
+                # not this new utterance: the voice agent and transport only
+                # honour a turn-scoped signal whose turn_id matches the turn
+                # they are currently speaking (`mesh_signal_applies_to_active_turn`).
+                # This utterance's own id never matches, so a confirmed "stop"
+                # used to leave the old reply playing ducked at 30% and a
+                # rejected interruption's resume never restored its volume.
+                # The brain records the turn it superseded as
+                # `interrupted_turn_id`; the utterance's own id stays the
+                # fallback for callers that do not supply it.
+                turn_id = event_metadata.get("interrupted_turn_id") or turn_id
 
                 if not confirmed:
                     logger.info(

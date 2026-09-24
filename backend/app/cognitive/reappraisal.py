@@ -40,6 +40,12 @@ class ReappraisalEngine:
         store: AdaptiveWeightsStore | None = None,
     ):
         self.enabled = getattr(Config, "REAPPRAISAL_ENABLED", True)
+        # Prediction errors are always computed (they drive the endocrine
+        # bursts); adapting w1/w2 from them is opt-in -- see
+        # Config.REAPPRAISAL_WEIGHT_LEARNING_ENABLED for the measured reason.
+        self.weight_learning = getattr(
+            Config, "REAPPRAISAL_WEIGHT_LEARNING_ENABLED", False
+        )
         self.learning_rate = getattr(Config, "REAPPRAISAL_LEARNING_RATE", 0.05)  # η
         self.w_min = 0.1
         self.w_max = 0.9
@@ -75,6 +81,14 @@ class ReappraisalEngine:
         or values from before a bounds change) must not inject an out-of-range
         or unrecognized weight into a live appraisal.
         """
+        if not self.weight_learning:
+            # Weights learned under the old always-on rule can sit at either
+            # clamp (runaway gain or numbed valence); with learning off the
+            # authored defaults apply instead of a frozen bad state.
+            logger.info(
+                "[Reappraisal] Weight learning disabled; using default appraisal weights."
+            )
+            return
         saved = await self._store.load(self.agent_name, _WEIGHT_KEY)
         if not saved:
             return
@@ -179,6 +193,10 @@ class ReappraisalEngine:
             # error means no phasic burst, which is the point of the model --
             # a reward that was fully expected does not fire one.
             return None
+
+        if not self.weight_learning:
+            self._reset_turn_state()
+            return -delta
 
         # Confidence weighting: reduce learning rate for noisy signals
         confidence = min(1.0, abs(actual_text_valence) + 0.3)

@@ -34,6 +34,7 @@ def _make_row(content, similarity=0.8):
     }
 
 
+@pytest.mark.usefixtures("actr_v1_ranking")
 def test_context_aware_pronoun_mapping_user_speaking(mock_pool):
     """
     Verify that when user_id = 'Raj' and is_self_reflection = False,
@@ -154,6 +155,7 @@ def test_context_aware_pronoun_mapping_self_reflection(mock_pool):
         assert len(results) > 0
 
 
+@pytest.mark.usefixtures("actr_v1_ranking")
 def test_entity_and_relation_fetches_are_query_scoped(mock_pool):
     """Graph retrieval expands only from entities relevant to the query."""
     pool, conn = mock_pool

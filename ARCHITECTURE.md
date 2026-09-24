@@ -101,6 +101,29 @@ Each mechanism has exactly one primary decision. `EXPERIMENT` means it is outsid
 | 71 | Engagement/session length as objective | **REJECT** | It creates manipulation and dependence incentives unrelated to user goals. |
 | 72 | External body/motor control | **DEFER** | Define the boundary now; integrate a specialist stack only when embodiment is in scope. |
 
+### Measured status of register rows (Brain V2, 2026-09-24)
+
+The register above is the target. Where Brain V2 measured a row, the evidence
+lives in `docs/brain-research/`:
+
+- **#12 Retrieval fusion** — V1 fusion retrieved the right memory in the top 3
+  for 2–4% of questions; replaced by a relevance-first hybrid (ADR-001,
+  worst case 0.69 on held-out scenarios).
+- **#14/#15 Forgetting / reinforcement** — in production, retrieval never
+  reinforces (both callers pass `refresh_on_recall=False`); ACT-R history terms
+  showed no measurable effect at V1's scale (E2).
+- **#16 Contradiction handling** — still unbuilt at write time; its upper-bound
+  value is measured (E7: obsolete answers 0.67 → 0.00). Top of the research queue.
+- **#19 Appraisal** — goal congruence is currently the agent's own mood, so the
+  user's words do not move valence (A-1); the fix is validated with oracle
+  input and gated on an estimator evaluation (ADR-002).
+- **#45 Learning** — appraisal-weight learning was unstable (runaway/numbing)
+  and is off by default (ADR-002).
+- **#54 Interruption** — confirmed barge-in stops now address the reply that is
+  playing (ADR-003).
+- **#70 Retrieved memory as instructions** — the proactive prompt path is now
+  gated too (S-1).
+
 ## 3. Core Brain Definition
 
 The core brain is the six-subsystem kernel in §1 plus its contracts and evaluation gates. These are **logical modules**, not required processes. Default deployment should favor a modular monolith for the stateful kernel: explicit public interfaces, immutable cross-module values, deterministic domain logic, and side effects at adapter boundaries. A queue or database must not become an implicit decision-maker.

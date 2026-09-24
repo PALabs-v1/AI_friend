@@ -261,6 +261,7 @@ async def test_sleep_dreaming_neo4j():
     assert "apoc.coll.randomitems" in dream_query.lower()
 
 
+@pytest.mark.usefixtures("actr_v1_ranking")
 @pytest.mark.asyncio
 async def test_mrl_dimension_gating():
     # Test that MRL dimension gating handles stress/arousal/fatigue scaling

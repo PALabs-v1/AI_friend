@@ -308,15 +308,18 @@ def memories_to_activations(
             continue
         content = memory.get("content")
         if not content:
-            continue
-            if _extract_outage_flag(memory):
-                content = str(
-                    memory.get("error")
-                    or _nested_metadata(memory).get("error")
-                    or "retrieval_outage"
-                )
-            else:
+            # A content-free dict is noise unless it is an outage marker: a
+            # degraded surfacing path reports the failure as a dict carrying
+            # `outage_flag`/`error` and nothing to say. Dropping it here would
+            # hide the outage from `retrieval_degraded` downstream -- the
+            # exact collapse `MemoryActivation.outage_flag` exists to prevent.
+            if not _extract_outage_flag(memory):
                 continue
+            content = str(
+                memory.get("error")
+                or _nested_metadata(memory).get("error")
+                or "retrieval_outage"
+            )
         relevance = memory.get("relevance", memory.get("score", 1.0))
         if isinstance(relevance, (int, float)) and not isinstance(relevance, bool):
             relevance_score = max(0.0, min(1.0, float(relevance)))

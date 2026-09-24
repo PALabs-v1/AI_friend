@@ -1,4 +1,5 @@
 import asyncio
+import uuid
 
 import pytest
 
@@ -19,7 +20,8 @@ async def test_dialogue_truncation_on_interruption(
 
     # Log an assistant message
     original_text = "I was planning to buy a coffee, but I forgot my wallet."
-    await store.log_message("assistant", original_text)
+    row_id = uuid.uuid4()
+    await store.log_message("assistant", original_text, message_id=row_id)
 
     # Verify the message is logged
     brief = await store.get_last_interaction_brief()
@@ -33,8 +35,11 @@ async def test_dialogue_truncation_on_interruption(
         conversation_store=store,
     )
 
-    # Set agent's state
+    # Set agent's state as the turn flow leaves a stored reply: owned by the
+    # playing turn and addressed by its history row id (ADR-003).
     agent.last_assistant_response = original_text
+    agent._reply_turn_id = agent._active_response_turn_id = "utt-1"
+    agent._reply_message_id = row_id
 
     # Simulate receiving audio.playback.progress
     # Slice at "I was planning to buy a coffee" (length 30)

@@ -19,6 +19,12 @@ evidence, and published research. Where any of these disagree with
   autonomous agents working in the repository.
 - [.agents/CONTEXT.md](.agents/CONTEXT.md): Chronological engineering ledger
   tracking architectural changes, empirical measurements, and deferred work.
+- [docs/brain-research/README.md](docs/brain-research/README.md): Brain V2
+  research trail — verified V1 architecture, problem register, benchmark-backed
+  memory-retrieval and affect experiments, decision records (ADR-001..003),
+  rejected approaches and the ordered research queue.
+- [backend/evals/cognitive/README.md](backend/evals/cognitive/README.md): The
+  model-free cognitive benchmark (`python -m evals.cognitive`) those results come from.
 
 ---
 

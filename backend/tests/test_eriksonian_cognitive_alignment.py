@@ -73,6 +73,7 @@ def test_eriksonian_db_schema_attributes(temp_store):
         assert mem["modality"] == "To complete, to make together"
 
 
+@pytest.mark.usefixtures("actr_v1_ranking")
 def test_cue_and_spreading_activation_boosts(temp_store):
     """Validate cue-boost and spreading-activation *behaviour*.
 

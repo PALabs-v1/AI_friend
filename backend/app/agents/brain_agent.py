@@ -4,6 +4,7 @@ import logging
 import re
 import time
 import uuid
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
@@ -48,6 +49,31 @@ logger = logging.getLogger(__name__)
 # a single, moderate, discrete-event burst rather than something tunable
 # per-turn.
 INTERRUPTION_ADRENALINE_SPIKE = 0.3
+
+
+@dataclass
+class _SupersededReply:
+    """The reply a new utterance took over from (ADR-003).
+
+    `_process_chat_input_flow` resets `last_assistant_response` and
+    `last_audio_progress` for the new turn long before Stage 2 publishes the
+    confirmed "stop" addressed to the reply that was playing. Without this
+    snapshot, accepting that stop truncated nothing. Playback progress for
+    the superseded turn keeps landing here (`_on_audio_playback_progress`),
+    so the cut point is what was heard when the stop arrived.
+    """
+
+    turn_id: str
+    text: str | None  # None unless this text is that turn's own, unresolved reply
+    progress: AudioPlaybackProgress | None
+    intent: Any
+    log_task: asyncio.Task | None
+    message_id: uuid.UUID | None
+
+
+# How long a cut waits for the reply's own history insert before giving up
+# (it runs under `_turn_state_lock`; the store's pool has no command timeout).
+REPLY_INSERT_WAIT_S = 2.0
 
 
 def _char_offset_after_word(text: str, word_count: int) -> int:
@@ -141,6 +167,28 @@ class BrainAgent(BaseAgent):
         self.last_audio_progress: AudioPlaybackProgress | None = None
         self.last_assistant_response: str | None = None
         self._active_response_turn_id: str | None = None
+        # The turn a new utterance superseded -- usually the reply still
+        # playing when the user barged in. Stage 2 addresses its confirmed
+        # stop / rejected-interruption resume to this id, so `_on_audio_stop`
+        # must accept it alongside the active turn.
+        self._superseded_turn_id: str | None = None
+        self._superseded_reply: _SupersededReply | None = None
+        # Which turn `last_assistant_response` belongs to, whether it has
+        # already been truncated, and the task writing it to history.
+        # `last_assistant_response` is only reset by user turns, so while a
+        # subconscious turn speaks it still holds the previous user turn's
+        # reply; truncating it against the subconscious turn's playback
+        # offset rewrote the wrong row. A truncated reply is resolved: a
+        # second stop (a facial startle fires one for the active turn even
+        # while idle) must not cut or record it again.
+        self._reply_turn_id: str | None = None
+        self._reply_resolved = False
+        self._reply_log_task: asyncio.Task | None = None
+        # The history row id the reply is stored under (generated here, so a
+        # cut can address that row and no other), and whether its generation
+        # is still running (None: unknown, e.g. state seeded outside a turn).
+        self._reply_message_id: uuid.UUID | None = None
+        self._reply_generating: bool | None = None
         # Phase 1 causal slice (§22, §38): the ActionIntent Stage 6 committed
         # for the turn currently generating/playing, and the last terminal
         # OutcomeRecord emitted for one. Both are read-mostly diagnostics
@@ -477,12 +525,54 @@ class BrainAgent(BaseAgent):
         async with self._turn_state_lock:
             produced_nothing = not self.last_assistant_response
             intent = getattr(self, "_active_action_intent", None)
-        if produced_nothing:
+            already_resolved = getattr(self, "_reply_resolved", False)
+            # Whatever was running has stopped; a later replacement must not
+            # record this reply CANCELLED again.
+            self._reply_generating = False
+            if produced_nothing:
+                self._reply_resolved = True
+        if produced_nothing and not already_resolved:
             await self._emit_outcome_record(intent, status="CANCELLED", error=reason)
 
-    async def _truncate_interrupted_reply(self):
+    async def _store_heard_reply(
+        self,
+        heard: str,
+        log_task: asyncio.Task | None,
+        message_id: uuid.UUID | None,
+    ) -> None:
+        """Rewrite this reply's own history row to `heard`.
+
+        The row is addressed by the id the brain generated when it stored
+        the reply. Addressing "the newest assistant row" rewrote the previous
+        reply when this one was never stored, and addressing by content
+        rewrote an older reply with the same text. A reply with no id was
+        never stored (cancelled mid-generation) and gets no write. Waits,
+        bounded, for the reply's own spawned insert so the rewrite cannot
+        run ahead of it.
+        """
+        if not self.conversation_store:
+            return
+        if message_id is None:
+            logger.info("Interrupted reply was never stored; no history row to cut.")
+            return
+        if log_task is not None and not log_task.done():
+            await asyncio.wait({log_task}, timeout=REPLY_INSERT_WAIT_S)
+            if not log_task.done():
+                logger.warning(
+                    "Reply insert still pending after %.1f s; leaving it uncut.",
+                    REPLY_INSERT_WAIT_S,
+                )
+                return
+        await self.conversation_store.rewrite_assistant_message(
+            heard, message_id=message_id
+        )
+
+    async def _truncate_interrupted_reply(self, reply: _SupersededReply | None = None):
         """Rewrite the stored assistant reply down to what was actually
         heard, using `last_audio_progress`, then clear both fields.
+
+        With `reply`, truncates that superseded reply's snapshot instead and
+        leaves the current turn's fields alone (ADR-003).
 
         P2-14/M1-A14: this used to read `last_audio_progress` and
         `last_assistant_response`, compute a truncation offset, and (on one
@@ -498,28 +588,42 @@ class BrainAgent(BaseAgent):
         other writers rather than merely reducing the window.
         """
         async with self._turn_state_lock:
-            progress = self.last_audio_progress
-            intent = getattr(self, "_active_action_intent", None)
-            if progress and not progress.completed and self.last_assistant_response:
+            if reply is None:
+                text = self.last_assistant_response
+                progress = self.last_audio_progress
+                intent = getattr(self, "_active_action_intent", None)
+                log_task = getattr(self, "_reply_log_task", None)
+                message_id = getattr(self, "_reply_message_id", None)
+                owner = getattr(self, "_reply_turn_id", None)
+                active = getattr(self, "_active_response_turn_id", None)
+                if getattr(self, "_reply_resolved", False) or (
+                    owner is not None and active is not None and owner != active
+                ):
+                    # Already truncated, or the active turn is not the one
+                    # that produced this text (a subconscious turn speaking).
+                    text = None
+                else:
+                    self._reply_resolved = True
+            else:
+                text, progress, intent = reply.text, reply.progress, reply.intent
+                log_task, message_id = reply.log_task, reply.message_id
+            if progress and not progress.completed and text:
                 offset = progress.character_offset
-                if 0 < offset < len(self.last_assistant_response):
-                    truncated_text = self.last_assistant_response[:offset].strip()
-                    original_length = len(self.last_assistant_response)
+                if 0 < offset < len(text):
+                    truncated_text = text[:offset].strip()
+                    original_length = len(text)
                     truncated_length = len(truncated_text)
                     logger.info(
                         f"Truncating history (via progress): original_length={original_length}, truncated_length={truncated_length}, offset={offset}"
                     )
-                    if self.conversation_store:
-                        await self.conversation_store.update_last_assistant_message(
-                            truncated_text
-                        )
+                    await self._store_heard_reply(truncated_text, log_task, message_id)
                     await self._emit_outcome_record(
                         intent,
                         status="TRUNCATED",
                         actual_delivered_text=truncated_text,
                         character_offset=offset,
                     )
-            elif not progress and self.last_assistant_response:
+            elif not progress and text:
                 # No real playback progress, so we do not know how much of
                 # the reply was actually heard -- and we no longer guess.
                 #
@@ -544,7 +648,7 @@ class BrainAgent(BaseAgent):
                 logger.info(
                     "Interrupted with no playback progress; keeping the full "
                     "reply (%d chars) rather than guessing a cut point.",
-                    len(self.last_assistant_response),
+                    len(text),
                 )
                 # Still a terminal record for this intent -- best-known
                 # offset (the full text) rather than no record at all, same
@@ -553,10 +657,12 @@ class BrainAgent(BaseAgent):
                 await self._emit_outcome_record(
                     intent,
                     status="TRUNCATED",
-                    actual_delivered_text=self.last_assistant_response,
-                    character_offset=len(self.last_assistant_response),
+                    actual_delivered_text=text,
+                    character_offset=len(text),
                 )
 
+            if reply is not None:
+                return  # the current turn's fields belong to the new turn
             # Cleared however this turn resolved. It was previously reset
             # only on the branch that actually truncated, so a stop that
             # matched none of the guards left the progress marker in place
@@ -601,6 +707,15 @@ class BrainAgent(BaseAgent):
             new_task = asyncio.create_task(coro)
             self._active_generation_task = new_task
 
+        # The intent belongs to the last user turn's reply. Record it
+        # CANCELLED only if that reply's generation was what got cut: the
+        # task replaced may be a proactive turn, or a later turn still in
+        # its pacing sleep, after that reply had finished (and been
+        # recorded COMPLETED or TRUNCATED on its own).
+        if cancelled_a_running_turn and (
+            getattr(self, "_reply_generating", None) is False
+        ):
+            cancelled_a_running_turn = False
         if cancelled_a_running_turn:
             # FIX-CLD-05: a new incoming turn preempting one still in flight
             # never called `_cancel_active_generation`/`_truncate_interrupted_reply`
@@ -613,6 +728,12 @@ class BrainAgent(BaseAgent):
             # the interrupted turn's own, never the new one's.
             async with self._turn_state_lock:
                 intent = getattr(self, "_active_action_intent", None)
+                # Its terminal record is written here; a later truncation of
+                # this reply (a superseded "stop", ADR-003) must not add a
+                # second, disagreeing one.
+                self._active_action_intent = None
+                self._reply_resolved = True
+                self._reply_generating = False
             await self._emit_outcome_record(intent, status="CANCELLED", error=reason)
 
         return new_task
@@ -774,6 +895,49 @@ class BrainAgent(BaseAgent):
             or "User"
         )
 
+    async def _begin_turn(self, turn_id: str) -> str | None:
+        """Make `turn_id` the active turn; returns the turn it superseded.
+
+        The superseded reply's text, playback progress, intent and history
+        state are snapshotted here (ADR-003): Stage 2 addresses the confirmed
+        "stop" to that reply, and by the time it arrives this turn has reset
+        the live fields.
+        """
+        async with self._turn_state_lock:
+            interrupted_turn_id = getattr(self, "_active_response_turn_id", None)
+            self._superseded_turn_id = interrupted_turn_id
+            # The previous turn's generation has already been cancelled (or
+            # had finished) by `_replace_active_generation`, so this is its
+            # final state; its audio may still be playing. The reply text is
+            # carried only if it is that turn's own and not yet truncated.
+            owns_reply = (
+                interrupted_turn_id is not None
+                and getattr(self, "_reply_turn_id", None) == interrupted_turn_id
+                and not getattr(self, "_reply_resolved", False)
+            )
+            self._superseded_reply = (
+                _SupersededReply(
+                    turn_id=interrupted_turn_id,
+                    text=self.last_assistant_response if owns_reply else None,
+                    progress=getattr(self, "last_audio_progress", None),
+                    intent=(
+                        getattr(self, "_active_action_intent", None)
+                        if owns_reply
+                        else None
+                    ),
+                    log_task=(
+                        getattr(self, "_reply_log_task", None) if owns_reply else None
+                    ),
+                    message_id=(
+                        getattr(self, "_reply_message_id", None) if owns_reply else None
+                    ),
+                )
+                if interrupted_turn_id
+                else None
+            )
+            self._active_response_turn_id = turn_id
+        return interrupted_turn_id
+
     async def _process_chat_input_flow(
         self, chat_input: ChatInput, is_subconscious: bool, message: dict[str, Any]
     ):
@@ -787,8 +951,7 @@ class BrainAgent(BaseAgent):
         if not user_text:
             return
 
-        async with self._turn_state_lock:
-            self._active_response_turn_id = turn_id
+        interrupted_turn_id = await self._begin_turn(turn_id)
 
         # Pacing Conversational Turn: calculate silence duration and pause
         state_snap = self.cognitive_core.state.get_context_snapshot()
@@ -829,6 +992,7 @@ class BrainAgent(BaseAgent):
                 "visual_evidence": self.last_visual_evidence,
                 "turn_id": turn_id,
                 "utterance_id": utterance_id,
+                "interrupted_turn_id": interrupted_turn_id,
             },
         }
 
@@ -854,6 +1018,11 @@ class BrainAgent(BaseAgent):
                 self.last_assistant_response = None
                 self.last_audio_progress = None
                 self._active_action_intent = None
+                self._reply_log_task = None
+                self._reply_message_id = None
+                self._reply_turn_id = turn_id
+                self._reply_resolved = False
+                self._reply_generating = True
             process_kwargs = {
                 "percept": self.last_percept,
                 "workspace": workspace_snapshot,
@@ -908,12 +1077,43 @@ class BrainAgent(BaseAgent):
             incoming_latency_metadata=latency_metadata,
         )
 
+        await self._finish_reply(turn_id, full_response, is_subconscious)
+
+    async def _finish_reply(
+        self, turn_id: str, full_response: str, is_subconscious: bool
+    ) -> None:
+        """Record the finished reply and store it in history (ADR-003).
+
+        For a user turn, the text, the end of generation, the history row id
+        and the insert task are set in one critical section; a proactive
+        turn's reply is only stored.
+        """
+        store = self.conversation_store if full_response else None
+        message_id = uuid.uuid4() if store is not None else None
         if not is_subconscious:
+            # One critical section: a stop must never see this reply as
+            # finished but without the row id its insert is about to use
+            # (it would cut nothing while the full text lands in history).
+            # Spawning does not yield, so the insert task is recorded here too.
             async with self._turn_state_lock:
                 self.last_assistant_response = full_response
-
-        if self.conversation_store and full_response:
-            self.spawn(self.conversation_store.log_message("assistant", full_response))
+                log_task = (
+                    self.spawn(
+                        store.log_message(
+                            "assistant", full_response, message_id=message_id
+                        )
+                    )
+                    if store is not None
+                    else None
+                )
+                if self._reply_turn_id == turn_id:
+                    self._reply_generating = False
+                    self._reply_log_task = log_task
+                    self._reply_message_id = message_id
+        elif store is not None:
+            self.spawn(
+                store.log_message("assistant", full_response, message_id=message_id)
+            )
 
     async def _on_audio_playback_progress(self, data: dict[str, Any]):
         """Tracks the current word/character progress of the audio playback."""
@@ -922,6 +1122,17 @@ class BrainAgent(BaseAgent):
             progress = AudioPlaybackProgress.model_validate(data)
             async with self._turn_state_lock:
                 active_turn_id = getattr(self, "_active_response_turn_id", None)
+                superseded = getattr(self, "_superseded_reply", None)
+                if (
+                    superseded is not None
+                    and active_turn_id
+                    and progress.utterance_id == superseded.turn_id
+                    and progress.utterance_id != active_turn_id
+                ):
+                    # Still playing after the user took the floor: this is
+                    # the cut point a confirmed "stop" for it will use.
+                    superseded.progress = progress
+                    return
                 if active_turn_id and progress.utterance_id != active_turn_id:
                     logger.debug(
                         "Ignoring playback progress for stale turn %s; active turn is %s.",
@@ -935,11 +1146,22 @@ class BrainAgent(BaseAgent):
                     # starting to play, not just being queued -- the moment
                     # _on_chat_input's grace period below measures from.
                     self._last_audio_onset_at = time.time()
-                if progress.completed:
+                owner = getattr(self, "_reply_turn_id", None)
+                if progress.completed and (
+                    owner is None
+                    or (
+                        owner == progress.utterance_id
+                        and not getattr(self, "_reply_resolved", False)
+                    )
+                ):
                     # Phase 1 causal slice (§22, §38): the turn's terminal,
                     # non-interrupted outcome. `last_assistant_response` is
                     # the full text this same handler's playback reports
-                    # finished delivering.
+                    # finished delivering. Only for the turn that owns that
+                    # text (a proactive turn finishing used to re-record the
+                    # previous user reply), and once.
+                    if owner is not None:
+                        self._reply_resolved = True
                     delivered = self.last_assistant_response or ""
                     # FIX-CLD-04: trust the playback-reported offset rather
                     # than assuming every COMPLETED frame delivered the full
@@ -998,10 +1220,27 @@ class BrainAgent(BaseAgent):
 
                 async with self._turn_state_lock:
                     active_turn_id = getattr(self, "_active_response_turn_id", None)
+                    # Only Stage 2's confirmed voice command is addressed to
+                    # the superseded reply (ADR-003). Any other stop for that
+                    # turn -- e.g. a facial-startle stop published before the
+                    # user's new utterance took over -- is stale, as before.
+                    # Consumed on use so it cannot match twice.
+                    accepts_superseded = (
+                        stop_msg.reason == "confirmed_command"
+                        and stop_msg.turn_id is not None
+                        and stop_msg.turn_id
+                        == getattr(self, "_superseded_turn_id", None)
+                    )
+                    superseded_reply = None
+                    if accepts_superseded:
+                        self._superseded_turn_id = None
+                        superseded_reply = getattr(self, "_superseded_reply", None)
+                        self._superseded_reply = None
                 if (
                     stop_msg.turn_id
                     and active_turn_id
                     and stop_msg.turn_id != active_turn_id
+                    and not accepts_superseded
                 ):
                     logger.debug(
                         "Ignoring audio stop for stale turn %s; active turn is %s.",
@@ -1009,10 +1248,18 @@ class BrainAgent(BaseAgent):
                         active_turn_id,
                     )
                     return
-                await self._cancel_active_generation(
-                    stop_msg.reason or "confirmed audio.stop"
-                )
-                await self._truncate_interrupted_reply()
+                if accepts_superseded:
+                    # The superseded reply's generation already ended when
+                    # the new utterance started; the task running now is
+                    # that utterance's own turn, which Stage 2 stops itself.
+                    # Cancelling it would cut the "stop" turn off mid-persist.
+                    if superseded_reply is not None:
+                        await self._truncate_interrupted_reply(superseded_reply)
+                else:
+                    await self._cancel_active_generation(
+                        stop_msg.reason or "confirmed audio.stop"
+                    )
+                    await self._truncate_interrupted_reply()
                 # Bucket 11 (voice remediation Phase 3, item 2): this branch
                 # is reached only for a confirmed, non-speculative interrupt
                 # that actually cut off an in-progress turn -- not a

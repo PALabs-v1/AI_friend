@@ -96,6 +96,11 @@ class SurfacingAgent(BaseAgent):
             durable=f"{self.name}_state_update_live",
             deliver_policy="new",
         )
+        # Brain V2 (ADR-001): warm the SQLite retrieval index off the
+        # critical path so the first surfacing sweep is not the one to pay.
+        warm = getattr(self.memory, "warm_retrieval_index", None)
+        if asyncio.iscoroutinefunction(warm):
+            self._retrieval_warmup_task = asyncio.create_task(warm())
         logger.info(f"🧠 {self.name} Online | Dual-Channel Memory Surfacing Active.")
 
     async def _on_chat_input(self, data: dict[str, Any], metadata: dict | None = None):
@@ -282,7 +287,12 @@ class SurfacingAgent(BaseAgent):
                                 wing=mem.get("wing", "personal"),
                                 room=mem.get("room"),
                             ),
-                            score=mem.get("score", 0.0),
+                            # Search results carry `relevance` (clipped
+                            # cosine, absolute); `score` is pool-relative
+                            # (hybrid) or an unbounded activation sum (V1),
+                            # and the brain reads this field as relevance
+                            # (decision thresholds).
+                            score=mem.get("relevance", mem.get("score", 0.0)),
                             valence=episode["valence"],
                             created_at=episode["created_at"],
                             recall_count=episode["recall_count"],
