@@ -1,0 +1,40 @@
+M1_superseded_progress_leaks                 killed
+M2_superseded_stop_not_consumed              killed
+M3_stale_stop_guard_deleted                  killed
+M4_completed_ignores_owner                   killed
+M5_completed_not_once                        killed
+M6_cancelled_ignores_generating              killed
+M7_cut_not_addressed_by_id                   killed
+M8_insert_wait_unbounded                     killed
+M9_unstored_reply_still_written              killed
+M10_insert_ignores_brain_id                  killed
+M11_store_rewrites_every_other_row           killed
+M12_replacement_does_not_resolve             survived, equivalent: the same section nulls the intent, so no later record can be attributed to the reply
+M13_generation_never_ends                    killed
+M14_snapshot_drops_row_id                    killed
+M15_stop_leaves_generating_set               killed
+N3_cancelled_twice                           killed
+N4_row_id_in_a_second_section                killed
+N5_cut_ignores_text_owner                    killed
+N6_offset_at_end_is_a_cut                    killed
+N7_snapshot_carries_resolved_reply           killed
+N8_superseded_accepts_any_stop               killed
+N13_generating_false_from_the_start          killed
+N14_completed_does_not_resolve               killed
+N17_row_id_never_recorded                    killed
+X12_snapshot_ignores_text_owner              killed
+X17_reset_keeps_resolved                     killed
+N2_cancel_before_content_does_not_resolve    killed
+Z17_superseded_cut_does_not_wait_for_insert  killed
+Z42_superseded_slot_takes_any_old_frame      killed
+Y20_record_offset_is_trimmed_length          killed
+N9_timed_out_wait_still_writes               killed
+Y14_turn_reset_keeps_old_progress            killed
+Y19_final_reply_text_not_recorded            killed
+N11_replacement_keeps_intent                 survived, equivalent: the reply is resolved in the same section and the next user turn's reset nulls the intent before its pipeline commits one
+N12_end_of_generation_ignores_owner          survived, equivalent: a user turn reaches this section only as the owner it set at its own reset; a newer turn would first have cancelled this flow
+N18_proactive_turn_takes_the_row_id          survived, equivalent: once a proactive turn is active the owner check stops any cut of the user reply, so the live row id is never read
+S3_store_insert_ignores_id                   killed
+S5_store_update_drops_role                   survived, equivalent: ids are fresh UUIDs, so the addressed row is always the assistant row the brain logged
+
+38 mutations, 33 killed (baseline passed)

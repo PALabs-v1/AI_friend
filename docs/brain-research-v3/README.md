@@ -19,8 +19,8 @@ This directory is the working record for the next research/engineering cycle, pe
 | [codex-log.md](codex-log.md) | One line per Codex task: verdict, disagreement, resolution | done (C0, C1) |
 | `interview/round-N.md` | Interview briefs | round 1 pending |
 | `decisions/DR-NNN-*.md` | Recorded architecture decisions from Aniket | none yet |
-| `baseline/` | Brain V2 Local Baseline manifest + results (Phase 3) | not started |
-| `results/` | Raw JSON from GPU experiments, scale tests, lifesim runs | not started |
+| [baseline/manifest.json](baseline/manifest.json), [baseline/RESULTS.md](baseline/RESULTS.md) | Brain V2 Local Baseline: env facts, headline numbers, both machines | done |
+| `results/{mac,home-gpu}/` | Raw JSON/logs backing the baseline (Phase 3); GPU experiments, scale tests, lifesim runs land here in later phases | Phase 3 done |
 
 ## Process
 
@@ -28,4 +28,4 @@ Codex CLI runs as an independent second engineer throughout (see root `CLAUDE.md
 
 ## Status (2026-09-24)
 
-Phase 0 (setup), Phase 1 (reconstruction + dual audit), and Phase 2 (10-round architecture interview, 36 decisions, `decisions/INDEX.md`) complete. Two decisions carry the most weight for everything downstream: DR-002 (an autonomous humanoid mind, not a companion/assistant mode) and DR-020 (personality evolution is entirely self-authored, no external approval). Next: Phase 3 (Brain V2 Local Baseline) and Phase 4 (real infrastructure + GPU experiments), then Phase 5-7 (lifesim, BrainBench, workstreams W1-W11).
+Phase 0 (setup), Phase 1 (reconstruction + dual audit), Phase 2 (10-round architecture interview, 36 decisions, `decisions/INDEX.md`), and Phase 3 (Brain V2 Local Baseline, both machines, [baseline/RESULTS.md](baseline/RESULTS.md)) are complete. Two decisions carry the most weight for everything downstream: DR-002 (an autonomous humanoid mind, not a companion/assistant mode) and DR-020 (personality evolution is entirely self-authored, no external approval). The baseline quantifies the open problems for the first time instead of just asserting them: production hybrid retrieval worst-case hit@3 is 0.699 (vs. 0.023 pre-V2) but `obsolete_win` is 0.61-0.67 (M-5, W1's target is ≤0.10), and user-valence-to-mood correlation is literally undefined under production's `agent_mood` appraisal input because mood never leaves 0.00 regardless of script — including `hostile` (A-1, W2's target). Both machines agree on every result (Rust: 179/179 on both; barge-in mutation kills: 33/38 on both, same 5 equivalents). Next: Phase 4 (real infrastructure + GPU experiments on home-gpu), then Phase 5-7 (lifesim, BrainBench, workstreams W1-W11).
