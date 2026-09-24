@@ -28,4 +28,4 @@ Codex CLI runs as an independent second engineer throughout (see root `CLAUDE.md
 
 ## Status (2026-09-24)
 
-Phase 0 (setup) and Phase 1 (reconstruction + dual audit) complete. Next: explain Brain V2 to Aniket and open interview Round 1 (`03-open-questions.md`). See `04-local-infrastructure.md` for the environment and `02-audit-comparison.md` for the audit comparison, including one resolved disagreement with Codex over the voice completion signal (F-002).
+Phase 0 (setup), Phase 1 (reconstruction + dual audit), and Phase 2 (10-round architecture interview, 36 decisions, `decisions/INDEX.md`) complete. Two decisions carry the most weight for everything downstream: DR-002 (an autonomous humanoid mind, not a companion/assistant mode) and DR-020 (personality evolution is entirely self-authored, no external approval). Next: Phase 3 (Brain V2 Local Baseline) and Phase 4 (real infrastructure + GPU experiments), then Phase 5-7 (lifesim, BrainBench, workstreams W1-W11).
