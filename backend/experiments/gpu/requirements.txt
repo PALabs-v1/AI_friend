@@ -1,0 +1,5 @@
+# GPU / model-server experiments. The backend's own requirements-dev.txt must
+# already be installed (these scripts import app/ and evals/).
+httpx>=0.28.1
+# Optional, only for `--backend st` (sentence-transformers instead of Ollama):
+#   pip install "sentence-transformers>=3.0" "torch>=2.3"
