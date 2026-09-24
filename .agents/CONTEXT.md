@@ -16969,3 +16969,46 @@ carry many stale branches predating this pass (`phase-01`..`phase-07` for
 claude/codex/integration, assorted old `fix/*`/`feat/*` branches) — flagged
 to the user, not deleted, since branch deletion wasn't asked for and isn't
 reversible.
+
+## 2026-09-24 -- Brain V2 research pass: benchmark, hybrid retrieval, affect gate, defect fixes
+
+Branch `claude/sleepy-darwin-jhu8ha` (cloud session). Full write-up:
+`docs/brain-research/` (README, 00-07, ADR-001..003).
+
+Measured Baseline V1 with a new model-free cognitive benchmark
+(`backend/evals/cognitive`, `python -m evals.cognitive {memory,affect,latency}`):
+seeded multi-week histories, three embedding profiles, tune seeds 1-20 and
+held-out seeds 101-130, lab re-implementation proven equal to production
+(V1 0/279, hybrid 1/558 mismatches, gate-tested).
+
+Behaviour changes:
+
+- Memory retrieval default is now `MEMORY_RANKING_POLICY=hybrid` (ADR-001):
+  similarity-selected pool of 60 on every backend (SQLite via the new
+  `app/state/sqlite_vector_index.py`), ranked by `app/state/memory_ranking.py`
+  (z(cos) + 1.5*pool-BM25 + 0.2*z(ACT-R base level + 1.5*importance)).
+  Production-like cell hit@3 0.02 -> 0.69 held-out; SQLite p50 57.8 -> 4.1 ms
+  at 5k memories. `actr_v1` kept; V1-specification tests pinned to it via the
+  `actr_v1_ranking` fixture.
+- `REAPPRAISAL_WEIGHT_LEARNING_ENABLED=false` (ADR-002): learning drove valence
+  to +1.0 for 143/200 turns and numbed w1 persistently. Prediction-error
+  hormone bursts unchanged.
+- Barge-in stop/resume addressed to the interrupted reply (ADR-003, V-1).
+- Fixed: neo4j Record vs dict filter (M-4), unreachable outage branch (M-7),
+  SQLite TIMESTAMP converter blanking retrieval (M-9), proactive prompt memory
+  injection (S-1), text timestamps / zero importance in candidate building.
+
+Verification: backend 2,489 passed / 8 skipped (NATS auth tests need a
+nats-server binary); new tests in test_brain_v2_regressions.py,
+test_memory_ranking.py, test_cognitive_bench.py fail on the pre-fix code
+where noted. ruff check clean. Env: Python 3.12 venv; the repo requires 3.12
+(PEP 695 in app/vision/adapters.py). Run pytest with CI=1 to see summaries.
+
+NOT done / open: stale facts after preference changes (M-5; E7 upper bound
+says write-time validity is worth obsolete-wins 0.67 -> 0.00), user valence
+never reaching appraisal (A-1; GPU package measures the LLM ToM estimator),
+trust rising under hostility (A-3), self-correction retry cancelled by its
+own stop (V-2). An adversarial review returned FAIL on the first cut
+(vector-index staleness on rowid reuse, blocking rebuilds, append race,
+relevance semantics of hybrid `score`, stale-stop acceptance); fixes follow
+in the next commits on this branch.
