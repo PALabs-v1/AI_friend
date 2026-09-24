@@ -125,6 +125,16 @@ def embed_st(texts: list[str], model: str) -> list[list[float]]:
 def build_embedder(scenario, args) -> PrecomputedEmbedder:
     docs = sorted({e.text for e in scenario.events})
     queries = sorted({p.query for p in scenario.probes})
+    collision = set(docs) & set(queries)
+    if collision:
+        # PrecomputedEmbedder keys by raw text; a doc/query collision means
+        # the query's (possibly differently-prefixed) vector silently
+        # overwrites the document's. Verified untriggered across every tune
+        # and held-out seed (tests/test_gpu_experiments.py), but fail loudly
+        # rather than silently corrupt a real run if that ever regresses.
+        raise ValueError(
+            f"doc/query text collide, would corrupt PrecomputedEmbedder keying: {collision}"
+        )
     raw = [_prefix(t, "doc", args.prefix) for t in docs] + [
         _prefix(q, "query", args.prefix) for q in queries
     ]
