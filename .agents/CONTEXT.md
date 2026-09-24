@@ -17113,3 +17113,13 @@ dict payloads), so every COMPLETED path is test-only -- recorded in ADR-003
 `scripts/barge_in_mutations.py` now runs a baseline first (exit 2 if it
 fails) and counts only pytest exit 1 as a kill: 33 mutations, 26 killed, 7
 equivalent with reasons. Backend suite 2,531 passed, 8 skipped.
+
+### 2026-09-24 -- Brain V2 eighth adversarial review fix round
+
+Eighth reviewer: 6/10, FAIL on the mutation tool still counting import errors
+as kills (pytest `-x` turns a collection error into exit 1), a false
+equivalence (N9 on the write-serialising SQLite fallback) and two unpinned
+gates (Y14 progress reset, Y19 final reply text). Tool now runs without `-x`,
+with a timeout, and `classify()` (gate-tested) makes errors and hangs ERROR.
+N9, Y14, Y19 pinned by real-flow tests. Tool: 35 mutations, 29 killed, 6
+equivalent. Backend suite 2,535 passed, 8 skipped.

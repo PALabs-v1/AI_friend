@@ -226,6 +226,7 @@ async def test_stop_while_a_finished_reply_plays_cuts_it_to_what_was_heard():
         ["User", "stop"],
     ]
     assert _outcomes(agent) == [("A", "TRUNCATED", REPLY_A[:22].strip())]
+    assert agent._outcome_history[-1].character_offset == 22
     assert "B" in agent.finished_turns  # the "stop" turn itself was not cancelled
 
 
@@ -709,9 +710,10 @@ async def test_stopping_a_proactive_turn_that_started_while_the_reply_played():
         ["assistant", REPLY_A],
         ["assistant", thought],
     ]
-    # A gets no terminal record: a superseded reply's completed frame is not
-    # recorded (ADR-003 "Known"); what matters here is that A is not cut.
-    assert _outcomes(agent) == []
+    # What matters is that A is not cut or recorded as cut. (Whether A gets a
+    # COMPLETED record from a superseded completed frame is an open gap,
+    # ADR-003 "Known", deliberately not pinned either way.)
+    assert [o for o in _outcomes(agent) if o[1] != "COMPLETED"] == []
 
 
 @pytest.mark.asyncio
@@ -738,11 +740,15 @@ async def test_a_stop_queued_behind_the_end_of_generation_still_cuts_the_row():
     while "A" not in agent.finished_turns:
         await asyncio.sleep(0)
     lock = agent._turn_state_lock
-    while not lock._waiters:  # the flow is queued at its end-of-generation section
-        await asyncio.sleep(0)
+
+    async def queued(n):
+        while len(lock._waiters or ()) < n:
+            await asyncio.sleep(0)
+
+    # the flow queues at its end-of-generation section, then the stop behind it
+    await asyncio.wait_for(queued(1), timeout=2)
     stop = asyncio.create_task(_startle(agent, "A"))
-    while len(lock._waiters) < 2:  # the stop queues right behind it
-        await asyncio.sleep(0)
+    await asyncio.wait_for(queued(2), timeout=2)
     release.set()
     await asyncio.gather(turn_a, held, stop, return_exceptions=True)
     await _settle(agent, 0.2)
@@ -775,9 +781,10 @@ async def test_stopping_a_queued_proactive_turn_leaves_the_playing_reply_alone()
         ["assistant", REPLY_A],
         ["assistant", thought],
     ]
-    # A gets no terminal record: a superseded reply's completed frame is not
-    # recorded (ADR-003 "Known"); what matters here is that A is not cut.
-    assert _outcomes(agent) == []
+    # What matters is that A is not cut or recorded as cut. (Whether A gets a
+    # COMPLETED record from a superseded completed frame is an open gap,
+    # ADR-003 "Known", deliberately not pinned either way.)
+    assert [o for o in _outcomes(agent) if o[1] != "COMPLETED"] == []
 
 
 @pytest.mark.asyncio
@@ -826,3 +833,91 @@ async def test_a_stop_for_a_proactive_turn_never_cuts_the_user_reply_it_supersed
     await _settle(agent)
     assert ["assistant", REPLY_A] in history.rows
     assert ("A", "TRUNCATED") not in [o[:2] for o in _outcomes(agent)]
+
+
+@pytest.mark.asyncio
+async def test_a_stop_before_the_new_reply_plays_does_not_reuse_the_old_offset():
+    """R8 (Y14): A played to offset 22; the next user turn B's reply is
+    generated and stored; a startle lands before B's first progress frame.
+    B's turn reset clears the live progress, so B is kept whole instead of
+    being cut at A's offset -- words of B that never played."""
+    history = History()
+    second = "Second reply goes here now, and a bit more"
+    agent = _agent(
+        history, {"tell me": {"pieces": [REPLY_A]}, "again": {"pieces": [second]}}
+    )
+    await _finished_reply_a(agent)
+    await _progress(agent, "A", 22)
+    turn_b = await _say(agent, "again", "B")
+    await turn_b
+    await _settle(agent)
+    await _startle(agent, "B")
+    await _settle(agent)
+    assert history.rows[-1] == ["assistant", second]
+    assert ("B", "TRUNCATED", second) in _outcomes(agent)  # full text, no cut point
+    assert agent._outcome_history[-1].character_offset == len(second)
+
+
+@pytest.mark.asyncio
+async def test_the_spoken_fallback_line_is_what_a_stop_cuts():
+    """R8 (Y19): the model produced nothing, so the fallback line is spoken
+    and stored; a stop 12 characters in cuts that stored line."""
+    history = History()
+    agent = _agent(history, {"tell me": {"pieces": []}})
+    turn = await _say(agent, "tell me", "A")
+    await turn
+    await _settle(agent)
+    spoken = history.rows[-1][1]
+    assert history.rows[-1][0] == "assistant" and len(spoken) > 12
+    await _progress(agent, "A", 12)
+    await _startle(agent, "A")
+    await _settle(agent)
+    assert history.rows[-1] == ["assistant", spoken[:12].strip()]
+    assert _outcomes(agent)[-1] == ("A", "TRUNCATED", spoken[:12].strip())
+    assert agent._outcome_history[-1].character_offset == 12
+
+
+class _SerialHistory(History):
+    """Writes serialised on one connection, as the SQLite fallback does
+    (`SQLiteConnection._lock`): an UPDATE issued while the INSERT is stuck
+    waits for it and then lands on the row."""
+
+    def __init__(self, insert_stall):
+        super().__init__()
+        self._conn = asyncio.Lock()
+        self.insert_stall = insert_stall
+
+    async def log_message(self, role, content, message_id=None):
+        async with self._conn:
+            if role == "assistant":
+                await asyncio.sleep(self.insert_stall)
+            self._rows.append([message_id, role, content])
+
+    async def update_last_assistant_message(
+        self, content, message_id=None, expected=None
+    ):
+        async with self._conn:
+            for row in reversed(self._rows):
+                if row[1] == "assistant" and row[0] == message_id:
+                    row[2] = content
+                    return
+
+
+@pytest.mark.asyncio
+async def test_a_cut_that_gave_up_waiting_is_not_issued_late(monkeypatch):
+    """R8 (N9): when the reply's insert outlasts REPLY_INSERT_WAIT_S the cut
+    is abandoned, not issued anyway. On a store that serialises writes the
+    late UPDATE would queue behind the insert and cut the row after all, so
+    history would depend on how long the disk stalled."""
+    from app.agents import brain_agent
+
+    monkeypatch.setattr(brain_agent, "REPLY_INSERT_WAIT_S", 0.05)
+    history = _SerialHistory(insert_stall=0.3)
+    agent = _agent(history, {"tell me": {"pieces": [REPLY_A]}})
+    turn = await _say(agent, "tell me", "A")
+    await turn
+    await _progress(agent, "A", 10)
+    await _startle(agent, "A")
+    await asyncio.sleep(0.4)
+    await _settle(agent)
+    assert history.rows[-1] == ["assistant", REPLY_A]

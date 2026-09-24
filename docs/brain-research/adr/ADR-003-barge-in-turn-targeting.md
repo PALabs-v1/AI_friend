@@ -94,10 +94,11 @@ Known and not changed here (pre-existing):
   (`transport_agent.py`), so `audio.playback.progress` never carries
   `completed=True` live. Every COMPLETED path here is exercised by tests
   only. Fixing it is a voice-agent/transport contract change, out of scope.
-  (A superseded-reply COMPLETED branch was added and removed during review:
-  dead in production, and it could record audio the user never heard, since
-  the completion marker fires when the last frame is buffered, up to ~1 s
-  ahead of the speaker.)
+  (A superseded-reply COMPLETED branch was added and removed during review
+  because it was dead in production and untested. Note that every COMPLETED
+  record, including the live-turn path kept here, would share one caveat if
+  the marker were produced: it fires when the last frame is buffered, up to
+  ~1 s ahead of the speaker.)
 * A superseded reply's completed frame is not recorded: it lands in the
   superseded snapshot, which only a stop reads.
 * With A, then "stop" B, then C before B's Stage 2, B's stop for A is
@@ -113,6 +114,11 @@ Known and not changed here (pre-existing):
   from replacement.
 * A fully generated reply whose flow is cancelled while it waits for the
   final `_turn_state_lock` section is not stored and is recorded CANCELLED.
+* A user turn whose generator raised after committing its intent (the
+  fallback line spoken, its text empty) can be recorded CANCELLED by a later
+  stop of a proactive turn.
+* A chat.input redelivered with the same turn id finds itself as the
+  superseded turn; a stop in that case cuts nothing.
 * A startle while a new user turn is in its pacing sleep cancels that turn
   before its user row is logged.
 * A startle in that window also no longer cuts the reply still playing: the
@@ -147,13 +153,13 @@ flow leaves it (owner, row id), so they exercise the production path.
 
 **Mutation check, reproducible:** `python scripts/barge_in_mutations.py`
 (run it with the interpreter that has the backend's dev requirements)
-applies each of 33 mutations of these gates and the store SQL to a temporary
-copy of `backend/`, after first checking that the unmutated copy passes, and
-runs the barge-in modules against each. A mutant counts as killed only when
-tests fail (pytest exit 1); a mutant that cannot run is an error. 26 are
-killed. The 7 survivors are listed in the script as equivalent, each with
-its reason (e.g. not resolving on a cancel before any content: the only
-caller resolves the reply on the next line). The script exits non-zero on
-any other survivor or error, and exits 2 without a verdict when the baseline
-does not pass. `tests/test_barge_in_mutation_patterns.py` fails on every
-commit where a pattern no longer matches the code.
+applies each of 35 mutations of these gates and the store SQL to a temporary
+copy of `backend/` and runs the barge-in modules against each (no `-x`,
+10-minute timeout). The unmutated copy runs first and must pass, or the
+script exits 2 with no verdict. `classify()` counts a mutant as killed only
+when tests fail; a collection or import error, an erroring test, or a hang
+is an ERROR, never a kill (both are pinned by
+`tests/test_barge_in_mutation_patterns.py`, which also fails on every commit
+where a mutation pattern no longer matches the code). 29 are
+killed. The 6 survivors are listed in the script as equivalent, each
+with its reason. The script exits non-zero on any other survivor or error.

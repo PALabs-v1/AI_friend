@@ -25,6 +25,7 @@ names why, so the list can be challenged.
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -42,7 +43,9 @@ TEST_MODULES = [
     "tests/test_embodied_feedback.py",
     "tests/test_causal_slice.py",
     "tests/test_brain_v2_regressions.py",
+    "tests/test_playback_progress.py",
 ]
+RUN_TIMEOUT_S = 600  # a mutant that hangs the tests is an error, not a verdict
 _ROW = "\"WHERE id = $2 AND session_id = $3 AND role = 'assistant'\""
 
 
@@ -249,8 +252,23 @@ MUTATIONS = [
         BRAIN,
         "                    REPLY_INSERT_WAIT_S,\n                )\n                return\n",
         "                    REPLY_INSERT_WAIT_S,\n                )\n",
-        equivalent="the row is still being inserted, so an UPDATE by its id "
-        "matches nothing; the insert then stores the full text either way",
+    ),
+    Mutation(
+        "Y14_turn_reset_keeps_old_progress",
+        BRAIN,
+        "                self.last_assistant_response = None\n"
+        "                self.last_audio_progress = None\n"
+        "                self._active_action_intent = None\n",
+        "                self.last_assistant_response = None\n"
+        "                self._active_action_intent = None\n",
+    ),
+    Mutation(
+        "Y19_final_reply_text_not_recorded",
+        BRAIN,
+        "            async with self._turn_state_lock:\n"
+        "                self.last_assistant_response = full_response\n"
+        "                log_task = (\n",
+        "            async with self._turn_state_lock:\n                log_task = (\n",
     ),
     Mutation(
         "N11_replacement_keeps_intent",
@@ -316,6 +334,50 @@ def _copy_backend(dest: Path) -> Path:
     return dest
 
 
+def _run_tests(root: Path) -> subprocess.CompletedProcess | None:
+    """The barge-in modules against `root`; None if they hung. No `-x`: with
+    it pytest reports a collection error as exit 1, indistinguishable from
+    failing tests."""
+    try:
+        return subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "pytest",
+                "-p",
+                "no:cacheprovider",
+                "-q",
+                *TEST_MODULES,
+            ],
+            cwd=root,
+            env={**os.environ, "CI": "1"},
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=RUN_TIMEOUT_S,
+        )
+    except subprocess.TimeoutExpired:
+        return None
+
+
+def classify(returncode: int | None, output: str) -> str:
+    """'passed', 'killed' (tests failed) or 'error' (the tests did not run
+    properly: hang, collection/import error, an erroring test, usage error).
+    Only 'killed' is evidence that a test detects the mutation."""
+    if returncode is None:
+        return "error"
+    summary = output.strip().splitlines()[-1] if output.strip() else ""
+    if re.search(r"\berrors?\b", summary) or returncode not in (0, 1):
+        return "error"
+    return "killed" if returncode == 1 else "passed"
+
+
+def _copy_backend(dest: Path) -> Path:
+    ignore = shutil.ignore_patterns("crates", "target", "__pycache__", ".venv", "*.db")
+    shutil.copytree(BACKEND, dest, ignore=ignore)
+    return dest
+
+
 def _run_tests(root: Path) -> subprocess.CompletedProcess:
     return subprocess.run(
         [
@@ -349,12 +411,18 @@ def main(argv: list[str]) -> int:
     with tempfile.TemporaryDirectory(prefix="barge-in-mutations-") as tmp:
         root = _copy_backend(Path(tmp) / "backend")
         baseline = _run_tests(root)
-        if baseline.returncode != 0:
+        base = classify(
+            baseline and baseline.returncode, baseline.stdout if baseline else ""
+        )
+        if base != "passed":
+            tail = (
+                (baseline.stdout[-2000:] + baseline.stderr[-2000:])
+                if baseline
+                else "timed out"
+            )
             print(
-                f"Baseline (no mutation) did not pass (pytest exit {baseline.returncode}); "
-                f"nothing can be concluded. Interpreter: {sys.executable}\n"
-                + baseline.stdout[-2000:]
-                + baseline.stderr[-2000:]
+                f"Baseline (no mutation) did not pass ({base}); nothing can be "
+                f"concluded. Interpreter: {sys.executable}\n{tail}"
             )
             return 2
         originals = {p: (root / p).read_text() for p in {m.path for m in selected}}
@@ -364,12 +432,14 @@ def main(argv: list[str]) -> int:
             target = root / m.path
             target.write_text(target.read_text().replace(m.old, m.new, 1))
             run = _run_tests(root)
-            if run.returncode not in (0, 1):  # 2-5: the tests could not run
-                verdict = (
-                    f"ERROR (pytest exit {run.returncode}; the mutant did not run)"
+            outcome = classify(run and run.returncode, run.stdout if run else "")
+            if outcome == "error":
+                what = (
+                    "hung" if run is None else f"pytest exit {run.returncode}, errors"
                 )
+                verdict = f"ERROR ({what}; not evidence either way)"
                 failed = True
-            elif run.returncode == 1:
+            elif outcome == "killed":
                 killed_count += 1
                 verdict = "killed" + (
                     " (listed as equivalent: re-check)" if m.equivalent else ""

@@ -181,3 +181,20 @@ that reported all mutants killed when no test could run.
 | R7-4 | LOW | N4 test relied on exactly two event-loop hops; stale ADR sentences; R6-1 row said three tests | N4 test waits on the lock's waiters; docs corrected |
 | R7-5 | LOW (pre-existing) | No `completed=True` frame is produced live, so no COMPLETED record fires in production | documented in ADR-003 "Known"; a voice-agent/transport contract change |
 
+## Eighth adversarial review (of the R7 fixes)
+
+An eighth fresh reviewer confirmed R7-1, R7-2 and R7-5 resolved, found no
+new fuzz anomaly class, refuted one of the 7 equivalence claims, scored the
+change 6/10 and returned **FAIL**.
+
+| # | Sev | Finding | Resolution |
+|---|---|---|---|
+| R8-1 | MEDIUM | With pytest's `-x`, a collection or import error exits 1, so the tool still counted broken mutants as kills | no `-x`; `classify()` treats any error in the summary, exit 2-5 and a hang (10-min timeout) as ERROR; gate test pins it; the reviewer's four import/syntax-breaking mutants now report ERROR and exit 1 |
+| R8-2 | MEDIUM | N9 ("a timed-out wait still issues the UPDATE") was listed equivalent, but on the SQLite fallback, which serialises writes, the late UPDATE queues behind the insert and cuts the row | removed from the equivalents; real-flow test with a write-serialising store double kills it |
+| R8-3 | MEDIUM | Clearing live progress at a user turn's start (Y14) and recording the final reply text (Y19) were unpinned | a real-flow test for each; both mutations added to the tool and killed |
+| R8-4 | LOW | Unbounded waits in the N4 test; two tests pinned the known "no COMPLETED for a superseded reply" gap; record offsets never asserted; one module missing from the tool | waits bounded (`wait_for`); the gap is no longer pinned either way; offsets asserted; `test_playback_progress.py` added |
+| R8-5 | LOW (pre-existing) | CANCELLED attributed to a user turn whose generator raised, by a later proactive stop; a redelivered chat.input is its own superseded turn | listed in ADR-003 "Known" |
+
+Tool result on the committed code: 35 mutations, 29 killed, 6 listed as
+equivalent with reasons, no errors, exit 0.
+
