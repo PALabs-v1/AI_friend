@@ -35,5 +35,8 @@
 | [DR-031](DR-031-governor-scope-expanded.md) | 9 | Governor scope | Freeze the avoid-list/refusal fields too, alongside IMMUTABLE_CORE — mitigates DR-020's removal of human review. |
 | [DR-032](DR-032-affect-never-overrides-safety.md) | 9 | Affect vs safety | Absolute hard no — no affect state ever suppresses a boundary response. |
 | [DR-033](DR-033-no-reset-mechanism.md) | 9 | Reset capability | None, by design — one-directional evolution, "like a human." Raises the stakes on W11's governor testing. |
+| [DR-034](DR-034-long-horizon-emotional-decay.md) | 10 | Long-horizon emotion | Even emotionally-protected memories eventually fade, just very slowly — no permanent floor. |
+| [DR-035](DR-035-no-intent-detection.md) | 10 | Intent detection | Don't distinguish deliberate testing from genuine forgetfulness — not reliably detectable, and a wrong detector is worse than none. |
+| [DR-036](DR-036-lifesim-guardrail.md) | 10 | Lifesim guardrail | Master prompt's default guardrail is sufficient; no additional restriction on synthetic grief/loss scenarios. |
 
-Round 9 (boundaries/security) complete. Next: Round 10 (long-horizon edge cases) — final round.
+**Interview complete — all 10 rounds, 36 decisions recorded.** Next: Phase 3 (Brain V2 Local Baseline) and Phase 4 (real infrastructure + GPU experiments) can now proceed with full architectural clarity; Phase 5-7 (lifesim, BrainBench, workstreams W1-W11) are unblocked to begin implementation, each already annotated above with its specific consequences from these decisions.
