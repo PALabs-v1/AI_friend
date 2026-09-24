@@ -28,5 +28,9 @@
 | [DR-024](DR-024-latency-budgets.md) | 7 | Latency budgets | Confirmed: reflex <50ms, interactive 300-500ms to first audio byte, deliberative seconds-OK, background never delays foreground. Pending Phase 3 validation. |
 | [DR-025](DR-025-regulation-can-win.md) | 7 | Regulation vs speak | Yes — fixes register A-6's pinned urgency, gated on the same significant-event detector as DR-009. |
 | [DR-026](DR-026-significant-thought-can-interrupt.md) | 7 | Self-thought priority | Rare exception — a sufficiently significant self-initiated thought can interrupt. New case for W5's interleaving matrix. |
+| [DR-027](DR-027-heard-text-granularity.md) | 8 | Heard-text granularity | Keep word-level truncation. |
+| [DR-028](DR-028-ordinary-bargein-cuts-history.md) | 8 | Ordinary barge-in | Cuts history same as speculative — closes an ADR-003 "Known" gap directly. |
+| [DR-029](DR-029-self-correction-always-finishes.md) | 8 | Self-correction retry | Always finishes — defines V-2's flush semantics target behavior. |
+| [DR-030](DR-030-proactive-vs-user-priority.md) | 8 | Proactive vs user | Depends on significance — a highly important proactive turn gets a short grace window, not always-instant cede. New W5 interleaving case. |
 
-Round 7 (executive control) complete. Next: Round 8 (voice and turn-taking).
+Round 8 (voice/turn-taking) complete. Next: Round 9 (boundaries, privacy, security).
