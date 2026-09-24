@@ -535,8 +535,12 @@ async def test_index_cap_evicts_least_recently_touched_first(sqlite_conn):
     from app.state.sqlite_vector_index import SQLiteVectorIndex
 
     index = SQLiteVectorIndex(scan_limit=3)
-    for name, when, v in (("old", "2026-01-01 00:00:00", 0), ("mid", "2026-01-02 00:00:00", 1),
-                          ("recent", "2026-01-03 00:00:00", 2), ("oldest", "2025-12-01 00:00:00", 3)):
+    for name, when, v in (
+        ("old", "2026-01-01 00:00:00", 0),
+        ("mid", "2026-01-02 00:00:00", 1),
+        ("recent", "2026-01-03 00:00:00", 2),
+        ("oldest", "2025-12-01 00:00:00", 3),
+    ):
         await _insert(sqlite_conn, name, _vec(v, 8), when=when)
     built = await index.ensure(sqlite_conn, "personal")
     assert built.ids == ["old", "mid", "recent"]  # 3 most recent, oldest-first
@@ -568,7 +572,11 @@ async def test_index_filters_room_before_ranking(sqlite_conn):
         await sqlite_conn.execute(
             "INSERT INTO memories (id, content, wing, room, embedding, last_recalled_at) "
             "VALUES (?, ?, ?, ?, ?, ?)",
-            f"m{i}", "c", "personal", "a" if i < 4 else "b", str(_vec(i, 8)),
+            f"m{i}",
+            "c",
+            "personal",
+            "a" if i < 4 else "b",
+            str(_vec(i, 8)),
             "2026-01-01 00:00:00",
         )
     hits = await index.top_k(sqlite_conn, "personal", _vec(0, 8), 3, room="b")
@@ -582,3 +590,172 @@ async def test_dimension_mismatch_is_reported_not_silent(sqlite_store, monkeypat
     sqlite_store.get_embedding = AsyncMock(return_value=_vec(0, 768))
     assert await sqlite_store.search_memories("anything", refresh_on_recall=False) == []
     assert "dimension" in (sqlite_store.last_search_error or "")
+
+
+# ---------------------------------------------------------------------------
+# Second adversarial review (docs/brain-research/01-problems.md, R2-*).
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_index_warmed_on_an_empty_wing_learns_its_dimension_from_appends(
+    sqlite_conn,
+):
+    """R2-1 (HIGH): the startup warm-up on a fresh store built the index with
+    dim=None; every later write took the append path, which never set it, so
+    `top_k` answered [] forever with no error."""
+    from app.state.sqlite_vector_index import SQLiteVectorIndex
+
+    index = SQLiteVectorIndex(scan_limit=100)
+    await index.ensure(sqlite_conn, "personal")  # warm-up, no rows yet
+    for i in range(3):
+        await _insert(sqlite_conn, f"m{i}", _vec(i, 8))
+    hits = await index.top_k(sqlite_conn, "personal", _vec(1, 8), 2)
+    assert hits[0] == ("m1", pytest.approx(1.0))
+    assert (index.rebuilds, index.appends) == (1, 1)
+
+
+@pytest.mark.asyncio
+async def test_first_conversation_after_a_fresh_start_is_recallable(
+    sqlite_store, monkeypatch
+):
+    """R2-1 end to end: agent start (warm-up on an empty store), first
+    memory written, first question about it."""
+    monkeypatch.setattr(Config, "MEMORY_RANKING_POLICY", "hybrid")
+    await sqlite_store.warm_retrieval_index("personal")
+    await sqlite_store.add_memory(
+        "my sister Priya was born on March 14", embedding=_vec(3)
+    )
+    sqlite_store.get_embedding = AsyncMock(return_value=_vec(3))
+    results = await sqlite_store.search_memories(
+        "when was Priya born", refresh_on_recall=False
+    )
+    assert [r["content"] for r in results] == ["my sister Priya was born on March 14"]
+    assert sqlite_store.last_search_error is None
+
+
+class _WriteDuringRebuild:
+    """A concurrent writer lands between the index reading its staleness key
+    and fetching rows (another coroutine or process)."""
+
+    def __init__(self, inner):
+        self.inner = inner
+        self.fired = False
+
+    async def fetch(self, query, *args):
+        if "ORDER BY last_recalled_at DESC" in query and not self.fired:
+            self.fired = True
+            await _insert(self.inner, "raced", _vec(5, 8))
+        return await self.inner.fetch(query, *args)
+
+    async def execute(self, query, *args):
+        return await self.inner.execute(query, *args)
+
+
+@pytest.mark.asyncio
+async def test_write_during_rebuild_is_not_indexed_twice(sqlite_conn):
+    """R2-3: the raced row is loaded by the rebuild but newer than its key,
+    so the next append re-fetched it and the id sat in the index twice."""
+    from app.state.sqlite_vector_index import SQLiteVectorIndex
+
+    for i in range(3):
+        await _insert(sqlite_conn, f"r{i}", _vec(i, 8))
+    index = SQLiteVectorIndex(scan_limit=100)
+    await index.ensure(_WriteDuringRebuild(sqlite_conn), "personal")
+    await _insert(sqlite_conn, "next", _vec(6, 8))
+    built = await index.ensure(sqlite_conn, "personal")
+    assert sorted(built.ids) == ["next", "r0", "r1", "r2", "raced"]
+    assert len(built.ids) == built.matrix.shape[0]
+    hits = await index.top_k(sqlite_conn, "personal", _vec(5, 8), 3)
+    assert [m for m, _ in hits].count("raced") == 1
+
+
+@pytest.mark.asyncio
+async def test_invalidate_one_wing_forces_only_that_rebuild(sqlite_conn):
+    """R2-6: a row reinserted under the same id and rowid with a new
+    embedding (archive promotion that re-embeds) is invisible to the key;
+    promotion invalidates the wing."""
+    from app.state.sqlite_vector_index import SQLiteVectorIndex
+
+    await _insert(sqlite_conn, "a", _vec(0, 8))
+    await _insert(sqlite_conn, "w", _vec(0, 8), wing="work")
+    await _insert(sqlite_conn, "top", None)  # no stored embedding: not indexed
+    index = SQLiteVectorIndex(scan_limit=100)
+    await index.ensure(sqlite_conn, "personal")
+    await index.ensure(sqlite_conn, "work")
+    await sqlite_conn.execute("DELETE FROM memories WHERE id = ?", "top")
+    await _insert(sqlite_conn, "top", _vec(4, 8))  # same id, same rowid
+    assert "top" not in [
+        m for m, _ in await index.top_k(sqlite_conn, "personal", _vec(4, 8), 1)
+    ]
+    index.invalidate("personal")
+    assert (await index.top_k(sqlite_conn, "personal", _vec(4, 8), 1))[0][0] == "top"
+    assert index.rebuilds == 3  # personal twice, work once
+    await index.top_k(sqlite_conn, "work", _vec(0, 8), 1)
+    assert index.rebuilds == 3
+
+
+@pytest.mark.asyncio
+async def test_promotion_that_re_embeds_invalidates_the_index(sqlite_store):
+    sqlite_store._sqlite_vector_index.invalidate = MagicMock()
+    sqlite_store.get_embeddings = AsyncMock(return_value=[_vec(2)])
+    sqlite_store._promote_one_archived_row = AsyncMock(return_value={"content": "x"})
+    row = {"id": "a1", "content": "x", "wing": "personal", "embedding": None}
+    await sqlite_store._promote_archived_rows(
+        [(1.0, 1.0, 0.9, row)],
+        [],
+        threshold=0.0,
+        current_valence=0.0,
+        current_arousal=0.5,
+        current_cortisol=0.0,
+        current_time=None,
+    )
+    sqlite_store._sqlite_vector_index.invalidate.assert_called_once_with("personal")
+
+
+@pytest.mark.asyncio
+async def test_dimension_outage_is_not_served_from_cache_as_nothing_found(
+    sqlite_store, monkeypatch
+):
+    """R2-4: the empty result was cached for 15 s and a cache hit clears
+    `last_search_error`, so a repeat query reported the outage as silence."""
+    monkeypatch.setattr(Config, "MEMORY_RANKING_POLICY", "hybrid")
+    await sqlite_store.add_memory("stored with an old model", embedding=_vec(0, 16))
+    sqlite_store.get_embedding = AsyncMock(return_value=_vec(0, 768))
+    for _ in range(2):
+        assert await sqlite_store.search_memories("same", refresh_on_recall=False) == []
+        assert "dimension" in (sqlite_store.last_search_error or "")
+
+
+@pytest.mark.asyncio
+async def test_partial_dimension_loss_is_traced_and_logged(
+    sqlite_store, monkeypatch, caplog
+):
+    """R2-4: when most rows are on an old model the query still returns the
+    few new ones, so no error fires; the loss must still be visible."""
+    import logging
+
+    monkeypatch.setattr(Config, "MEMORY_RANKING_POLICY", "hybrid")
+    for i in range(3):
+        await sqlite_store.add_memory(f"old model {i}", embedding=_vec(i, 16))
+    await sqlite_store.add_memory("new model", embedding=_vec(1))
+    sqlite_store.get_embedding = AsyncMock(return_value=_vec(1))
+    with caplog.at_level(logging.WARNING, logger="app.state.sqlite_vector_index"):
+        results = await sqlite_store.search_memories("q", refresh_on_recall=False)
+    assert [r["content"] for r in results] == ["new model"]
+    assert sqlite_store.last_search_trace["skipped_dimension"] == 3
+    assert any("3 of 4 stored embeddings skipped" in r.message for r in caplog.records)
+
+
+@pytest.mark.asyncio
+async def test_v1_results_also_carry_absolute_relevance(sqlite_store, monkeypatch):
+    """R2-5: surfacing publishes `relevance`; under `actr_v1` it fell back to
+    the unbounded ACT-R score (0.575 for a query orthogonal to every memory),
+    so a rollback would reintroduce R-7."""
+    monkeypatch.setattr(Config, "MEMORY_RANKING_POLICY", "actr_v1")
+    await sqlite_store.add_memory("an unrelated memory", embedding=_vec(0))
+    sqlite_store.get_embedding = AsyncMock(return_value=_vec(1))  # orthogonal
+    results = await sqlite_store.search_memories(
+        "unrelated query", threshold=-99, refresh_on_recall=False
+    )
+    assert results and all(r["relevance"] == 0.0 for r in results)

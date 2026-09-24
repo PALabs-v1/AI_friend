@@ -66,7 +66,9 @@ class _WingIndex:
     ids: list[str] = field(default_factory=list)
     rowids: list[int] = field(default_factory=list)
     rooms: list[str | None] = field(default_factory=list)
-    matrix: np.ndarray = field(default_factory=lambda: np.zeros((0, 0), dtype=np.float32))
+    matrix: np.ndarray = field(
+        default_factory=lambda: np.zeros((0, 0), dtype=np.float32)
+    )
     skipped_dimension: int = 0  # rows whose embedding dimension differs from `dim`
 
 
@@ -107,8 +109,14 @@ class SQLiteVectorIndex:
         self.rebuilds = 0
         self.appends = 0
 
-    def invalidate(self) -> None:
-        self._wings.clear()
+    def invalidate(self, wing: str | None = None) -> None:
+        """Drop cached state (one wing, or all). For writes the staleness key
+        cannot see: a row deleted and reinserted under the same id at the same
+        rowid with a different embedding (archive promotion that re-embeds)."""
+        if wing is None:
+            self._wings.clear()
+        else:
+            self._wings.pop(wing, None)
 
     async def _state(self, conn, wing: str) -> tuple:
         rows = await conn.fetch(
@@ -134,6 +142,17 @@ class SQLiteVectorIndex:
             _stack, rows, dim
         )
         self.rebuilds += 1
+        if skipped:
+            # Once per rebuild, so a mixed-dimension store is visible even
+            # when enough rows match that queries still return something.
+            logger.warning(
+                "Vector index for wing %r: %d of %d stored embeddings skipped "
+                "(dimension differs from %s); re-embed them to make them retrievable",
+                wing,
+                skipped,
+                len(rows),
+                dim,
+            )
         return _WingIndex(key, dim, ids, rowids, rooms, matrix, skipped)
 
     async def _still_same_top(self, conn, index: _WingIndex) -> bool:
@@ -152,9 +171,17 @@ class SQLiteVectorIndex:
             index.key[1],
             key[1],
         )
-        _, ids, rowids, rooms, new, skipped = await asyncio.to_thread(
+        present = set(index.ids)
+        # A write that landed between a rebuild's `_state` and its fetch is
+        # already loaded but newer than the cache key; drop the re-fetch.
+        rows = [r for r in rows if str(r["id"]) not in present]
+        dim, ids, rowids, rooms, new, skipped = await asyncio.to_thread(
             _stack, rows, index.dim
         )
+        if index.dim is None:
+            # Built on an empty wing (the startup warm-up): the first rows
+            # decide the dimension. Keeping None made every query miss.
+            index.dim = dim
         if ids:
             index.matrix = np.vstack([index.matrix, new]) if index.matrix.size else new
             index.ids.extend(ids)
@@ -199,6 +226,11 @@ class SQLiteVectorIndex:
                 index = await self._rebuild(conn, wing, key, dim)
             self._wings[wing] = index
             return index
+
+    def skipped_dimension(self, wing: str) -> int:
+        """Rows of `wing` left out because their dimension differs."""
+        index = self._wings.get(wing)
+        return index.skipped_dimension if index else 0
 
     async def top_k(
         self, conn, wing: str, query_vector, k: int, room: str | None = None

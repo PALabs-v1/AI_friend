@@ -17030,4 +17030,22 @@ target the superseded turn, once. Benchmark CIs are now a cluster bootstrap
 over scenario seeds; held-out tables regenerated (means unchanged; headline
 delta +0.671 [0.649, 0.693]). Latency re-measured on an idle machine: SQLite
 5k memories p50/p95 3.9/6.6 ms vs V1 56.9/68.3 ms. Backend suite 2,499 passed,
-8 skipped. Push to origin blocked (GitHub App access, 403); commits are local.
+8 skipped. (The first push attempt hit a GitHub App 403; it succeeded once access was restored.)
+
+### 2026-09-24 -- Brain V2 second adversarial review fix round
+
+A cold re-review of the R-1..R-13 fixes returned FAIL on one HIGH regression:
+`warm_retrieval_index` on an empty wing left the SQLite vector index with
+`dim=None`, and the append path never set it, so a fresh install recalled
+nothing until restart (R2-1; append now adopts the dimension). MEDIUM R2-2: an
+accepted superseded "stop" cancelled the stop utterance's own turn and
+truncated nothing; `BrainAgent._begin_turn` now snapshots the superseded reply
+(`_SupersededReply`) and the stop truncates that. Found while fixing it
+(pre-existing): truncating a reply cancelled mid-generation overwrote the
+previous turn's stored reply, since the cancelled one was never logged
+(`_store_heard_reply` appends or rewrites accordingly). LOWs R2-3..R2-7: append
+dedupe, degraded results kept out of the L1 cache plus `skipped_dimension` in
+the trace, `relevance` under both ranking policies, index invalidation on
+re-embedding promotion, doc corrections. Register: docs/brain-research/01-problems.md.
+Backend suite 2,512 passed, 8 skipped.
+

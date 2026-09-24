@@ -48,7 +48,9 @@ Parity is pinned by tests: the lab's V1 equals production V1 on every probe
 on 30 **held-out** seeds (101–130). 95% intervals are a cluster bootstrap over
 scenario seeds (probes within a scenario are correlated, and the stressed-state
 probes repeat the paraphrase questions); arm comparisons are paired over
-identical probes. ~1,100 probes per cell, 30 scenarios per held-out cell.
+identical probes. 1,707 probes per cell (569 paraphrase questions, the same
+569 asked again in a distressed state, 569 keyword questions), 30 scenarios
+per held-out cell. The "all" column averages over all 1,707.
 
 ## Hypotheses
 

@@ -63,6 +63,15 @@ def _quantize(value: float, step: float) -> float:
     return round(value / step) * step
 
 
+def _clip_relevance(similarity) -> float:
+    """Cosine similarity clipped to [0, 1]: the query-comparable relevance
+    published as `SurfacedMemory.score` (ADR-001)."""
+    try:
+        return max(0.0, min(1.0, float(similarity or 0.0)))
+    except (TypeError, ValueError):
+        return 0.0
+
+
 def pool_is_sqlite(pool) -> bool:
     """Whether `pool` is backed by a stdlib sqlite3 connection under the hood
     (SQLitePool, or a test double shaped like it), rather than real
@@ -1242,10 +1251,14 @@ class MemoryStore:
             "speaker": speaker,
             "record_type": record_type,
             "valid_from": (
-                valid_from.isoformat() if isinstance(valid_from, datetime) else valid_from
+                valid_from.isoformat()
+                if isinstance(valid_from, datetime)
+                else valid_from
             ),
             "valid_until": (
-                valid_until.isoformat() if isinstance(valid_until, datetime) else valid_until
+                valid_until.isoformat()
+                if isinstance(valid_until, datetime)
+                else valid_until
             ),
             "contradicts_id": contradicts_id,
             "recall_count": 1,
@@ -2194,15 +2207,10 @@ class MemoryStore:
 
         spread_activation = self.spread_weight * effective_similarity
         score = (
-            base_activation
-            + spread_activation
-            - ACTR_EMO_DISTANCE_PENALTY * dist_emo
+            base_activation + spread_activation - ACTR_EMO_DISTANCE_PENALTY * dist_emo
         )
 
-        if (
-            score <= (threshold - 2.5)
-            and (row.get("importance_score") or 0.5) < 0.7
-        ):
+        if score <= (threshold - 2.5) and (row.get("importance_score") or 0.5) < 0.7:
             return None
 
         raw_meta = row.get("metadata")
@@ -2716,16 +2724,15 @@ class MemoryStore:
                     "modality": cand.get("modality"),
                 }
             )
-            if "score_terms" in cand:
-                # Hybrid ranking only. `score` is relative to the candidate
-                # pool (the top result scores ~2-3 even for an irrelevant
-                # query), so downstream thresholds must not read it as
-                # absolute relevance; `relevance` is the clipped cosine,
-                # comparable across queries. `score_terms` explains the rank.
+            # `score` is not absolute relevance under either policy: hybrid
+            # scores are relative to the pool (the top result scores ~2-3
+            # even for an irrelevant query) and V1 scores are an unbounded
+            # activation sum. `relevance` is the clipped cosine, comparable
+            # across queries, and is what the surfacing agent publishes.
+            if "similarity" in cand:
+                results[-1]["relevance"] = _clip_relevance(cand["similarity"])
+            if "score_terms" in cand:  # hybrid: why this memory ranked here
                 results[-1]["score_terms"] = cand["score_terms"]
-                results[-1]["relevance"] = max(
-                    0.0, min(1.0, float(cand.get("similarity") or 0.0))
-                )
         return results
 
     # --- L3 sub-conscious archive search and promotion -------------------
@@ -3183,6 +3190,7 @@ class MemoryStore:
             "relations": row.get("relations"),
             "relation_circles": row.get("relation_circles"),
             "modality": row.get("modality"),
+            "relevance": _clip_relevance(similarity),
         }
 
     async def _promote_archived_rows(
@@ -3231,6 +3239,10 @@ class MemoryStore:
             )
             if promoted is not None:
                 promoted_results.append(promoted)
+                if row_index in missing_indices:
+                    # Re-embedded on promotion: if SQLite reused the rowid of
+                    # the same id, the index key cannot tell the row changed.
+                    self._sqlite_vector_index.invalidate(row.get("wing") or "personal")
         return promoted_results
 
     async def _recall_from_archive(
@@ -3401,8 +3413,11 @@ class MemoryStore:
             )
             task.add_done_callback(_done_callback)
 
-        # Cache results in L1 memory cache before returning
-        self._l1_cache_put(cache_key, (now_ts, results))
+        # Cache results in L1 memory cache before returning. Not a degraded
+        # answer: a cache hit clears `last_search_error`, so a repeat query
+        # would report an outage as "nothing relevant".
+        if not self.last_search_error:
+            self._l1_cache_put(cache_key, (now_ts, results))
         return results
 
     async def _fetch_raw_candidates(
@@ -3539,7 +3554,11 @@ class MemoryStore:
         memory was usually never scored at all. Every backend here selects by
         cosine similarity; the ranker decides everything else.
         """
-        neutral = {"current_valence": 0.0, "current_arousal": 0.5, "current_cortisol": 0.0}
+        neutral = {
+            "current_valence": 0.0,
+            "current_arousal": 0.5,
+            "current_cortisol": 0.0,
+        }
         if self.qdrant_store.client:
             # Filter by scope inside Qdrant (V1 post-filtered, so other wings
             # could exhaust the pool) and over-fetch for exclusions.
@@ -3721,7 +3740,9 @@ class MemoryStore:
         its slot, so a failed write never surfaces a memory that is not
         actually active."""
         matched_cues = [
-            w for w in re.findall(r"\b\w{3,}\b", query_text.lower()) if w not in stop_words
+            w
+            for w in re.findall(r"\b\w{3,}\b", query_text.lower())
+            if w not in stop_words
         ]
         results = []
         for cand in ranked:
@@ -3743,7 +3764,7 @@ class MemoryStore:
             for item in promoted:
                 item["score"] = cand["score"]
                 item["score_terms"] = cand.get("score_terms")
-                item["relevance"] = max(0.0, min(1.0, float(cand.get("similarity") or 0.0)))
+                item["relevance"] = _clip_relevance(cand.get("similarity"))
                 results.append(item)
         return results
 
@@ -3847,10 +3868,19 @@ class MemoryStore:
                 "source": source,
                 "pool": len(candidates),
                 "archived_candidates": len(archived),
+                "skipped_dimension": (
+                    self._sqlite_vector_index.skipped_dimension(wing)
+                    if source == "sqlite"
+                    else 0
+                ),
+                "error": self.last_search_error,
                 "ms": round((time.perf_counter() - started) * 1000.0, 2),
                 "results": [
-                    {"id": r.get("id"), "score": round(r["score"], 4),
-                     "terms": r.get("score_terms")}
+                    {
+                        "id": r.get("id"),
+                        "score": round(r["score"], 4),
+                        "terms": r.get("score_terms"),
+                    }
                     for r in results
                 ],
             }
@@ -4587,7 +4617,8 @@ class MemoryStore:
                     last_recalled_at = excluded.last_recalled_at,
                     importance_score = excluded.importance_score
                 """  # nosec B608 - placeholders contains only generated '?' markers
-            legacy_archive_sql = """
+            legacy_archive_sql = (
+                """
                 INSERT INTO archived_memories (
                     id, content, raw_content, wing, room, importance_score, emotional_weight,
                     valence, certainty, source, recall_count, last_recalled_at, created_at,
@@ -4598,12 +4629,15 @@ class MemoryStore:
                     valence, certainty, source, recall_count, last_recalled_at, created_at,
                     metadata, lifespan_stage, crisis, virtue, relations, relation_circles, modality, embedding
                 FROM memories
-                WHERE id IN (""" + placeholders + """)
+                WHERE id IN ("""
+                + placeholders
+                + """)
                 ON CONFLICT(id) DO UPDATE SET
                     recall_count = excluded.recall_count,
                     last_recalled_at = excluded.last_recalled_at,
                     importance_score = excluded.importance_score
                 """
+            )
             try:
                 await conn.execute(archive_sql, *to_delete)
             except Exception as exc:

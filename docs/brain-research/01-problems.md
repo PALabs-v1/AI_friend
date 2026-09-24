@@ -82,3 +82,21 @@ to reject) returned **FAIL** with 13 findings. All were checked and addressed:
 | R-12 | `_state` full table scan; `importance or 0.5` | index on `memories(wing)`; zero importance kept (test) |
 | R-13 | Bootstrap treated correlated probes as independent | cluster bootstrap over scenario seeds; all intervals in 03 regenerated; test |
 
+## Second adversarial review (of the R-1..R-13 fixes)
+
+A fresh reviewer re-judged the fix commit cold, reran every repro, fuzzed the
+index (300 seeds) and checked each doc number against the results JSON. It
+confirmed R-1, R-2, R-4 and R-6..R-13 resolved and returned **FAIL** on one new
+regression. Every finding below has a test that fails on the code it reviewed.
+
+| # | Sev | Finding | Resolution |
+|---|---|---|---|
+| R2-1 | HIGH | The startup warm-up on an empty wing stored `dim=None`; every later write took the append path, which never set it, so `top_k` returned `[]` for the life of the process with no error (a fresh install never recalled anything) | the append adopts the dimension of the first rows it loads; unit and end-to-end tests |
+| R2-2 | MEDIUM | Accepting Stage 2's stop for the superseded reply cancelled the *new* turn (the "stop" utterance's own flow) and truncated nothing, because that turn had already reset the reply state | superseded reply snapshotted in `_begin_turn`; its playback progress keeps updating the snapshot; the stop truncates the snapshot and leaves the current turn running (ADR-003) |
+| R2-2b | MEDIUM (pre-existing, found while fixing R2-2) | Truncating a reply whose generation was cancelled overwrote the *previous* turn's stored reply (the cancelled one was never logged); a logged reply's UPDATE could also race its spawned INSERT | unlogged replies are appended; logged ones rewritten after the insert lands; tests |
+| R2-3 | LOW | A write landing between a rebuild's key read and its fetch was indexed twice after the next append | appends skip ids already present; test |
+| R2-4 | LOW | `last_search_error` for a dimension mismatch was cleared by a 15 s L1 cache hit; a partly re-embedded store lost old rows silently | degraded results are not cached; skipped rows traced and logged per rebuild; tests. Downstream consumption stays open (05, P7-FIX-06) |
+| R2-5 | LOW | Under `actr_v1` results had no `relevance`, so surfacing published the unbounded ACT-R score (R-7 back on rollback) | `relevance` on every result under both policies; test |
+| R2-6 | LOW | Same id reinserted at the same rowid with a new embedding (re-embedding promotion) was invisible to the staleness key | promotion invalidates the wing in-process; cross-process residual documented in 05 |
+| R2-7 | LOW (docs) | 03 said "~1,100 probes per cell" (JSON: 1,707); ef_search under a filter can still return fewer than the pool | 03 corrected from the JSON; 05 states the filter limit |
+

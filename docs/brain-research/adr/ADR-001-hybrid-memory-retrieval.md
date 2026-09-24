@@ -59,8 +59,9 @@ pool was chosen by vector similarity. Two independent defects:
 * The ACT-R history prior is small (0.2) and mixed (−0.05 to +0.08 by regime).
   It is kept for the worst case, not the mean.
 * Scores are relative within the pool: the top result scores ~2–3 even for
-  an irrelevant query. Hybrid results therefore also carry `relevance`
-  (cosine clipped to [0, 1], comparable across queries), and the surfacing
+  an irrelevant query. Results therefore also carry `relevance` (cosine
+  clipped to [0, 1], comparable across queries; under both policies, so a
+  rollback to `actr_v1` does not publish its unbounded score), and the surfacing
   agent publishes that as `SurfacedMemory.score`, which the brain reads as
   relevance for the decision layer's 0.75 threshold. The ranker still always
   returns `limit` memories (abstention: 07 §6). V1's `threshold` argument is

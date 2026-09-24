@@ -12,7 +12,7 @@ behind it.
 | Memory ranking | raw ACT-R sum + substring ×5 | z(cos) + bounded whole-word BM25 + small ACT-R prior | ADR-001 | same |
 | Retrieval trace | log line | `MemoryStore.last_search_trace` (ids + per-term scores, no text) | — | — |
 | Reappraisal | `w1, w2` adapted and persisted every turn | prediction error still fires hormones; weights fixed at defaults | ADR-002 | `REAPPRAISAL_WEIGHT_LEARNING_ENABLED=true` |
-| Barge-in | stop addressed to the new utterance | stop addressed to the reply that is playing | ADR-003 | — |
+| Barge-in | stop addressed to the new utterance; truncation read the new turn's (reset) state | stop addressed to the reply that is playing; that reply is truncated from a snapshot, the new turn is not cancelled | ADR-003 | — |
 | Proactive prompt | raw memory text | injection-gated, delimited | S-1 | — |
 | Graph relations in retrieval | never loaded (neo4j `Record` ≠ `dict`) | loaded (V1 policy) | M-4 | — |
 | SQLite timestamps | default converter, whole-query failure on some offsets | ISO-8601 converter, per-field degradation | M-9 | — |
@@ -62,7 +62,9 @@ pgvector's HNSW index serves.
 | Another process writes memories | picked up on the next query via `(count, max rowid, id at max rowid)` (tested) |
 | Rows deleted by decay, or rowids reused after deleting the newest rows | full index rebuild on the next query (tested) |
 | Concurrent searches while a write lands | `ensure` serialised per wing; appends bounded to the observed rowid range; no duplicates (tested) |
-| Embedding model changed (new dimension) | index rebuilt for the query's dimension; if no stored row matches, `last_search_error` says so (tested) |
+| Embedding model changed (new dimension) | index rebuilt for the query's dimension; if no stored row matches, `last_search_error` says so and the empty result is not cached; rows of another dimension are counted in the trace (`skipped_dimension`) and logged once per rebuild (tested). Nothing downstream reads `last_search_error` yet: surfacing runs in its own process, and carrying an outage marker over `memory.surfaced` is a contract change (open, P7-FIX-06) |
+| Agent starts on an empty store (warm-up builds an empty index) | the first appended rows set the index dimension (tested; was: recall empty until restart) |
+| Archived memory promoted and re-embedded | the wing's index is invalidated in that process. Residual gap: a re-embedding promotion in *another* process that reuses the top rowid is not seen until the next rebuild |
 | Index rebuild (~1.4 s at 5k rows) | parsing runs in a worker thread: event-loop stall 1,235 ms → 91 ms |
-| Postgres HNSW | `SET hnsw.ef_search` raised to the pool size (default 40 would cap it) |
+| Postgres HNSW | `SET hnsw.ef_search` raised to the pool size (default 40 would cap it). The wing/room filter is applied after the HNSW scan, so a filtered query can still return fewer than the pool; harmless today (every memory is in wing `personal`, no caller passes `room`). pgvector ≥ 0.8 `hnsw.iterative_scan` would close it; not verifiable here |
 | Archived row wins but promotion fails | skipped; next candidate takes the slot |
