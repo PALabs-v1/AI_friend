@@ -60,3 +60,25 @@ that fails on the old code), **DECIDED** (architecture changed by ADR),
 |---|---|---|---|
 | B-1 | — | No retrieval-level metric existed: `evals/retrieval.py` scores whether an LLM's answer contains a planted fact (needs Ollama + DB) | FIXED — `evals/cognitive` (recall@k, MRR, obsolete-win, trap intrusion, bootstrap CIs, paired deltas) |
 | B-2 | — | `tests/conftest.py` `os._exit`s in `pytest_sessionfinish`, which suppresses pytest's summary and tracebacks locally; run with `CI=1` to see them | documented |
+
+## Adversarial review of the first Brain V2 cut
+
+An independent reviewer (fresh context, deliverable plus a frozen rubric, told
+to reject) returned **FAIL** with 13 findings. All were checked and addressed:
+
+| # | Finding | Resolution |
+|---|---|---|
+| R-1 | Vector index stale after SQLite rowid reuse (delete newest k, insert k) → search returned `[]` with no error | key now includes the id at max rowid, plus a same-top-row check before appending; tests reproduce both reuse patterns |
+| R-2 | Index rebuild parsed JSON on the event loop (1.2 s stall at 5k rows) | parsing/stacking moved to a worker thread; stall 91 ms |
+| R-3 | A write between the state read and the append duplicated rows; concurrent `ensure` mutated the index | appends bounded to `(old top, new top]`; per-wing `asyncio.Lock`; test |
+| R-4 | Over the cap, appends evicted the most recently recalled rows | index held oldest→newest; test |
+| R-5 | Embedding-dimension change silently blanked recall forever | rebuild for the query's dimension; `last_search_error` when nothing matches; test |
+| R-6 | Unparseable `created_at` failed every hybrid search | `_as_aware_utc` in the candidate builder (found in self-review too); test |
+| R-7 | Hybrid `score` is pool-relative but was read downstream as absolute relevance (decision threshold 0.75 always passed) | results carry `relevance` (clipped cosine); surfacing publishes it; tests |
+| R-8 | pgvector HNSW caps results at `ef_search` (40) < pool (60) | `SET hnsw.ef_search` per query; test (mocked; not verifiable live here) |
+| R-9 | Superseded-turn acceptance let a stale facial-startle stop cancel the new turn | only Stage 2's `confirmed_command` may target the superseded turn, once; tests |
+| R-10 | Room filter / exclusions applied after top-k (SQLite), wing post-filter (Qdrant) | room filtered inside the index; Qdrant filtered by wing/room at query time with over-fetch |
+| R-11 | Hybrid silently dropped V1 features | each listed with its reason in `memory_ranking.py` and ADR-001 |
+| R-12 | `_state` full table scan; `importance or 0.5` | index on `memories(wing)`; zero importance kept (test) |
+| R-13 | Bootstrap treated correlated probes as independent | cluster bootstrap over scenario seeds; all intervals in 03 regenerated; test |
+

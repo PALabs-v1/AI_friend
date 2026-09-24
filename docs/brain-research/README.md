@@ -9,12 +9,12 @@ a test, or is labelled as unverified with the experiment that would settle it.
 
 | | Baseline V1 | Brain V2 | Evidence |
 |---|---|---|---|
-| Right memory in top 3 (production-like cell, held-out seeds) | **0.02** | **0.69** (+0.67 [0.65, 0.69], 1,146 wins / 1 loss) | `03-memory-retrieval.md` |
+| Right memory in top 3 (production-like cell, held-out seeds) | **0.02** | **0.69** (+0.67 [0.65, 0.69] by scenario-level bootstrap, 1,146 wins / 1 loss) | `03-memory-retrieval.md` |
 | Worst case over 9 embedding × history cells | 0.02 | 0.69 | E3 |
 | Keyword traps in the top 3 | 0.31 | 0.02 | E3 |
-| Retrieval latency, SQLite, 5,000 memories (p50 / p95) | 57.8 / 70.7 ms | 4.1 / 7.1 ms | latency harness |
+| Retrieval latency, SQLite, 5,000 memories (p50 / p95) | 56.9 / 68.3 ms | 3.9 / 6.6 ms | latency harness |
 | Valence runaway from mood 0.6 (turns saturated at +1.0 of 200) | 143 | 0 | `04-affect-dynamics.md` |
-| Backend tests | 2,388 passed | 2,483+ passed, 0 failed | `pytest` |
+| Backend tests | 2,388 passed | 2,499 passed, 0 failed | `pytest` |
 
 Also fixed (each with a test that fails on the old code): graph relations
 never loading into retrieval (M-4), dropped retrieval-outage markers (M-7),

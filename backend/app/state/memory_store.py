@@ -2717,8 +2717,15 @@ class MemoryStore:
                 }
             )
             if "score_terms" in cand:
-                # Hybrid ranking only: per-term breakdown for diagnostics.
+                # Hybrid ranking only. `score` is relative to the candidate
+                # pool (the top result scores ~2-3 even for an irrelevant
+                # query), so downstream thresholds must not read it as
+                # absolute relevance; `relevance` is the clipped cosine,
+                # comparable across queries. `score_terms` explains the rank.
                 results[-1]["score_terms"] = cand["score_terms"]
+                results[-1]["relevance"] = max(
+                    0.0, min(1.0, float(cand.get("similarity") or 0.0))
+                )
         return results
 
     # --- L3 sub-conscious archive search and promotion -------------------
@@ -3534,11 +3541,15 @@ class MemoryStore:
         """
         neutral = {"current_valence": 0.0, "current_arousal": 0.5, "current_cortisol": 0.0}
         if self.qdrant_store.client:
+            # Filter by scope inside Qdrant (V1 post-filtered, so other wings
+            # could exhaust the pool) and over-fetch for exclusions.
+            scope = {"wing": wing} if room is None else {"wing": wing, "room": room}
             try:
                 hits = await asyncio.to_thread(
                     self.qdrant_store.search_vector_memories,
                     query_vector=query_vector,
-                    limit=pool_size,
+                    limit=pool_size + len(excluded),
+                    filter_dict=scope,
                 )
             except Exception as qe:
                 logger.error(f"Qdrant retrieval failed: {qe}")
@@ -3555,7 +3566,7 @@ class MemoryStore:
                     **neutral,
                 )
                 if candidates:
-                    return candidates, "qdrant"
+                    return candidates[:pool_size], "qdrant"
 
         async with self.pool.acquire() as conn:
             now = (
@@ -3569,16 +3580,23 @@ class MemoryStore:
                 # full rows are then read only for the winners. Over-fetch by
                 # the exclusion count so excluded contents cannot shrink the pool.
                 hits = await self._sqlite_vector_index.top_k(
-                    conn, wing, query_vector, pool_size + len(excluded)
+                    conn, wing, query_vector, pool_size + len(excluded), room=room
                 )
                 if not hits:
+                    index = await self._sqlite_vector_index.ensure(conn, wing)
+                    if index.skipped_dimension and not index.ids:
+                        # Rows exist but none share the query's dimension
+                        # (an embedding-model change): an outage, not "nothing
+                        # relevant", so say so.
+                        self.last_search_error = (
+                            "no stored embedding matches the query dimension "
+                            f"({len(query_vector)})"
+                        )
+                        self.last_search_error_at = time.time()
                     return [], "sqlite"
                 similarity_by_id = dict(hits)
                 where, args = self._in_predicate("id", list(similarity_by_id))
                 sql = f"SELECT * FROM memories WHERE {where}"  # nosec B608 - where is "id IN (?,...)" from _in_predicate; values bound via args
-                if room is not None:
-                    sql += " AND room = ?"
-                    args.append(room)
                 rows = await conn.fetch(sql, *args)
                 candidates = []
                 for row in rows:
@@ -3595,13 +3613,15 @@ class MemoryStore:
                 return candidates[:pool_size], "sqlite"
 
             # Over-fetch by the exclusion count, as the SQLite branch does, so
-            # excluded contents cannot shrink the pool.
+            # excluded contents cannot shrink the pool. pgvector's HNSW scan
+            # returns at most `hnsw.ef_search` rows (default 40) -- fewer after
+            # the wing/room filter -- so raise it to the pool. Session-level on
+            # purpose: a higher ef_search left on a pooled connection only
+            # makes later HNSW scans more thorough, and it needs no transaction.
+            fetch_n = pool_size + len(excluded)
+            await conn.execute(f"SET hnsw.ef_search = {max(40, int(fetch_n))}")
             rows = await conn.fetch(
-                self._PG_SIMILARITY_SQL,
-                str(query_vector),
-                wing,
-                room,
-                pool_size + len(excluded),
+                self._PG_SIMILARITY_SQL, str(query_vector), wing, room, fetch_n
             )
             candidates = []
             for row in rows:
@@ -3723,6 +3743,7 @@ class MemoryStore:
             for item in promoted:
                 item["score"] = cand["score"]
                 item["score_terms"] = cand.get("score_terms")
+                item["relevance"] = max(0.0, min(1.0, float(cand.get("similarity") or 0.0)))
                 results.append(item)
         return results
 

@@ -32,7 +32,7 @@ No schema migration. No contract change. Existing stored memories work as is.
 
 | Operation | Budget | Measured |
 |---|---|---|
-| Memory retrieval, SQLite, 5k memories | p95 ≤ 25 ms | p95 7.1 ms (20.7 ms with interleaved writes) |
+| Memory retrieval, SQLite, 5k memories | p95 ≤ 25 ms | p95 6.6 ms (8.2 ms with interleaved writes) |
 | Retrieval index cold build, 5k memories | off critical path | ~1 s at agent start |
 | Ranking itself (`hybrid_rank`, 60 candidates) | ≤ 2 ms | included above |
 | Affect update per turn | unchanged | — |
@@ -59,7 +59,10 @@ pgvector's HNSW index serves.
 | Qdrant down or empty | falls through to the SQL path (unchanged) |
 | One corrupt stored embedding (SQLite) | row skipped by the index; no rebuild storm (tested) |
 | Unparseable stored timestamp (SQLite) | that field becomes text; the query succeeds (tested) |
-| Another process writes memories | picked up on the next query via `(count, max rowid)` (tested) |
-| Rows deleted by decay | full index rebuild on the next query (tested) |
-| Mixed embedding dimensions | majority dimension indexed; a mismatched query returns no candidates |
+| Another process writes memories | picked up on the next query via `(count, max rowid, id at max rowid)` (tested) |
+| Rows deleted by decay, or rowids reused after deleting the newest rows | full index rebuild on the next query (tested) |
+| Concurrent searches while a write lands | `ensure` serialised per wing; appends bounded to the observed rowid range; no duplicates (tested) |
+| Embedding model changed (new dimension) | index rebuilt for the query's dimension; if no stored row matches, `last_search_error` says so (tested) |
+| Index rebuild (~1.4 s at 5k rows) | parsing runs in a worker thread: event-loop stall 1,235 ms → 91 ms |
+| Postgres HNSW | `SET hnsw.ef_search` raised to the pool size (default 40 would cap it) |
 | Archived row wins but promotion fails | skipped; next candidate takes the slot |

@@ -141,6 +141,10 @@ class SQLiteConnection:
             )
         """)
 
+        # Brain V2: the retrieval index checks a wing's count/max(rowid) on
+        # every search; without this that is a full table scan.
+        cursor.execute("CREATE INDEX IF NOT EXISTS memories_wing_idx ON memories(wing)")
+
         # Archived Memories Table (pgvector fallback storage in SQLite)
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS archived_memories (

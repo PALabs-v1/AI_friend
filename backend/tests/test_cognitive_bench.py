@@ -172,3 +172,16 @@ def test_gate_affect_weight_learning_runaway_is_off_by_default():
         )
     ).metrics()
     assert forced["turns_saturated"] > 100 and forced["loop_gain_final"] > 1.0
+
+
+def test_intervals_resample_scenarios_not_probes():
+    """Review finding: probes in one scenario are correlated (and mood probes
+    repeat paraphrase questions), so CIs must resample scenario seeds."""
+    from evals.cognitive.metrics import _bootstrap_ci, _cluster_bootstrap_ci
+
+    # 10 scenarios, 50 identical probes each, scenario means 0 or 1.
+    values = [float(s % 2) for s in range(10) for _ in range(50)]
+    clusters = [s for s in range(10) for _ in range(50)]
+    lo_c, hi_c = _cluster_bootstrap_ci(values, clusters)
+    lo_p, hi_p = _bootstrap_ci(values)
+    assert (hi_c - lo_c) > 3 * (hi_p - lo_p)

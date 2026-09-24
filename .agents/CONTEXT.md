@@ -17012,3 +17012,22 @@ own stop (V-2). An adversarial review returned FAIL on the first cut
 (vector-index staleness on rowid reuse, blocking rebuilds, append race,
 relevance semantics of hybrid `score`, stale-stop acceptance); fixes follow
 in the next commits on this branch.
+
+### 2026-09-24 -- Brain V2 adversarial-review fix round
+
+An independent reviewer returned FAIL (13 findings) on the first cut. All
+addressed (table in docs/brain-research/01-problems.md, R-1..R-13): the SQLite
+vector index now detects rowid reuse (key includes the id at max rowid, plus a
+same-top check before appending), parses in a worker thread (event-loop stall
+1,235 -> 91 ms), serialises `ensure` per wing with bounded appends, evicts
+least-recently-touched rows first, rebuilds for a new embedding dimension and
+reports an unanswerable dimension via `last_search_error`, and filters rooms
+before ranking. Hybrid results carry `relevance` (clipped cosine); the
+surfacing agent publishes it, so the decision layer's 0.75 relevance
+threshold no longer sees pool-relative scores. Postgres raises
+`hnsw.ef_search` to the pool size. Only Stage 2's `confirmed_command` may
+target the superseded turn, once. Benchmark CIs are now a cluster bootstrap
+over scenario seeds; held-out tables regenerated (means unchanged; headline
+delta +0.671 [0.649, 0.693]). Latency re-measured on an idle machine: SQLite
+5k memories p50/p95 3.9/6.6 ms vs V1 56.9/68.3 ms. Backend suite 2,499 passed,
+8 skipped. Push to origin blocked (GitHub App access, 403); commits are local.

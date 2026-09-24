@@ -1006,11 +1006,23 @@ class BrainAgent(BaseAgent):
 
                 async with self._turn_state_lock:
                     active_turn_id = getattr(self, "_active_response_turn_id", None)
-                    superseded_turn_id = getattr(self, "_superseded_turn_id", None)
+                    # Only Stage 2's confirmed voice command is addressed to
+                    # the superseded reply (ADR-003). Any other stop for that
+                    # turn -- e.g. a facial-startle stop published before the
+                    # user's new utterance took over -- is stale, as before.
+                    # Consumed on use so it cannot match twice.
+                    accepts_superseded = (
+                        stop_msg.reason == "confirmed_command"
+                        and stop_msg.turn_id is not None
+                        and stop_msg.turn_id == getattr(self, "_superseded_turn_id", None)
+                    )
+                    if accepts_superseded:
+                        self._superseded_turn_id = None
                 if (
                     stop_msg.turn_id
                     and active_turn_id
-                    and stop_msg.turn_id not in (active_turn_id, superseded_turn_id)
+                    and stop_msg.turn_id != active_turn_id
+                    and not accepts_superseded
                 ):
                     logger.debug(
                         "Ignoring audio stop for stale turn %s; active turn is %s.",

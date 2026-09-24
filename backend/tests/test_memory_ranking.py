@@ -176,6 +176,10 @@ async def test_hybrid_recalls_a_memory_older_than_the_twenty_newest(
         current_time=now,
     )
     assert results and results[0]["content"] == "my sister Priya was born on March 14"
+    # Absolute relevance (clipped cosine; the query vector equals the fact's),
+    # separate from the pool-relative ranking score.
+    assert results[0]["relevance"] == pytest.approx(1.0, abs=1e-4)
+    assert all(0.0 <= r["relevance"] <= 1.0 for r in results)
     trace = sqlite_store.last_search_trace
     assert trace["policy"] == "hybrid" and trace["source"] == "sqlite"
     assert (
@@ -288,6 +292,12 @@ async def test_hybrid_postgres_path_selects_candidates_by_vector_distance(monkey
     assert calls[0].args[4] == Config.MEMORY_CANDIDATE_POOL
     assert [r["content"] for r in results] == ["relevant", "recent noise"]
     assert store.last_search_trace["source"] == "postgres"
+    # HNSW returns at most hnsw.ef_search rows (default 40): raised to the pool.
+    settings = [c.args[0] for c in conn.execute.await_args_list]
+    assert any("SET hnsw.ef_search = 60" in q for q in settings)
+    # Absolute relevance for downstream thresholds, separate from the
+    # pool-relative ranking score.
+    assert results[0]["relevance"] == pytest.approx(0.9)
 
 
 @pytest.mark.asyncio
@@ -466,3 +476,109 @@ def test_candidate_builder_tolerates_text_timestamps():
     }
     cand = store._build_candidate_from_row(row, NOW, 0.0, 0.5, 0.0, float("-inf"))
     assert cand is not None and cand["created_at"] is None
+
+
+# --- adversarial-review findings on the vector index --------------------------
+
+
+@pytest.mark.asyncio
+async def test_index_detects_rowid_reuse_after_delete_and_reinsert(sqlite_conn):
+    """TEXT-keyed rows reuse rowids: delete all + insert the same count leaves
+    count and max(rowid) unchanged. The cached ids must not survive."""
+    from app.state.sqlite_vector_index import SQLiteVectorIndex
+
+    index = SQLiteVectorIndex(scan_limit=100)
+    for i in range(5):
+        await _insert(sqlite_conn, f"old{i}", _vec(i, 8))
+    await index.top_k(sqlite_conn, "personal", _vec(0, 8), 5)
+    await sqlite_conn.execute("DELETE FROM memories")
+    for i in range(5):
+        await _insert(sqlite_conn, f"new{i}", _vec(i, 8))
+    ids = [m for m, _ in await index.top_k(sqlite_conn, "personal", _vec(0, 8), 5)]
+    assert ids and all(m.startswith("new") for m in ids)
+
+
+@pytest.mark.asyncio
+async def test_index_does_not_mistake_reuse_plus_growth_for_an_append(sqlite_conn):
+    from app.state.sqlite_vector_index import SQLiteVectorIndex
+
+    index = SQLiteVectorIndex(scan_limit=100)
+    for i in range(4):
+        await _insert(sqlite_conn, f"m{i}", _vec(i, 8))
+    await index.top_k(sqlite_conn, "personal", _vec(0, 8), 4)
+    await sqlite_conn.execute("DELETE FROM memories WHERE id IN (?, ?)", "m2", "m3")
+    for i in range(4):  # reuses rowids 3,4 then grows to 6
+        await _insert(sqlite_conn, f"x{i}", _vec(i + 4, 8))
+    got = {m for m, _ in await index.top_k(sqlite_conn, "personal", _vec(0, 8), 10)}
+    assert got == {"m0", "m1", "x0", "x1", "x2", "x3"}
+
+
+@pytest.mark.asyncio
+async def test_concurrent_ensure_never_duplicates_rows(sqlite_conn):
+    import asyncio
+
+    from app.state.sqlite_vector_index import SQLiteVectorIndex
+
+    index = SQLiteVectorIndex(scan_limit=100)
+    for i in range(3):
+        await _insert(sqlite_conn, f"r{i}", _vec(i, 8))
+    await index.ensure(sqlite_conn, "personal")
+    await _insert(sqlite_conn, "late", _vec(5, 8))
+    await asyncio.gather(*(index.ensure(sqlite_conn, "personal") for _ in range(4)))
+    await _insert(sqlite_conn, "later", _vec(6, 8))
+    built = await index.ensure(sqlite_conn, "personal")
+    assert sorted(built.ids) == ["late", "later", "r0", "r1", "r2"]
+
+
+@pytest.mark.asyncio
+async def test_index_cap_evicts_least_recently_touched_first(sqlite_conn):
+    from app.state.sqlite_vector_index import SQLiteVectorIndex
+
+    index = SQLiteVectorIndex(scan_limit=3)
+    for name, when, v in (("old", "2026-01-01 00:00:00", 0), ("mid", "2026-01-02 00:00:00", 1),
+                          ("recent", "2026-01-03 00:00:00", 2), ("oldest", "2025-12-01 00:00:00", 3)):
+        await _insert(sqlite_conn, name, _vec(v, 8), when=when)
+    built = await index.ensure(sqlite_conn, "personal")
+    assert built.ids == ["old", "mid", "recent"]  # 3 most recent, oldest-first
+    await _insert(sqlite_conn, "new", _vec(4, 8), when="2026-01-04 00:00:00")
+    built = await index.ensure(sqlite_conn, "personal")
+    assert built.ids == ["mid", "recent", "new"]  # "old" evicted, not "recent"
+
+
+@pytest.mark.asyncio
+async def test_index_follows_an_embedding_model_change(sqlite_conn):
+    from app.state.sqlite_vector_index import SQLiteVectorIndex
+
+    index = SQLiteVectorIndex(scan_limit=100)
+    for i in range(3):
+        await _insert(sqlite_conn, f"d4_{i}", _vec(i, 4))
+    await index.top_k(sqlite_conn, "personal", _vec(0, 4), 3)
+    for i in range(5):
+        await _insert(sqlite_conn, f"d6_{i}", _vec(i, 6))
+    ids = [m for m, _ in await index.top_k(sqlite_conn, "personal", _vec(2, 6), 1)]
+    assert ids == ["d6_2"]
+
+
+@pytest.mark.asyncio
+async def test_index_filters_room_before_ranking(sqlite_conn):
+    from app.state.sqlite_vector_index import SQLiteVectorIndex
+
+    index = SQLiteVectorIndex(scan_limit=100)
+    for i in range(5):
+        await sqlite_conn.execute(
+            "INSERT INTO memories (id, content, wing, room, embedding, last_recalled_at) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            f"m{i}", "c", "personal", "a" if i < 4 else "b", str(_vec(i, 8)),
+            "2026-01-01 00:00:00",
+        )
+    hits = await index.top_k(sqlite_conn, "personal", _vec(0, 8), 3, room="b")
+    assert [m for m, _ in hits] == ["m4"]
+
+
+@pytest.mark.asyncio
+async def test_dimension_mismatch_is_reported_not_silent(sqlite_store, monkeypatch):
+    monkeypatch.setattr(Config, "MEMORY_RANKING_POLICY", "hybrid")
+    await sqlite_store.add_memory("stored with an old model", embedding=_vec(0, 16))
+    sqlite_store.get_embedding = AsyncMock(return_value=_vec(0, 768))
+    assert await sqlite_store.search_memories("anything", refresh_on_recall=False) == []
+    assert "dimension" in (sqlite_store.last_search_error or "")

@@ -34,8 +34,12 @@ pool was chosen by vector similarity. Two independent defects:
 1. **Candidates by similarity** on every backend: Qdrant top-N; Postgres
    `ORDER BY embedding <=> q LIMIT N` (also lets pgvector use its HNSW index);
    SQLite via an in-process float32 vector index over the wing's most recent
-   `MEMORY_SQLITE_SCAN_LIMIT` (5,000) rows, with O(1) staleness detection so
-   writes from other processes are seen. `N = MEMORY_CANDIDATE_POOL = 60`.
+   `MEMORY_SQLITE_SCAN_LIMIT` (5,000) rows. Staleness is checked per query
+   from `(count, max rowid, id at max rowid)` plus a same-top-row check
+   before appending, so writes and deletions from other processes and SQLite
+   rowid reuse are all seen. Parsing runs in a worker thread and `ensure`
+   is serialised per wing. Postgres raises `hnsw.ef_search` to the pool size
+   (the HNSW default of 40 would silently cap it). `N = MEMORY_CANDIDATE_POOL = 60`.
 2. **Score** (`app/state/memory_ranking.py`):
    `z(cos) + 1.5·BM25/max(BM25) + 0.2·z(ln n − 0.5·ln(h+1) + 1.5·importance)`,
    z-scores and BM25 IDF computed over the pool. Weights are the centre of the
@@ -54,9 +58,18 @@ pool was chosen by vector similarity. Two independent defects:
   +0.07 when embeddings are ambiguous.
 * The ACT-R history prior is small (0.2) and mixed (−0.05 to +0.08 by regime).
   It is kept for the worst case, not the mean.
-* Scores are relative within the pool: there is no absolute relevance
-  threshold, so the ranker always returns `limit` memories (open question,
-  07 §6). V1's `threshold` argument is accepted and ignored by the hybrid.
+* Scores are relative within the pool: the top result scores ~2–3 even for
+  an irrelevant query. Hybrid results therefore also carry `relevance`
+  (cosine clipped to [0, 1], comparable across queries), and the surfacing
+  agent publishes that as `SurfacedMemory.score`, which the brain reads as
+  relevance for the decision layer's 0.75 threshold. The ranker still always
+  returns `limit` memories (abstention: 07 §6). V1's `threshold` argument is
+  accepted and ignored by the hybrid.
+* Not carried over from V1 (all still available under `actr_v1`): PageRank
+  graph boost, pronoun cue resolution, goal buffer, topic-shift flush,
+  stress-narrowed pools / Matryoshka truncation. Reasons in
+  `app/state/memory_ranking.py`'s docstring. Consequence: the Neo4j fix (M-4)
+  only takes effect under `actr_v1` until the graph experiment (07 §2) decides.
 * The graph/PageRank leg is not part of the hybrid. It was unreachable in
   production anyway (M-4), and its value is unmeasured (07 §2).
 * Mood-dependent retrieval is removed; see ADR-002 and E-R for why.
@@ -64,7 +77,7 @@ pool was chosen by vector similarity. Two independent defects:
 
 ## Performance
 
-SQLite, 5,000 memories: p50 4.1 ms / p95 7.1 ms (V1: 57.8 / 70.7 ms). The first
+SQLite, 5,000 memories: p50 3.9 ms / p95 6.6 ms (V1: 56.9 / 68.3 ms). The first
 search after start or after a deletion rebuilds the index (~1 s at 5,000);
 agents warm it at startup. Postgres and Qdrant paths are index-backed.
 

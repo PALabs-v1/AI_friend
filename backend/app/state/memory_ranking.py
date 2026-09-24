@@ -30,6 +30,22 @@ Deliberately absent, each rejected by measurement:
 * near-duplicate supersession by absolute cosine (costs up to 0.50 hit@3
   when fact and topic similarities overlap).
 
+V1 features not carried over, each named so the omission is a decision, not
+an accident (all still run under `MEMORY_RANKING_POLICY="actr_v1"`):
+
+* Personalized PageRank over the Neo4j graph -- its relation leg never ran in
+  production (neo4j Records were filtered as non-dicts) and its value is
+  unmeasured; research queue item 2 tests it as a fourth z-scored term.
+* pronoun cue resolution ("I"/"you" -> user/agent graph nodes) -- only fed
+  the substring cue boost, which BM25 over whole words replaces;
+* the goal buffer (query words re-boosting the next 3 queries) and
+  topic-shift flushing -- no measurable effect (E2 ablation: 0.00);
+* stress-narrowed candidate pools and Matryoshka dimension truncation --
+  no benefit isolated, and zeroing dimensions without renormalising skews
+  cosine by a per-document factor;
+* the absolute `threshold` -- hybrid scores are pool-relative, so results
+  carry `relevance` (clipped cosine) for any absolute cut instead.
+
 Pure functions over candidate dicts; no I/O. `MemoryStore` owns candidate
 generation and calls `hybrid_rank`.
 """

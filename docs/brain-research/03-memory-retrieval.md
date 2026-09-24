@@ -2,8 +2,8 @@
 
 **Outcome:** production retrieval returned the right memory in its top 3 for
 **2–4%** of questions on the SQLite path. The Brain V2 hybrid ranker returns it
-for **69–100%** (held-out seeds, hardest profile to easiest), at **4 ms p50**
-instead of 58 ms on 5,000 memories. Shipped as the default (ADR-001); V1
+for **69–100%** (held-out seeds, hardest profile to easiest), at **3.9 ms p50**
+instead of 56.9 ms on 5,000 memories. Shipped as the default (ADR-001); V1
 remains selectable (`MEMORY_RANKING_POLICY=actr_v1`).
 
 ## Question
@@ -45,8 +45,10 @@ Parity is pinned by tests: the lab's V1 equals production V1 on every probe
 (one float-level tie at rank 3).
 
 **Statistics.** 20 tuning seeds (1–20) for sweeps; every decision re-validated
-on 30 **held-out** seeds (101–130). 95% percentile-bootstrap intervals; arm
-comparisons are paired over identical probes. ~1,100 probes per cell.
+on 30 **held-out** seeds (101–130). 95% intervals are a cluster bootstrap over
+scenario seeds (probes within a scenario are correlated, and the stressed-state
+probes repeat the paraphrase questions); arm comparisons are paired over
+identical probes. ~1,100 probes per cell, 30 scenarios per held-out cell.
 
 ## Hypotheses
 
@@ -106,16 +108,16 @@ Per category on the production-like cell (`hard/summary`):
 
 | arm | all | paraphrase | keyword | old | emotional | updated | mood_negative | obsolete wins | trap in top-3 | hit@3 95% CI | paired Δ vs baseline [95% CI] |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| `v1@sqlite` | 0.02 | 0.01 | 0.05 | 0.00 | 0.03 | 0.00 | 0.00 | 0.00 | 0.31 | [0.015, 0.029] | — |
-| `v1@vec60` | 0.41 | 0.18 | 0.86 | 0.33 | 0.53 | 0.04 | 0.20 | 0.64 | 0.20 | [0.386, 0.429] | +0.385 [+0.361, +0.407] |
-| `cosine@vec60` | 0.59 | 0.56 | 0.63 | 0.55 | 0.59 | 0.37 | 0.57 | 0.60 | 0.02 | [0.563, 0.610] | +0.565 [+0.540, +0.589] |
-| `gen_agents@vec60` | 0.32 | 0.30 | 0.34 | 0.10 | 0.34 | 0.11 | 0.30 | 0.09 | 0.15 | [0.294, 0.340] | +0.294 [+0.272, +0.315] |
-| `rrf@vec60` | 0.52 | 0.50 | 0.57 | 0.28 | 0.53 | 0.39 | 0.50 | 0.54 | 0.06 | [0.498, 0.545] | +0.500 [+0.477, +0.524] |
-| `v1_retuned:12:2@vec60` | 0.62 | 0.49 | 0.87 | 0.51 | 0.68 | 0.20 | 0.50 | 0.77 | 0.09 | [0.594, 0.638] | +0.593 [+0.569, +0.616] |
-| `hybrid:1.5:0.2:none@vec20` | 0.68 | 0.61 | 0.83 | 0.62 | 0.71 | 0.36 | 0.61 | 0.63 | 0.02 | [0.660, 0.703] | +0.659 [+0.636, +0.681] |
-| `hybrid:1.5:0.2:none@vec60` | 0.69 | 0.61 | 0.86 | 0.62 | 0.72 | 0.33 | 0.61 | 0.67 | 0.02 | [0.672, 0.714] | +0.671 [+0.648, +0.692] |
-| `hybrid:1.5:0.2:none@all` | 0.67 | 0.57 | 0.87 | 0.59 | 0.71 | 0.27 | 0.57 | 0.66 | 0.09 | [0.651, 0.694] | +0.650 [+0.627, +0.672] |
-| `hybrid:1.5:0.2:none@sqlite` | 0.03 | 0.02 | 0.05 | 0.00 | 0.04 | 0.00 | 0.01 | 0.00 | 0.35 | [0.024, 0.039] | +0.009 [+0.005, +0.014] |
+| `v1@sqlite` | 0.02 | 0.01 | 0.05 | 0.00 | 0.03 | 0.00 | 0.00 | 0.00 | 0.31 | [0.015, 0.030] | — |
+| `v1@vec60` | 0.41 | 0.18 | 0.86 | 0.33 | 0.53 | 0.04 | 0.20 | 0.64 | 0.20 | [0.390, 0.423] | +0.385 [+0.370, +0.400] |
+| `cosine@vec60` | 0.59 | 0.56 | 0.63 | 0.55 | 0.59 | 0.37 | 0.57 | 0.60 | 0.02 | [0.558, 0.613] | +0.565 [+0.539, +0.593] |
+| `gen_agents@vec60` | 0.32 | 0.30 | 0.34 | 0.10 | 0.34 | 0.11 | 0.30 | 0.09 | 0.15 | [0.283, 0.350] | +0.294 [+0.263, +0.325] |
+| `rrf@vec60` | 0.52 | 0.50 | 0.57 | 0.28 | 0.53 | 0.39 | 0.50 | 0.54 | 0.06 | [0.484, 0.559] | +0.500 [+0.465, +0.536] |
+| `v1_retuned:12:2@vec60` | 0.62 | 0.49 | 0.87 | 0.51 | 0.68 | 0.20 | 0.50 | 0.77 | 0.09 | [0.594, 0.636] | +0.593 [+0.572, +0.615] |
+| `hybrid:1.5:0.2:none@vec20` | 0.68 | 0.61 | 0.83 | 0.62 | 0.71 | 0.36 | 0.61 | 0.63 | 0.02 | [0.654, 0.708] | +0.659 [+0.635, +0.683] |
+| `hybrid:1.5:0.2:none@vec60` | 0.69 | 0.61 | 0.86 | 0.62 | 0.72 | 0.33 | 0.61 | 0.67 | 0.02 | [0.666, 0.718] | +0.671 [+0.649, +0.693] |
+| `hybrid:1.5:0.2:none@all` | 0.67 | 0.57 | 0.87 | 0.59 | 0.71 | 0.27 | 0.57 | 0.66 | 0.09 | [0.647, 0.695] | +0.650 [+0.629, +0.671] |
+| `hybrid:1.5:0.2:none@sqlite` | 0.03 | 0.02 | 0.05 | 0.00 | 0.04 | 0.00 | 0.01 | 0.00 | 0.35 | [0.022, 0.042] | +0.009 [+0.005, +0.013] |
 
 Alternatives tried: Generative Agents scoring (Park et al., 2023: min-max
 recency 0.995^h + importance + relevance) — strong on `unique`, collapses to
@@ -181,11 +183,11 @@ On `hard/summary`:
 
 | arm | all | paraphrase | keyword | old | emotional | updated | mood_negative | obsolete wins | trap in top-3 | hit@3 95% CI | paired Δ vs baseline [95% CI] |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| `hybrid:1.5:0.2:none/pool@vec60` | 0.69 | 0.61 | 0.86 | 0.62 | 0.72 | 0.33 | 0.61 | 0.67 | 0.02 | [0.672, 0.714] | — |
-| `hybrid:0.0:0.2:none/pool@vec60` | 0.63 | 0.61 | 0.67 | 0.53 | 0.63 | 0.39 | 0.61 | 0.58 | 0.02 | [0.606, 0.650] | -0.065 [-0.079, -0.052] |
-| `hybrid:1.5:0.0:none/pool@vec60` | 0.70 | 0.62 | 0.86 | 0.65 | 0.74 | 0.33 | 0.62 | 0.70 | 0.02 | [0.679, 0.720] | +0.006 [-0.005, +0.018] |
-| `cosine@vec60` | 0.59 | 0.56 | 0.63 | 0.55 | 0.59 | 0.37 | 0.57 | 0.60 | 0.02 | [0.563, 0.610] | -0.106 [-0.126, -0.086] |
-| `hybrid:1.5:0.2:none/pool@sqlite` | 0.03 | 0.02 | 0.05 | 0.00 | 0.04 | 0.00 | 0.01 | 0.00 | 0.35 | [0.024, 0.039] | -0.661 [-0.683, -0.638] |
+| `hybrid:1.5:0.2:none/pool@vec60` | 0.69 | 0.61 | 0.86 | 0.62 | 0.72 | 0.33 | 0.61 | 0.67 | 0.02 | [0.666, 0.718] | — |
+| `hybrid:0.0:0.2:none/pool@vec60` | 0.63 | 0.61 | 0.67 | 0.53 | 0.63 | 0.39 | 0.61 | 0.58 | 0.02 | [0.597, 0.657] | -0.065 [-0.078, -0.051] |
+| `hybrid:1.5:0.0:none/pool@vec60` | 0.70 | 0.62 | 0.86 | 0.65 | 0.74 | 0.33 | 0.62 | 0.70 | 0.02 | [0.674, 0.725] | +0.006 [-0.009, +0.021] |
+| `cosine@vec60` | 0.59 | 0.56 | 0.63 | 0.55 | 0.59 | 0.37 | 0.57 | 0.60 | 0.02 | [0.558, 0.613] | -0.106 [-0.130, -0.083] |
+| `hybrid:1.5:0.2:none/pool@sqlite` | 0.03 | 0.02 | 0.05 | 0.00 | 0.04 | 0.00 | 0.01 | 0.00 | 0.35 | [0.022, 0.042] | -0.661 [-0.684, -0.639] |
 
 Lexical (whole-word BM25) is worth +0.05 to +0.07 on the hard profile and
 costs ~0.03 on clean embeddings (it lifts an obsolete version sharing the
@@ -209,10 +211,10 @@ A perfect detector that closes a fact's validity when its revision is written:
 
 | arm | all | paraphrase | keyword | old | emotional | updated | mood_negative | obsolete wins | trap in top-3 | hit@3 95% CI | paired Δ vs baseline [95% CI] |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| `hybrid:1.5:0.2:none/pool@vec60` | 0.69 | 0.61 | 0.86 | 0.62 | 0.72 | 0.33 | 0.61 | 0.67 | 0.02 | [0.672, 0.714] | — |
-| `hybrid:1.5:0.2:none/pool@vec60+validity` | 0.72 | 0.63 | 0.91 | 0.66 | 0.72 | 0.54 | 0.63 | 0.00 | 0.03 | [0.704, 0.745] | +0.032 [+0.023, +0.040] |
-| `v1@vec60` | 0.41 | 0.18 | 0.86 | 0.33 | 0.53 | 0.04 | 0.20 | 0.64 | 0.20 | [0.386, 0.429] | -0.286 [-0.311, -0.262] |
-| `v1@vec60+validity` | 0.44 | 0.18 | 0.95 | 0.36 | 0.53 | 0.22 | 0.20 | 0.00 | 0.22 | [0.416, 0.462] | -0.255 [-0.280, -0.229] |
+| `hybrid:1.5:0.2:none/pool@vec60` | 0.69 | 0.61 | 0.86 | 0.62 | 0.72 | 0.33 | 0.61 | 0.67 | 0.02 | [0.666, 0.718] | — |
+| `hybrid:1.5:0.2:none/pool@vec60+validity` | 0.72 | 0.63 | 0.91 | 0.66 | 0.72 | 0.54 | 0.63 | 0.00 | 0.03 | [0.697, 0.750] | +0.032 [+0.023, +0.041] |
+| `v1@vec60` | 0.41 | 0.18 | 0.86 | 0.33 | 0.53 | 0.04 | 0.20 | 0.64 | 0.20 | [0.390, 0.423] | -0.286 [-0.306, -0.266] |
+| `v1@vec60+validity` | 0.44 | 0.18 | 0.95 | 0.36 | 0.53 | 0.22 | 0.20 | 0.00 | 0.22 | [0.422, 0.453] | -0.255 [-0.275, -0.234] |
 
 It removes stale answers entirely (obsolete-wins 0.67 → 0.00) and lifts
 updated-fact recall 0.33 → 0.54. This is the measured payoff of wiring
@@ -222,22 +224,22 @@ updated-fact recall 0.33 → 0.54. This is the measured payoff of wiring
 
 | memories | policy | writes | p50 ms | p95 ms | p99 ms |
 |---:|---|---|---:|---:|---:|
-| 200 | actr_v1 | none | 4.32 | 5.17 | 8.51 |
-| 200 | actr_v1 | 1 per 5 queries | 4.47 | 5.64 | 7.09 |
-| 200 | hybrid | none | 2.78 | 3.17 | 5.44 |
-| 200 | hybrid | 1 per 5 queries | 3.0 | 3.61 | 7.37 |
-| 1000 | actr_v1 | none | 12.87 | 16.0 | 23.64 |
-| 1000 | actr_v1 | 1 per 5 queries | 12.42 | 13.96 | 19.38 |
-| 1000 | hybrid | none | 3.06 | 7.38 | 30.27 |
-| 1000 | hybrid | 1 per 5 queries | 2.95 | 5.9 | 12.59 |
-| 3000 | actr_v1 | none | 35.0 | 45.78 | 54.77 |
-| 3000 | actr_v1 | 1 per 5 queries | 34.17 | 44.4 | 53.98 |
-| 3000 | hybrid | none | 3.87 | 10.01 | 24.57 |
-| 3000 | hybrid | 1 per 5 queries | 3.61 | 29.48 | 39.69 |
-| 5000 | actr_v1 | none | 57.77 | 70.71 | 83.06 |
-| 5000 | actr_v1 | 1 per 5 queries | 56.12 | 72.72 | 78.58 |
-| 5000 | hybrid | none | 4.13 | 7.06 | 22.69 |
-| 5000 | hybrid | 1 per 5 queries | 5.62 | 20.68 | 69.04 |
+| 200 | actr_v1 | none | 4.6 | 5.97 | 9.09 |
+| 200 | actr_v1 | 1 per 5 queries | 4.54 | 5.4 | 7.28 |
+| 200 | hybrid | none | 2.98 | 3.38 | 5.59 |
+| 200 | hybrid | 1 per 5 queries | 3.39 | 4.89 | 7.18 |
+| 1000 | actr_v1 | none | 12.44 | 14.68 | 19.66 |
+| 1000 | actr_v1 | 1 per 5 queries | 12.81 | 18.11 | 25.29 |
+| 1000 | hybrid | none | 3.25 | 6.75 | 14.01 |
+| 1000 | hybrid | 1 per 5 queries | 4.05 | 8.79 | 17.34 |
+| 3000 | actr_v1 | none | 35.0 | 47.48 | 55.07 |
+| 3000 | actr_v1 | 1 per 5 queries | 35.07 | 44.12 | 58.91 |
+| 3000 | hybrid | none | 3.31 | 7.66 | 20.53 |
+| 3000 | hybrid | 1 per 5 queries | 3.48 | 12.0 | 34.34 |
+| 5000 | actr_v1 | none | 56.94 | 68.29 | 87.31 |
+| 5000 | actr_v1 | 1 per 5 queries | 57.44 | 73.19 | 82.82 |
+| 5000 | hybrid | none | 3.89 | 6.62 | 19.66 |
+| 5000 | hybrid | 1 per 5 queries | 3.76 | 8.16 | 40.78 |
 
 The first hybrid version re-read every embedding as JSON per query (p50
 580 ms at 5,000 memories). `sqlite_vector_index.py` keeps parsed embeddings in

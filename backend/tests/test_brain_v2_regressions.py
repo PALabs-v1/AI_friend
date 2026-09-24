@@ -271,3 +271,22 @@ def test_unparseable_timestamp_degrades_to_text_instead_of_failing_the_query():
 
     assert _convert_timestamp(b"not a date") == "not a date"
     assert _convert_timestamp(b"2026-01-01 00:00:00").year == 2026  # naive still works
+
+
+@pytest.mark.asyncio
+async def test_brain_rejects_non_command_stop_for_the_superseded_turn():
+    """Review finding: a facial-startle stop published for the previous reply
+    must not cancel the new turn just because that reply was superseded."""
+    agent = _brain(active="turn-B", superseded="turn-A")
+    stop = _confirmed_stop("turn-A")
+    stop["reason"] = "facial_reflex_startle"
+    await agent._on_audio_stop(stop)
+    agent._cancel_active_generation.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_superseded_turn_is_honoured_once():
+    agent = _brain(active="turn-B", superseded="turn-A")
+    await agent._on_audio_stop(_confirmed_stop("turn-A"))
+    await agent._on_audio_stop(_confirmed_stop("turn-A"))
+    assert agent._cancel_active_generation.await_count == 1

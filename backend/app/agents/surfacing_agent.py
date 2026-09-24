@@ -287,7 +287,11 @@ class SurfacingAgent(BaseAgent):
                                 wing=mem.get("wing", "personal"),
                                 room=mem.get("room"),
                             ),
-                            score=mem.get("score", 0.0),
+                            # Hybrid results carry `relevance` (clipped
+                            # cosine, absolute); their `score` is relative to
+                            # the candidate pool and the brain reads this
+                            # field as relevance (decision thresholds).
+                            score=mem.get("relevance", mem.get("score", 0.0)),
                             valence=episode["valence"],
                             created_at=episode["created_at"],
                             recall_count=episode["recall_count"],
