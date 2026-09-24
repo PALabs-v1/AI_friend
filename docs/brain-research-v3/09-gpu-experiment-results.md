@@ -88,17 +88,19 @@ over:**
 - **qwen2.5:3b is the only one of the three that reliably produces parseable output** (0% parse
   failure) but its accuracy (r=0.29) is far below the bar regardless — a clean case of "reliable
   but not accurate enough," not a parsing problem.
-- **llama3.2:3b — production's own configured fast model — failed to parse 95% of the time on
-  this exact classification call** (`DecisionService._classify_intent_and_goal`), and even its
-  rare successful parses were often wrong (e.g. "I got the job offer, I'm so happy!" →
-  `inferred_valence: 0.0`). Verified against the raw per-message rows, not just the summary
-  statistic, and confirmed it isn't a test-harness bug: the identical harness gets 0% failures on
-  qwen2.5:3b with the same prompts. **This is a finding in its own right, independent of the ToM
-  question** — if this classification call fails 95% of the time in this experiment, it's worth
-  checking whether it also fails at a meaningful rate in production (a lower rate is plausible if
-  production's fuller context/prompt differs from this experiment's isolated single-message
-  calls, but that's a hypothesis, not something this experiment verified either way). Logged as a
-  new finding — see `findings.md`.
+- **llama3.2:3b — the default value of the configurable `LLM_FAST_MODEL` setting, not a fixed
+  production choice — failed to parse 95% of the time on this exact classification call**
+  (`DecisionService._classify_intent_and_goal`), and even its rare successful parses were often
+  wrong (e.g. "I got the job offer, I'm so happy!" → `inferred_valence: 0.0`). Verified against
+  the raw per-message rows, not just the summary statistic, and confirmed it isn't a test-harness
+  bug: the identical harness gets 0% failures on qwen2.5:3b with the same prompts. **This is a
+  finding in its own right, independent of the ToM question** — model choice for this role is a
+  per-deployment decision, so this is a compatibility finding about `llama3.2:3b` specifically
+  (worth knowing before any deployment configures it for this role), not evidence of a live
+  production failure — no deployment in this research cycle is running this model against this
+  call outside the experiment itself. Whether a fuller real-session prompt (vs. this experiment's
+  isolated single-message calls) changes the failure rate is a hypothesis, not something this
+  experiment verified either way. Logged as a new finding — see `findings.md`.
 - **qwen3:4b failed to parse 100% of the time**, with a median latency of 20.2 seconds per call
   (10-15x slower than the other two models). The most likely explanation, not confirmed with a
   captured raw transcript: Qwen3's thinking mode emits a `<think>...</think>` reasoning block
