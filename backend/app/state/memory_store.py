@@ -36,6 +36,19 @@ from .memory_ranking import hybrid_rank
 logger = logging.getLogger(__name__)
 
 
+def _trace_enabled() -> bool:
+    # Runtime import avoids app.state -> app.cognitive.__init__ -> core -> app.state.
+    from ..cognitive.trace import enabled
+
+    return enabled()
+
+
+def _emit_trace(kind: str, **fields: Any) -> None:
+    from ..cognitive.trace import emit as trace_emit
+
+    trace_emit(kind, **fields)
+
+
 @functools.lru_cache(maxsize=4096)
 def _cached_ln(x: float) -> float:
     """Natural log, memoized on the value rounded to 3 decimal places.
@@ -2705,6 +2718,7 @@ class MemoryStore:
                 continue
             results.append(
                 {
+                    "id": cand.get("id"),
                     "content": cand["content"],
                     "raw_content": cand["raw_content"],
                     "wing": cand["wing"],
@@ -3810,6 +3824,26 @@ class MemoryStore:
             current_time=current_time,
         )
         if cache_hit is not None:
+            if _trace_enabled():
+                _emit_trace(
+                    "memory.search",
+                    policy="hybrid",
+                    source="cache",
+                    pool=0,
+                    archived_candidates=0,
+                    skipped_dimension=0,
+                    error=False,
+                    ms=round((time.perf_counter() - started) * 1000.0, 2),
+                    cache_hit=True,
+                    results=[
+                        {
+                            "id": result.get("id"),
+                            "score": round(result["score"], 4),
+                            "terms": result.get("score_terms"),
+                        }
+                        for result in cache_hit
+                    ],
+                )
             return cache_hit
 
         try:
@@ -3818,6 +3852,20 @@ class MemoryStore:
             if not query_vector:
                 self.last_search_error = "embedding service returned no vector"
                 self.last_search_error_at = clock.time()
+                if _trace_enabled():
+                    _emit_trace(
+                        "memory.search",
+                        policy="hybrid",
+                        source="embedding",
+                        pool=0,
+                        archived_candidates=0,
+                        skipped_dimension=0,
+                        error=True,
+                        error_code="empty_embedding",
+                        ms=round((time.perf_counter() - started) * 1000.0, 2),
+                        cache_hit=False,
+                        results=[],
+                    )
                 return []
 
             excluded = {content for content in (exclude_contents or []) if content}
@@ -3875,6 +3923,7 @@ class MemoryStore:
                     else 0
                 ),
                 "error": self.last_search_error,
+                "error_code": "retrieval_error" if self.last_search_error else None,
                 "ms": round((time.perf_counter() - started) * 1000.0, 2),
                 "results": [
                     {
@@ -3885,6 +3934,24 @@ class MemoryStore:
                     for r in results
                 ],
             }
+            if _trace_enabled():
+                _emit_trace(
+                    "memory.search",
+                    policy=self.last_search_trace["policy"],
+                    source=self.last_search_trace["source"],
+                    pool=self.last_search_trace["pool"],
+                    archived_candidates=self.last_search_trace["archived_candidates"],
+                    skipped_dimension=self.last_search_trace["skipped_dimension"],
+                    error=bool(self.last_search_trace["error"]),
+                    **(
+                        {"error_code": self.last_search_trace["error_code"]}
+                        if self.last_search_trace["error_code"]
+                        else {}
+                    ),
+                    ms=self.last_search_trace["ms"],
+                    cache_hit=False,
+                    results=self.last_search_trace["results"],
+                )
             logger.debug("Memory retrieval trace: %s", self.last_search_trace)
             return self._finalize_search_results(
                 results,
@@ -3897,9 +3964,27 @@ class MemoryStore:
                 now_ts=now_ts,
             )
         except Exception as e:
+            from ..cognitive.trace import TraceSchemaError
+
+            if isinstance(e, TraceSchemaError):
+                raise
             logger.exception("Memory search failed")
             self.last_search_error = str(e)
             self.last_search_error_at = clock.time()
+            if _trace_enabled():
+                _emit_trace(
+                    "memory.search",
+                    policy="hybrid",
+                    source="error",
+                    pool=0,
+                    archived_candidates=0,
+                    skipped_dimension=0,
+                    error=True,
+                    error_code=type(e).__name__,
+                    ms=round((time.perf_counter() - started) * 1000.0, 2),
+                    cache_hit=False,
+                    results=[],
+                )
             return []
 
     async def search_memories(
@@ -3987,6 +4072,25 @@ class MemoryStore:
             current_time=current_time,
         )
         if cache_hit is not None:
+            if _trace_enabled():
+                _emit_trace(
+                    "memory.search",
+                    policy=Config.MEMORY_RANKING_POLICY,
+                    source="cache",
+                    pool=0,
+                    archived_candidates=0,
+                    skipped_dimension=0,
+                    error=False,
+                    cache_hit=True,
+                    results=[
+                        {
+                            "id": result.get("id"),
+                            "score": result.get("score", 0.0),
+                            "terms": result.get("score_terms"),
+                        }
+                        for result in cache_hit
+                    ],
+                )
             return cache_hit
 
         try:
@@ -3996,6 +4100,19 @@ class MemoryStore:
             if not query_vector:
                 self.last_search_error = "embedding service returned no vector"
                 self.last_search_error_at = clock.time()
+                if _trace_enabled():
+                    _emit_trace(
+                        "memory.search",
+                        policy=Config.MEMORY_RANKING_POLICY,
+                        source="embedding",
+                        pool=0,
+                        archived_candidates=0,
+                        skipped_dimension=0,
+                        error=True,
+                        error_code="empty_embedding",
+                        cache_hit=False,
+                        results=[],
+                    )
                 return []
 
             mrl_dim, candidate_limit = self._compute_mrl_gating(
@@ -4112,7 +4229,7 @@ class MemoryStore:
                 if promoted_results:
                     results.extend(promoted_results)
 
-            return self._finalize_search_results(
+            finalized = self._finalize_search_results(
                 results,
                 query_text=query_text,
                 limit=limit,
@@ -4122,8 +4239,32 @@ class MemoryStore:
                 cache_key=cache_key,
                 now_ts=now_ts,
             )
+            if _trace_enabled():
+                _emit_trace(
+                    "memory.search",
+                    policy=Config.MEMORY_RANKING_POLICY,
+                    source="sqlite" if is_sqlite else "postgres",
+                    pool=len(raw_candidates),
+                    archived_candidates=len(promoted_results) if matched_cues else 0,
+                    skipped_dimension=0,
+                    error=False,
+                    cache_hit=False,
+                    results=[
+                        {
+                            "id": result.get("id"),
+                            "score": result.get("score", 0.0),
+                            "terms": result.get("score_terms"),
+                        }
+                        for result in finalized
+                    ],
+                )
+            return finalized
 
         except Exception as e:
+            from ..cognitive.trace import TraceSchemaError
+
+            if isinstance(e, TraceSchemaError):
+                raise
             import traceback
 
             traceback.print_exc()
@@ -4133,6 +4274,19 @@ class MemoryStore:
             # failure so a caller that cares can tell the difference.
             self.last_search_error = str(e)
             self.last_search_error_at = clock.time()
+            if _trace_enabled():
+                _emit_trace(
+                    "memory.search",
+                    policy=Config.MEMORY_RANKING_POLICY,
+                    source="error",
+                    pool=0,
+                    archived_candidates=0,
+                    skipped_dimension=0,
+                    error=True,
+                    error_code=type(e).__name__,
+                    cache_hit=False,
+                    results=[],
+                )
             return []
 
     async def _refresh_memories(

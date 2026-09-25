@@ -10,6 +10,7 @@ from __future__ import annotations
 import math
 import re
 from collections.abc import Callable
+from dataclasses import dataclass
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field
@@ -215,6 +216,28 @@ class ActionCandidate(BaseModel):
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
+@dataclass(frozen=True)
+class SelectionResult:
+    """Per-call winner, rejections, and the scores used to rank survivors.
+
+    Iteration preserves the existing ``winner, rejected = result`` API.
+    """
+
+    winner: ActionCandidate
+    rejected: list[dict[str, Any]]
+    effective_scores: dict[str, float]
+
+    def __iter__(self):
+        yield self.winner
+        yield self.rejected
+
+    def __len__(self) -> int:
+        return 2
+
+    def __getitem__(self, index):
+        return (self.winner, self.rejected)[index]
+
+
 import functools
 
 
@@ -343,7 +366,7 @@ class CandidateSelector:
         forbidden_claims: list[str] | None = None,
         metacognitive_directive: str = "PROCEED",
         privacy_filter: Callable[[ActionCandidate], bool] | None = None,
-    ) -> tuple[ActionCandidate, list[dict[str, Any]]]:
+    ) -> SelectionResult:
         """Ranks surviving candidates by score plus goal alignment plus
         global-control modulation.
 
@@ -380,10 +403,12 @@ class CandidateSelector:
         and the caller must always include a constraint-safe candidate
         (e.g. WAIT, with no constraint_claims) among `candidates`.
 
-        Returns (winner, rejected) where rejected carries a reason dict per
-        runner-up (constraint violations first, then privacy rejections,
-        then lower-ranked scores), ordered from strongest to weakest
-        alternative within each group.
+        Returns a per-call ``SelectionResult`` containing the winner,
+        rejection details, and the effective scores used for ranking. It
+        remains unpackable as ``winner, rejected`` for existing callers.
+        Rejections are ordered from strongest to weakest alternative within
+        each group: constraint violations, privacy rejections, metacognitive
+        disqualifications, then lower-ranked scores.
 
         Phase 04 Package B: `metacognitive_directive` (default "PROCEED",
         additive) nudges ranking per `_metacognitive_modulation`.
@@ -487,7 +512,15 @@ class CandidateSelector:
                 + _metacognitive_modulation(candidate, metacognitive_directive)
             )
 
-        ranked = sorted(survivors, key=combined_score, reverse=True)
+        ranked_with_scores = sorted(
+            ((candidate, combined_score(candidate)) for candidate in survivors),
+            key=lambda item: item[1],
+            reverse=True,
+        )
+        ranked = [candidate for candidate, _score in ranked_with_scores]
+        effective_scores = {
+            candidate.candidate_id: score for candidate, score in ranked_with_scores
+        }
         winner = ranked[0]
         if metacognitive_directive == "HEDGE":
             winner = winner.model_copy(
@@ -498,12 +531,13 @@ class CandidateSelector:
                 "candidate_id": candidate.candidate_id,
                 "kind": candidate.kind,
                 "source": candidate.source,
-                "combined_score": combined_score(candidate),
+                "combined_score": effective_scores[candidate.candidate_id],
                 "reason": "lower_ranked_score",
             }
             for candidate in ranked[1:]
         ]
-        return (
+        return SelectionResult(
             winner,
             constraint_rejected + privacy_rejected + abstain_rejected + score_rejected,
+            effective_scores,
         )

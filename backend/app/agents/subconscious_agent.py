@@ -8,6 +8,8 @@ from typing import Any
 from app import clock
 from app.agents.base import BaseAgent, install_shutdown_signal_handlers
 from app.cognitive.subconscious import SubconsciousEngine
+from app.cognitive.trace import emit
+from app.cognitive.trace import enabled as trace_enabled
 from app.config import Config
 from app.contracts import ChatInput, ChatInputMetadata, Topics
 from app.llm import build_llm_client
@@ -369,7 +371,16 @@ class SubconsciousAgent(BaseAgent):
         a decision.
         """
         last_bench = getattr(self, "_last_benchmark_time", 0.0)
-        if clock.time() - last_bench < 300:
+        benchmark_elapsed = clock.time() - last_bench
+        if benchmark_elapsed < 300:
+            if trace_enabled():
+                emit(
+                    "proactive.decision",
+                    fired=False,
+                    reason="benchmark_active",
+                    benchmark_elapsed_s=benchmark_elapsed,
+                    benchmark_threshold_s=300,
+                )
             logger.info(
                 "[Subconscious] Suppressing proactive system tick thought: Benchmark is active."
             )

@@ -25,6 +25,8 @@ from .intent_classifier import get_intent_classifier
 from .json_extract import extract_first_json_value
 from .memory_activation import MemoryActivation
 from .perception import CognitiveEvent
+from .trace import emit
+from .trace import enabled as trace_enabled
 
 logger = logging.getLogger(__name__)
 
@@ -1108,7 +1110,7 @@ class DecisionService:
         # exists at all" fallback three lines up (which would otherwise
         # silently re-admit a forbidden candidate) into a raised
         # ValueError instead of a silent constraint violation.
-        winner, score_rejected = self._candidate_selector.score_and_select(
+        selection = self._candidate_selector.score_and_select(
             survivors,
             active_goals=[goal],
             global_controls=(
@@ -1118,6 +1120,40 @@ class DecisionService:
             metacognitive_directive=metacognitive_directive,
             privacy_filter=privacy_filter,
         )
+        winner, score_rejected = selection
+
+        if trace_enabled():
+            rejection_codes = {
+                item["candidate_id"]: item["reason"]
+                for item in [*constraint_rejected, *score_rejected]
+                if "candidate_id" in item
+            }
+            emit(
+                "arbitration.decision",
+                chosen=winner.kind,
+                candidates=[
+                    {
+                        "code": candidate.kind,
+                        **(
+                            {
+                                "score": selection.effective_scores[
+                                    candidate.candidate_id
+                                ]
+                            }
+                            if candidate.candidate_id in selection.effective_scores
+                            else {}
+                        ),
+                        "eligible": candidate.candidate_id
+                        in selection.effective_scores,
+                        "reason": (
+                            "chosen"
+                            if candidate.candidate_id == winner.candidate_id
+                            else rejection_codes.get(candidate.candidate_id, "filtered")
+                        ),
+                    }
+                    for candidate in candidates
+                ],
+            )
 
         retrieval_degraded = any(
             activation.outage_flag for activation in memory_activations

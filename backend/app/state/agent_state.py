@@ -458,6 +458,19 @@ class AgentState:
 class StateService:
     """Manages Internal State continuity and Neo4j persistence."""
 
+    @staticmethod
+    def _trace_enabled() -> bool:
+        # Runtime import avoids app.state -> app.cognitive.__init__ -> core -> app.state.
+        from ..cognitive.trace import enabled
+
+        return enabled()
+
+    @staticmethod
+    def _emit_trace(kind: str, **fields: Any) -> None:
+        from ..cognitive.trace import emit
+
+        emit(kind, **fields)
+
     def __init__(
         self,
         graph_store=None,
@@ -579,15 +592,96 @@ class StateService:
         self._sync_active_person_trust_locked(person)
         return person
 
-    def _sync_active_person_trust_locked(self, person: PersonModel) -> None:
+    def _affect_snapshot(
+        self, *fields: str, energy_arousal: bool = False
+    ) -> dict[str, float]:
+        """Capture selected affect dimensions for an enabled trace sink."""
+        state = self.current_state
+        values = {
+            "mood": state.mood,
+            "valence": state.valence,
+            "arousal": state.energy if energy_arousal else state.arousal,
+            "dominance": state.dominance,
+        }
+        names = fields or ("mood", "arousal", "dominance")
+        return {name: values[name] for name in names}
+
+    def _trust_snapshot(self, *fields: str) -> dict[str, float]:
+        """Capture selected trust dimensions for an enabled trace sink."""
+        state = self.current_state
+        values = {
+            "trust": state.trust,
+            "benevolence": state.trust_benevolence,
+            "competence": state.trust_competence,
+            "integrity": state.trust_integrity,
+            "attachment": state.attachment,
+        }
+        names = fields or ("benevolence", "competence", "integrity")
+        return {name: values[name] for name in names}
+
+    def _trace_update(
+        self,
+        kind: str,
+        cause: str,
+        inputs: dict[str, Any],
+        before: dict[str, float],
+        after: dict[str, float],
+        **fields: Any,
+    ) -> None:
+        """Emit a state change with deltas derived from its snapshots."""
+        self._emit_trace(
+            kind,
+            cause=cause,
+            inputs=inputs,
+            before=before,
+            after=after,
+            delta={key: after[key] - before[key] for key in before},
+            **fields,
+        )
+
+    def _trace_proactive(self, **fields: Any) -> None:
+        """Emit only proactive-decision fields available at this gate."""
+        if self._trace_enabled():
+            self._emit_trace(
+                "proactive.decision",
+                **{key: value for key, value in fields.items() if value is not None},
+            )
+
+    def _sync_active_person_trust_locked(
+        self,
+        person: PersonModel,
+        *,
+        cause: str = "active_person_sync",
+        inputs: dict[str, Any] | None = None,
+    ) -> None:
         """Mirror active per-person trust into legacy state fields.
 
         Callers hold ``_state_lock`` before invoking this helper. Integrity is
         intentionally left untouched because this package only grounds
         competence and benevolence in reliance and rupture outcomes.
         """
+        before = (
+            self._trust_snapshot("competence", "benevolence")
+            if self._trace_enabled()
+            else None
+        )
         self.current_state.trust_competence = person.trust_competence
         self.current_state.trust_benevolence = person.trust_benevolence
+        if before is not None:
+            after = self._trust_snapshot("competence", "benevolence")
+            self._trace_update(
+                "trust.update",
+                cause,
+                inputs
+                if inputs is not None
+                else {
+                    "person_benevolence": person.trust_benevolence,
+                    "person_competence": person.trust_competence,
+                },
+                before,
+                after,
+                person_id=person.person_id,
+            )
 
     async def set_active_person(self, person_id: str) -> PersonModel:
         """Select a person and synchronize their trust into legacy scalars."""
@@ -609,7 +703,17 @@ class StateService:
         async with self._state_lock:
             person = self._get_active_person_model_locked()
             person.update_trust_from_reliance(outcome_success, stake_weight)
-            self._sync_active_person_trust_locked(person)
+            if self._trace_enabled():
+                self._sync_active_person_trust_locked(
+                    person,
+                    cause="reliance_update",
+                    inputs={
+                        "outcome_success": outcome_success,
+                        "stake_weight": stake_weight,
+                    },
+                )
+            else:
+                self._sync_active_person_trust_locked(person)
 
     async def record_active_person_rupture_repair(
         self, kind: str, magnitude: float, notes: str = ""
@@ -618,7 +722,14 @@ class StateService:
         async with self._state_lock:
             person = self._get_active_person_model_locked()
             person.record_rupture_repair(kind, magnitude, notes)
-            self._sync_active_person_trust_locked(person)
+            if self._trace_enabled():
+                self._sync_active_person_trust_locked(
+                    person,
+                    cause="rupture_repair",
+                    inputs={"kind": kind, "magnitude": magnitude},
+                )
+            else:
+                self._sync_active_person_trust_locked(person)
 
     def _refresh_global_controls_locked(
         self, *, urgency: float = 0.0, prediction_error: float = 0.0
@@ -1237,6 +1348,11 @@ class StateService:
         LLM inference that produced ``new_pad`` runs upstream, outside the lock.
         """
         async with self._state_lock:
+            before = (
+                self._affect_snapshot("valence", "arousal", "dominance")
+                if self._trace_enabled()
+                else None
+            )
             if "valence" in new_pad and new_pad["valence"] is not None:
                 self.current_state.valence = float(new_pad["valence"])
             if "arousal" in new_pad and new_pad["arousal"] is not None:
@@ -1245,6 +1361,19 @@ class StateService:
                 self.current_state.dominance = float(new_pad["dominance"])
             self._enforce_bounds()
             self._refresh_global_controls_locked()
+            if before is not None:
+                after = self._affect_snapshot("valence", "arousal", "dominance")
+                self._trace_update(
+                    "affect.update",
+                    "semantic_appraisal",
+                    {
+                        key: value
+                        for key, value in new_pad.items()
+                        if key in before and value is not None
+                    },
+                    before,
+                    after,
+                )
 
     async def apply_affect_delta(
         self,
@@ -1268,6 +1397,11 @@ class StateService:
             return 0.0
 
         async with self._state_lock:
+            before = (
+                self._affect_snapshot("valence", "arousal", "dominance")
+                if self._trace_enabled()
+                else None
+            )
             self.current_state.valence += delta_for("pleasure", "valence")
             self.current_state.energy += delta_for("arousal")
             self.current_state.dominance += delta_for("dominance")
@@ -1275,6 +1409,21 @@ class StateService:
             self._refresh_global_controls_locked(
                 urgency=urgency, prediction_error=prediction_error
             )
+            if before is not None:
+                after = self._affect_snapshot("valence", "arousal", "dominance")
+                self._trace_update(
+                    "affect.update",
+                    "appraisal_delta",
+                    {
+                        "valence": delta_for("pleasure", "valence"),
+                        "arousal": delta_for("arousal"),
+                        "dominance": delta_for("dominance"),
+                        "urgency": urgency,
+                        "prediction_error": prediction_error,
+                    },
+                    before,
+                    after,
+                )
             return self._global_controls
 
     async def appraise_and_apply_event(
@@ -1328,6 +1477,14 @@ class StateService:
         w6 = weights.get("w6_na_to_d", 0.4)
 
         async with self._state_lock:
+            tracing = self._trace_enabled()
+            if tracing:
+                affect_before = self._affect_snapshot(
+                    "mood", "arousal", "dominance", energy_arousal=True
+                )
+                trust_before = self._trust_snapshot(
+                    "benevolence", "competence", "integrity", "attachment"
+                )
             # PAD mood-pull (section2.3)
             self.current_state.mood = (
                 1 - self.alpha
@@ -1368,6 +1525,41 @@ class StateService:
             self.current_state.last_update = clock.now()
             self._enforce_bounds()
             self._refresh_global_controls_locked(urgency=R, prediction_error=N)
+            if tracing:
+                affect_after = self._affect_snapshot(
+                    "mood", "arousal", "dominance", energy_arousal=True
+                )
+                trust_after = self._trust_snapshot(
+                    "benevolence", "competence", "integrity", "attachment"
+                )
+                self._trace_update(
+                    "affect.update",
+                    "appraisal",
+                    {
+                        "goal_congruence": G,
+                        "relationship_impact": RI,
+                        "novelty": N,
+                        "relevance": R,
+                        "agency": A,
+                        "norm_alignment": NA,
+                    },
+                    affect_before,
+                    affect_after,
+                )
+                self._trace_update(
+                    "trust.update",
+                    "appraisal",
+                    {
+                        "relationship_impact": RI,
+                        "goal_congruence": G,
+                        "relevance": R,
+                        "norm_alignment": NA,
+                        "interaction_count": self.current_state.interaction_count,
+                    },
+                    trust_before,
+                    trust_after,
+                    person_id=self.current_state.active_person_id,
+                )
         await self.persist_state()
 
         logger.debug(
@@ -1389,6 +1581,12 @@ class StateService:
         async with self._state_lock:
             now = clock.now()
             self.current_state.last_user_interaction = clock.time()
+            tracing = self._trace_enabled()
+            if tracing:
+                affect_before = self._affect_snapshot(
+                    "mood", "arousal", energy_arousal=True
+                )
+                trust_before = self._trust_snapshot("trust", "attachment")
 
             # Apply Cognitive Weight (0.7)
             self.current_state.mood = (self.current_state.mood * 0.3) + (
@@ -1405,6 +1603,26 @@ class StateService:
             self.current_state.last_update = now
             self._enforce_bounds()
             self._refresh_global_controls_locked(prediction_error=abs(event_valence))
+            if tracing:
+                affect_after = self._affect_snapshot(
+                    "mood", "arousal", energy_arousal=True
+                )
+                trust_after = self._trust_snapshot("trust", "attachment")
+                self._trace_update(
+                    "affect.update",
+                    "legacy_event",
+                    {"event_valence": event_valence},
+                    affect_before,
+                    affect_after,
+                )
+                self._trace_update(
+                    "trust.update",
+                    "legacy_event",
+                    {"user_trust_delta": user_trust_delta},
+                    trust_before,
+                    trust_after,
+                    person_id=self.current_state.active_person_id,
+                )
         await self.persist_state()
 
     async def apply_sensory_perception(self, perception_metadata: dict[str, Any]):
@@ -1439,6 +1657,12 @@ class StateService:
         ) and not isinstance(emotion_bias, bool)
 
         async with self._state_lock:
+            tracing = self._trace_enabled()
+            if tracing:
+                affect_before = self._affect_snapshot(
+                    "mood", "arousal", energy_arousal=True
+                )
+                trust_before = self._trust_snapshot("trust", "attachment")
             if has_emotion_estimate:
                 # Confidence-scaled emotional bias
                 weight = self.sensory_weight * max(0.0, min(1.0, confidence))
@@ -1478,6 +1702,28 @@ class StateService:
 
             self._enforce_bounds()
             self._refresh_global_controls_locked()
+            if tracing:
+                affect_after = self._affect_snapshot(
+                    "mood", "arousal", energy_arousal=True
+                )
+                trust_after = self._trust_snapshot("trust", "attachment")
+                if affect_after != affect_before:
+                    self._trace_update(
+                        "affect.update",
+                        "sensory_perception",
+                        {"confidence": confidence, "event_count": len(events)},
+                        affect_before,
+                        affect_after,
+                    )
+                if trust_after != trust_before:
+                    self._trace_update(
+                        "trust.update",
+                        "sensory_perception",
+                        {"event_count": len(events)},
+                        trust_before,
+                        trust_after,
+                        person_id=self.current_state.active_person_id,
+                    )
         await self._persist_sensory_state_if_due()
 
     async def apply_somatic_perception(self, somatic: dict[str, Any]):
@@ -1529,6 +1775,8 @@ class StateService:
         entities = somatic.get("entities") or []
         async with self._state_lock:
             before_valence = self.current_state.valence
+            tracing = self._trace_enabled()
+            before = self._affect_snapshot("valence", "arousal") if tracing else None
             self.current_state.valence = min(
                 1.0, self.current_state.valence + valence_spike
             )
@@ -1540,6 +1788,14 @@ class StateService:
             self.current_state.release_dopamine(dopamine_spike)
             self._refresh_global_controls_locked()
             after_valence = self.current_state.valence
+            if tracing:
+                self._trace_update(
+                    "affect.update",
+                    "somatic_perception",
+                    {"valence_spike": valence_spike, "arousal_spike": arousal_spike},
+                    before,
+                    self._affect_snapshot("valence", "arousal"),
+                )
 
         logger.info(
             "[Vision]  Somatic comfort recognised %s -- valence %.2f -> %.2f (dopamine now %.2f).",
@@ -1600,6 +1856,8 @@ class StateService:
 
         async with self._state_lock:
             before_valence = self.current_state.valence
+            tracing = self._trace_enabled()
+            before = self._affect_snapshot("valence", "arousal") if tracing else None
             self.current_state.valence = self.current_state.valence + valence_delta
             # `arousal` is a derived property (`energy` + fatigue-restlessness
             # + adrenaline-lift, see its getter above) -- reading it and
@@ -1615,6 +1873,18 @@ class StateService:
                 self.current_state.release_dopamine(dopamine_spike)
             self._refresh_global_controls_locked()
             after_valence = self.current_state.valence
+            if tracing:
+                self._trace_update(
+                    "affect.update",
+                    "facial_reflex",
+                    {
+                        "valence_delta": valence_delta,
+                        "arousal_delta": arousal_delta,
+                        "dopamine_spike": dopamine_spike,
+                    },
+                    before,
+                    self._affect_snapshot("valence", "arousal"),
+                )
 
         logger.debug(
             "[State] Facial reflex %r -- valence %.3f -> %.3f, arousal delta %+.3f.",
@@ -1713,6 +1983,14 @@ class StateService:
         dt_hours = tick_metadata.get("interval", 60) / 3600.0
 
         async with self._state_lock:
+            tracing = self._trace_enabled()
+            if tracing:
+                affect_before = self._affect_snapshot(
+                    "mood", "arousal", "dominance", energy_arousal=True
+                )
+                trust_before = self._trust_snapshot(
+                    "benevolence", "competence", "integrity"
+                )
             # Evolve fatigue
             hour = datetime.fromtimestamp(now).hour
             is_night = hour >= 22 or hour < 6
@@ -1764,6 +2042,28 @@ class StateService:
             self.current_state.last_update = datetime.fromtimestamp(now)
             self._enforce_bounds()
             self._refresh_global_controls_locked()
+            if tracing:
+                affect_after = self._affect_snapshot(
+                    "mood", "arousal", "dominance", energy_arousal=True
+                )
+                trust_after = self._trust_snapshot(
+                    "benevolence", "competence", "integrity"
+                )
+                self._trace_update(
+                    "affect.update",
+                    "system_tick_decay",
+                    {"interval_s": dt_hours * 3600.0},
+                    affect_before,
+                    affect_after,
+                )
+                self._trace_update(
+                    "trust.update",
+                    "system_tick_drift",
+                    {"interval_s": dt_hours * 3600.0},
+                    trust_before,
+                    trust_after,
+                    person_id=self.current_state.active_person_id,
+                )
             await self.persist_state()
         logger.debug(
             "[State Heartbeat] V=%.3f Ar=%.3f D=%.3f F=%.3f",
@@ -1779,6 +2079,19 @@ class StateService:
         Evaluates whether the agent should spontaneously initiate contact.
         """
         if not getattr(Config, "PROACTIVE_ENABLED", False):
+            if self._trace_enabled():
+                self._trace_proactive(
+                    fired=False,
+                    reason="disabled",
+                    idle_s=None,
+                    idle_threshold_s=None,
+                    cooldown_remaining_s=None,
+                    cooldown_s=None,
+                    energy=self.current_state.energy,
+                    energy_min=None,
+                    probability=None,
+                    probability_min=None,
+                )
             return False
 
         now = clock.time()
@@ -1794,10 +2107,48 @@ class StateService:
 
         idle_duration = now - self.current_state.last_user_interaction
         if idle_duration < threshold:
+            if self._trace_enabled():
+                self._trace_proactive(
+                    fired=False,
+                    reason="idle_below_threshold",
+                    idle_s=idle_duration,
+                    idle_threshold_s=threshold,
+                    cooldown_remaining_s=max(
+                        0.0,
+                        self.current_state.last_proactive_attempt
+                        + getattr(Config, "PROACTIVE_COOLDOWN_SECONDS", 3600)
+                        - now,
+                    ),
+                    cooldown_s=getattr(Config, "PROACTIVE_COOLDOWN_SECONDS", 3600),
+                    energy=self.current_state.energy,
+                    energy_min=getattr(Config, "PROACTIVE_MIN_ENERGY", 0.2),
+                    probability=None,
+                    probability_min=getattr(
+                        Config, "PROACTIVE_MIN_TURN_PROBABILITY", 0.5
+                    ),
+                )
             return False
 
         cooldown = getattr(Config, "PROACTIVE_COOLDOWN_SECONDS", 3600)
-        if (now - self.current_state.last_proactive_attempt) < cooldown:
+        cooldown_remaining = max(
+            0.0, self.current_state.last_proactive_attempt + cooldown - now
+        )
+        if cooldown_remaining > 0:
+            if self._trace_enabled():
+                self._trace_proactive(
+                    fired=False,
+                    reason="cooldown",
+                    idle_s=idle_duration,
+                    idle_threshold_s=threshold,
+                    cooldown_remaining_s=cooldown_remaining,
+                    cooldown_s=cooldown,
+                    energy=self.current_state.energy,
+                    energy_min=getattr(Config, "PROACTIVE_MIN_ENERGY", 0.2),
+                    probability=None,
+                    probability_min=getattr(
+                        Config, "PROACTIVE_MIN_TURN_PROBABILITY", 0.5
+                    ),
+                )
             return False
 
         min_energy = getattr(Config, "PROACTIVE_MIN_ENERGY", 0.2)
@@ -1807,6 +2158,21 @@ class StateService:
                 self.current_state.energy,
                 min_energy,
             )
+            if self._trace_enabled():
+                self._trace_proactive(
+                    fired=False,
+                    reason="energy",
+                    idle_s=idle_duration,
+                    idle_threshold_s=threshold,
+                    cooldown_remaining_s=cooldown_remaining,
+                    cooldown_s=cooldown,
+                    energy=self.current_state.energy,
+                    energy_min=min_energy,
+                    probability=None,
+                    probability_min=getattr(
+                        Config, "PROACTIVE_MIN_TURN_PROBABILITY", 0.5
+                    ),
+                )
             return False
 
         # Roadmap leftovers Item 4b (M3-D2): turn_taking_probability was
@@ -1836,6 +2202,19 @@ class StateService:
                 turn_probability,
                 min_turn_probability,
             )
+            if self._trace_enabled():
+                self._trace_proactive(
+                    fired=False,
+                    reason="probability_gate",
+                    idle_s=idle_duration,
+                    idle_threshold_s=threshold,
+                    cooldown_remaining_s=cooldown_remaining,
+                    cooldown_s=cooldown,
+                    energy=self.current_state.energy,
+                    energy_min=min_energy,
+                    probability=turn_probability,
+                    probability_min=min_turn_probability,
+                )
             return False
 
         logger.info(
@@ -1846,6 +2225,19 @@ class StateService:
             self.current_state.energy,
             turn_probability,
         )
+        if self._trace_enabled():
+            self._trace_proactive(
+                fired=True,
+                reason="eligible",
+                idle_s=idle_duration,
+                idle_threshold_s=threshold,
+                cooldown_remaining_s=cooldown_remaining,
+                cooldown_s=cooldown,
+                energy=self.current_state.energy,
+                energy_min=min_energy,
+                probability=turn_probability,
+                probability_min=min_turn_probability,
+            )
         return True
 
     def mark_proactive_attempt(self):
