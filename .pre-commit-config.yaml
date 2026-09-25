@@ -22,5 +22,5 @@ repos:
     hooks:
       - id: codespell
         # --ignore-words-list: real words codespell does not know (lifesim vocab).
-        args: [--ignore-words=.lycheeignore, --ignore-words-list=brunch]
+        args: [--ignore-words=.lycheeignore, "--ignore-words-list=brunch,arre"]
         exclude: (?x)^(.*package-lock\.json|.*pnpm-lock\.yaml|.*yarn\.lock|.*schema\.prisma|\.agents/.*|.*test_identity\.py|.*test_performance\.py|backend/app/state/memory_store\.py)$
