@@ -2,37 +2,157 @@
 
 from __future__ import annotations
 
+import re
 from collections import defaultdict
 from datetime import datetime, timedelta
 
 from .schema import Annotation, Probe, ProbeAnswer, Turn
 
+# Each label must read correctly after both "my" and "<Name>'s", because a
+# fact probe names whose fact it is. `stance` is deliberately absent (a view
+# is unanswerable without its topic) and so is a plan's `when` (plan dates
+# are asked by `temporal`, which names the plan).
 _LABELS = {
-    "home_city": "home",
+    "home_city": "home city",
     "hometown": "hometown",
     "employer": "workplace",
-    "job_title": "role",
+    "job_title": "job",
     "university": "university",
     "degree": "degree",
-    "drink": "usual order",
+    "drink": "usual drink",
     "food": "favorite dish",
     "cuisine": "favorite cuisine",
     "music": "taste in music",
-    "tv_show": "show",
-    "book_genre": "books",
-    "sport": "game",
-    "weekend": "weekends",
-    "hobby": "pastime",
+    "tv_show": "favorite show",
+    "book_genre": "favorite kind of book",
+    "sport": "sport",
+    "weekend": "usual weekend activity",
+    "hobby": "hobby",
     "morning_routine": "morning routine",
     "exercise": "workout",
-    "vehicle": "ride",
-    "phone": "mobile",
+    "vehicle": "vehicle",
+    "phone": "phone",
     "partner": "partner",
-    "city": "location",
-    "relation": "relationship",
-    "stance": "view",
-    "when": "date",
+    "city": "city",
+    "relation": "relationship to me",
+    "birthday": "birthday",
+    "neighbourhood": "neighbourhood",
+    "away_city": "trip destination",
+    "lodging": "place I'm staying on my trip",
 }
+
+# Trip states end and restart with each trip: "what was my trip destination
+# before it changed to Busan?" compares two unrelated trips, so these are
+# asked about directly (current, contradiction) but never as a change history.
+_TRANSIENT = {"away_city", "lodging"}
+
+
+def _owner(sim, entity: str) -> str | None:
+    if entity == "user":
+        return "my"
+    if entity in sim.world.people:
+        return f"{sim.world.people[entity].name}'s"
+    if entity in sim.world.pets:
+        return f"{sim.world.pets[entity].name}'s"
+    return None
+
+
+def _plan_descriptions(sim) -> dict[str, str]:
+    """plan entity -> its description, for plans whose description is unique
+    in this life (two "submit the tax form" plans can't be told apart by name)."""
+    cached = sim.extras.get("plan_descriptions")
+    if cached is None:
+        by_plan = {}
+        for entity, attr in sim.timeline.slots():
+            if entity.startswith("plan:") and attr == "what":
+                hist = sim.timeline.history(entity, "what")
+                if hist:
+                    by_plan[entity] = hist[0].value
+        counts = defaultdict(int)
+        for what in by_plan.values():
+            counts[what] += 1
+        cached = {e: w for e, w in by_plan.items() if counts[w] == 1}
+        sim.extras["plan_descriptions"] = cached
+    return cached
+
+
+def _fact(sim, entity: str, attr: str) -> str | None:
+    """The noun phrase a fact probe asks about: "my home city", "Tomas's
+    workplace", "the date for my plan to submit the tax form". None when the
+    fact can't be named unambiguously, in which case the caller must not ask
+    about it at all."""
+    if entity.startswith("plan:"):
+        what = _plan_descriptions(sim).get(entity)
+        return f"the date for {_plan(what)}" if attr == "when" and what else None
+    owner = _owner(sim, entity)
+    if owner is None or attr not in _LABELS:
+        return None
+    # The user's own relationship to themself is meaningless.
+    if entity == "user" and attr in ("relation", "birthday"):
+        return None
+    return f"{owner} {_LABELS[attr]}"
+
+
+def _plan(what: str) -> str:
+    """A plan's description as a noun phrase. Plans mix verb phrases ("submit
+    the tax form") and noun phrases ("a hiking trip", "a friend's wedding")."""
+    if what.startswith("a friend's "):
+        return "my " + what[2:]
+    for article in ("a ", "an "):
+        if what.startswith(article):
+            return "the " + what[len(article):]
+    return "my plan to " + what
+
+
+# Per event family: the payload key that answers it, and the embedded clause
+# that asks for exactly that key.
+_INTERFERENCE = {
+    "restaurant": ("restaurant", "which restaurant I went to with {person} on {date}"),
+    "cafe": ("cafe", "which cafe I was at with {person} on {date}"),
+    "meeting": ("topic", "what my meeting with {person} on {date} was about"),
+    "outing": ("place", "where I went with {person} on {date}"),
+    "trip": ("city", "which city I went to with {person} on {date}"),
+}
+
+_TRIVIA = {
+    "meal": ("food", "what I had for {meal} on {date}"),
+    "watched": ("show", "what I watched on {date}"),
+    "weather": ("weather", "what the weather was like on {date}"),
+    "errand": ("errand", "which errand I had to run on {date}"),
+}
+
+_DEFINING = {
+    "argument": ("about", "what I argued with {name} about in {month}"),
+    "achievement": ("what", "what I achieved in {month}"),
+    "failure": ("what", "what didn't work out for me in {month}"),
+    "death": ("name", "who I lost in {month}"),
+    "user_birthday": ("age", "how old I turned on my birthday in {month}"),
+    "robot_nickname": ("new", "what nickname I gave you in {month}"),
+}
+
+
+def _long_date(dt: datetime) -> str:
+    return dt.strftime("%B %-d")
+
+
+def _month(dt: datetime) -> str:
+    return dt.strftime("%B %Y")
+
+
+def _value(sim, value: str) -> str:
+    """The canonical answer form (plan times stay ISO for exact scoring)."""
+    return _name(sim, value) if value.startswith("person:") else value
+
+
+def _spoken(sim, value: str) -> str:
+    """How a value reads inside a question: names for people, and plan times
+    the way the user said them, never a raw ISO string."""
+    if value.startswith("person:"):
+        return _name(sim, value)
+    try:
+        return datetime.fromisoformat(value).strftime("%A, %B %-d at %-I:%M %p")
+    except ValueError:
+        return value
 
 
 def _name(sim, entity: str | None) -> str:
@@ -46,16 +166,6 @@ def _name(sim, entity: str | None) -> str:
         return sim.world.pets[entity].name
     return "someone"
 
-
-def _date(value: str | datetime) -> str:
-    if isinstance(value, datetime):
-        dt = value
-    else:
-        try:
-            dt = datetime.fromisoformat(value)
-        except (ValueError, TypeError):
-            return str(value)
-    return dt.strftime("%B %-d")
 
 
 def _claim_index(annotations: list[Annotation], turns: list, before: datetime):
@@ -176,15 +286,16 @@ def _build_checkpoint(sim, turns, annotations, at, *, final, rng, used):
             for turn, ann, c in rows
             if c.truthful
         ]
-        if matches and entity in ("user", *sim.world.people.keys()) and attr in _LABELS:
+        # Plan dates are asked by `temporal`, which names the plan the same way.
+        if matches and not entity.startswith("plan:") and _fact(sim, entity, attr):
             current.append((a, matches, entity, attr))
     rng.shuffle(current)
     for a, matches, entity, attr in current[:cap]:
-        values = [_name(sim, a.value) if a.value.startswith("person:") else a.value]
+        values = [_value(sim, a.value)]
         support = [r[0].turn_id for r in matches]
         add(
             "current",
-            {"topic": _LABELS[attr]},
+            {"what": _fact(sim, entity, attr)},
             "answer",
             values,
             support,
@@ -206,15 +317,26 @@ def _build_checkpoint(sim, turns, annotations, at, *, final, rng, used):
             told = [(turn, ann, c) for turn, ann, c in rows if c.truthful]
             if not told:
                 continue
-            if a.valid_to is not None and a.valid_from < at:
-                historical.append((a, told, entity, attr))
+            if attr in _TRANSIENT or not _fact(sim, entity, attr):
+                continue
+            if a.valid_to is not None and a.valid_to <= at:
+                # Named by the value that replaced it, not by a date: users
+                # rarely say *when* an old value applied, but "before it
+                # changed to Accra" is unambiguous whenever both were said.
+                successor = tl.value_at(entity, attr, a.valid_to)
+                if (
+                    successor is not None
+                    and successor.value != a.value
+                    and any(
+                        c.truthful
+                        for _, _, c in claims.get(
+                            (entity, attr, successor.assertion_id), []
+                        )
+                    )
+                ):
+                    historical.append((a, told, entity, attr, successor))
             cur = tl.value_at(entity, attr, at)
-            if (
-                cur
-                and cur.assertion_id != a.assertion_id
-                and a.value != cur.value
-                and attr in _LABELS
-            ):
+            if cur and cur.assertion_id != a.assertion_id and a.value != cur.value:
                 cur_rows = [
                     (turn, ann, c)
                     for aa, rs in vals
@@ -225,13 +347,11 @@ def _build_checkpoint(sim, turns, annotations, at, *, final, rng, used):
                 if cur_rows:
                     stale_pairs.append((a, told, cur, cur_rows, entity, attr))
     rng.shuffle(historical)
-    for a, rows, entity, attr in historical[:cap]:
-        val = _name(sim, a.value) if a.value.startswith("person:") else a.value
+    for a, rows, entity, attr, successor in historical[:cap]:
+        val = _value(sim, a.value)
         add(
             "historical",
-            # Not "earlier detail": one template is "the earlier {topic}?",
-            # and that fallback would double up on its own framing word.
-            {"topic": _LABELS.get(attr, "that detail")},
+            {"what": _fact(sim, entity, attr), "newer": _spoken(sim, successor.value)},
             "answer",
             [val],
             [r[0].turn_id for r in rows],
@@ -245,10 +365,10 @@ def _build_checkpoint(sim, turns, annotations, at, *, final, rng, used):
         )
     rng.shuffle(stale_pairs)
     for old, oldrows, cur, currows, entity, attr in stale_pairs[:cap]:
-        curval = _name(sim, cur.value) if cur.value.startswith("person:") else cur.value
+        curval = _value(sim, cur.value)
         add(
             "stale_trap",
-            {"topic": _LABELS[attr]},
+            {"what": _fact(sim, entity, attr)},
             "answer",
             [curval],
             [r[0].turn_id for r in currows],
@@ -312,32 +432,36 @@ def _build_checkpoint(sim, turns, annotations, at, *, final, rng, used):
         if len(told) < 2:
             continue
         rng.shuffle(told)
-        # A solo cafe visit or a trip with nobody named carries no companion
-        # at all; asking "involving {person}" against an empty name renders
-        # a broken question, so only pick a sibling that actually has one.
+        key, clause = _INTERFERENCE[family]
+
+        # The question names the companion and the day, so the target must
+        # have a companion and be the only told sibling with that companion
+        # on that day; otherwise the question has two right answers.
+        def ident(ev):
+            return (ev.payload.get("name"), ev.t.date())
+
+        counts = defaultdict(int)
+        for ev, _ in told:
+            counts[ident(ev)] += 1
         picked = next(
-            (i for i, (ev, _) in enumerate(told) if ev.payload.get("name")), None
+            (
+                i
+                for i, (ev, _) in enumerate(told)
+                if ev.payload.get("name")
+                and ev.payload.get(key)
+                and counts[ident(ev)] == 1
+            ),
+            None,
         )
         if picked is None:
             continue
         target, rows = told[picked]
         others = told[:picked] + told[picked + 1 :]
         p = target.payload
-        person = p["name"]
-        key = {
-            "restaurant": "restaurant",
-            "cafe": "cafe",
-            "meeting": "topic",
-            "outing": "place",
-            "trip": "city",
-        }[family]
-        value = p.get(key)
-        if not value:
-            continue
-        answer = [value]
+        answer = [p[key]]
         add(
             "interference",
-            {"person": person, "date": _date(target.t)},
+            {"what": clause.format(person=p["name"], date=_long_date(target.t))},
             "answer",
             answer,
             [r[0].turn_id for r in rows],
@@ -358,18 +482,21 @@ def _build_checkpoint(sim, turns, annotations, at, *, final, rng, used):
         ):
             continue
         pid = ev.payload["plan"]
+        # Two plans with the same description ("submit the tax form" twice a
+        # year) would make "When is my plan to submit the tax form?" ambiguous.
+        what = _plan_descriptions(sim).get(pid)
         when = tl.value_at(pid, "when", at)
-        if when is None:
+        if when is None or what is None:
             continue
         rows = claims.get((pid, "when", when.assertion_id), [])
         rows = [r for r in rows if r[2].truthful]
         if rows:
-            temporal.append((ev, when, rows))
+            temporal.append((ev, when, what, rows))
     rng.shuffle(temporal)
-    for ev, when, rows in temporal[:cap]:
+    for ev, when, what, rows in temporal[:cap]:
         add(
             "temporal",
-            {},
+            {"what": _plan(what)},
             "answer",
             [when.value],
             [r[0].turn_id for r in rows],
@@ -389,20 +516,33 @@ def _build_checkpoint(sim, turns, annotations, at, *, final, rng, used):
     # ago the robot last heard it, not how long ago it "really" happened.
     trivial = []
     for ev in sim.events:
-        if ev.category != "trivial" or ev.t >= at:
+        if ev.category != "trivial" or ev.t >= at or ev.kind not in _TRIVIA:
             continue
         rows = event_turns.get(ev.event_id, [])
         if rows:
             trivial.append((ev, rows, rows[-1][0].t))
+
+    # "What I had for lunch on January 15" names one event: events.trivial
+    # emits at most one per (kind, meal) per day, and
+    # test_event_probes_identify_exactly_one_told_event holds that invariant.
     recent = [x for x in trivial if at - x[2] <= timedelta(days=3)]
     old = [x for x in trivial if at - x[2] > timedelta(days=60)]
     for category, pool in (("trivia_recent", recent), ("trivia_old", old)):
         rng.shuffle(pool)
         for ev, rows, _mention_t in pool[:cap]:
-            key = next(iter(ev.payload))
+            # Not `next(iter(ev.payload))`: a meal's first key is "meal"
+            # ("lunch"), not what was eaten, which made most trivia answers
+            # the meal name instead of the fact.
+            key, clause = _TRIVIA[ev.kind]
+            if not ev.payload.get(key):
+                continue
             add(
                 category,
-                {},
+                {
+                    "what": clause.format(
+                        meal=ev.payload.get("meal", ""), date=_long_date(ev.t)
+                    )
+                },
                 "forgettable" if category == "trivia_old" else "answer",
                 [str(ev.payload[key])],
                 [r[0].turn_id for r in rows],
@@ -410,6 +550,21 @@ def _build_checkpoint(sim, turns, annotations, at, *, final, rng, used):
             )
 
     # Abstention: true assertion exists, but no truthful mention has occurred by the checkpoint.
+    spoken_before = [t.text for t in turns if t.t < at]
+
+    def leaked(entity: str, value: str) -> bool:
+        """Annotations under-count what was said ("my friend Farah" states a
+        relation no claim records), so an abstention probe also requires that
+        the true value never appears in a turn that mentions its owner."""
+        forms = [v for v in {_value(sim, value), _spoken(sim, value)} if v]
+        owner = None if entity == "user" else _name(sim, entity)
+        for text in spoken_before:
+            if owner and not re.search(rf"(?<!\w){re.escape(owner)}(?!\w)", text):
+                continue
+            if any(re.search(rf"(?<!\w){re.escape(f)}(?!\w)", text, re.I) for f in forms):
+                return True
+        return False
+
     untold = []
     told_ids = {
         key[2]
@@ -419,17 +574,29 @@ def _build_checkpoint(sim, turns, annotations, at, *, final, rng, used):
     for a in tl:
         if a.valid_from >= at or a.assertion_id in told_ids:
             continue
-        if (
-            a.entity not in ("user", *sim.world.people.keys())
-            or a.attribute not in _LABELS
+        if a.entity.startswith("plan:") or not _fact(sim, a.entity, a.attribute):
+            continue
+        # The slot must never have been told at all (not just this value),
+        # or "what is my home city?" has a real answer from an older value.
+        if any(
+            key[0] == a.entity and key[1] == a.attribute and rows
+            for key, rows in claims.items()
         ):
             continue
         untold.append(a)
     rng.shuffle(untold)
-    for a in untold[:cap]:
+    # Checked lazily, after the shuffle: scanning every candidate against
+    # every prior turn is quadratic over a ten-year life.
+    chosen_untold = []
+    for a in untold:
+        if len(chosen_untold) >= cap:
+            break
+        if not leaked(a.entity, a.value):
+            chosen_untold.append(a)
+    for a in chosen_untold:
         add(
             "unanswerable",
-            {},
+            {"what": _fact(sim, a.entity, a.attribute)},
             "abstain",
             [],
             [],
@@ -450,35 +617,39 @@ def _build_checkpoint(sim, turns, annotations, at, *, final, rng, used):
             continue
         if ev.category not in ("loss", "relationship", "emotional", "robot"):
             continue
+        if ev.kind not in _DEFINING or not ev.payload.get(_DEFINING[ev.kind][0]):
+            continue
         rows = event_turns.get(ev.event_id, [])
         if rows:
             defining.append((ev, rows))
+
+    # Named by kind (and companion) and month, so exactly one *told* event may
+    # share that identity -- counted over every told event of the kind, not
+    # just the eligible pool: a minor argument with the same person that month
+    # (below the importance bar) still makes "what I argued with Ravi about in
+    # May" ambiguous.
+    def defining_ident(ev):
+        return (ev.kind, ev.payload.get("name"), _month(ev.t))
+
+    defining_counts = defaultdict(int)
+    for ev in sim.events:
+        if ev.kind in _DEFINING and ev.t < at and event_turns.get(ev.event_id):
+            defining_counts[defining_ident(ev)] += 1
+    defining = [x for x in defining if defining_counts[defining_ident(x[0])] == 1]
     rng.shuffle(defining)
     for ev, rows in defining[:cap]:
-        val = (
-            ev.payload.get("what")
-            or ev.payload.get("name")
-            or ev.kind.replace("_", " ")
-        )
+        key, clause = _DEFINING[ev.kind]
         add(
             "relationship_defining",
-            # A few templates in this family use {person} decoratively (most
-            # don't); an achievement/failure/user_birthday event has no named
-            # companion, and "" would render as "... about ?" if one of those
-            # templates gets picked, so fall back to a value that still reads.
-            {"person": ev.payload.get("name") or "myself"},
-            "answer",
-            [str(val)],
-            [r[0].turn_id for r in rows],
             {
-                "kind": "event_payload",
-                "event_id": ev.event_id,
-                "key": "what"
-                if "what" in ev.payload
-                else "name"
-                if "name" in ev.payload
-                else "kind",
+                "what": clause.format(
+                    name=ev.payload.get("name", ""), month=_month(ev.t)
+                )
             },
+            "answer",
+            [str(ev.payload[key])],
+            [r[0].turn_id for r in rows],
+            {"kind": "event_payload", "event_id": ev.event_id, "key": key},
         )
 
     # Upcoming open commitments, with the tasks re-derived from current plan assertions.
@@ -500,19 +671,23 @@ def _build_checkpoint(sim, turns, annotations, at, *, final, rng, used):
             rows = [r for r in rows if r[2].truthful]
             if rows:
                 open_plans.append((entity, what, when, rows))
-    rng.shuffle(open_plans)
+    # One probe listing every told, open, due plan: asking "what do I have
+    # coming up?" with a single plan as the answer marks a complete, correct
+    # recall of three plans as two-thirds wrong.
     if open_plans:
-        chosen = open_plans[:cap]
-        for entity, what, when, rows in chosen:
-            support = [r[0].turn_id for r in rows]
-            add(
-                "commitment_due",
-                {},
-                "answer",
-                [what.value],
-                support,
-                {"kind": "commitments", "at": at.isoformat(), "plans": [entity]},
-            )
+        open_plans.sort(key=lambda x: x[0])
+        add(
+            "commitment_due",
+            {"window": "month"},
+            "answer",
+            [what.value for _, what, _, _ in open_plans],
+            [r[0].turn_id for _, _, _, rows in open_plans for r in rows],
+            {
+                "kind": "commitments",
+                "at": at.isoformat(),
+                "plans": [entity for entity, _, _, _ in open_plans],
+            },
+        )
 
     # Surface only unresolved mistakes; truth is the slot projection at the original time.
     false_claims = []
@@ -538,6 +713,9 @@ def _build_checkpoint(sim, turns, annotations, at, *, final, rng, used):
     rng.shuffle(conflicts)
     seen_conflicts = set()
     for ann, c, truthful in conflicts:
+        what = _fact(sim, c.entity, c.attribute)
+        if not what:
+            continue
         tr, _, tc = truthful[0]
         key = (ann.turn_id, tc.assertion_id)
         if key in seen_conflicts:
@@ -547,7 +725,7 @@ def _build_checkpoint(sim, turns, annotations, at, *, final, rng, used):
             break
         add(
             "contradiction_surface",
-            {},
+            {"what": what},
             "surface_conflict",
             [c.value, tc.value],
             [ann.turn_id, tr.turn_id],

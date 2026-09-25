@@ -42,6 +42,7 @@ _ATTR_LABELS = {
     "relation": "relationship",
     "city": "location",
     "status": "status",
+    "species": "kind of pet",
     "nickname": "nickname",
     "user_warmth": "how close we feel",
     "kind": "plan",
@@ -136,7 +137,87 @@ def _shown(sim, attr: str, value: str) -> str:
     return value
 
 
+def _plan_np(what: str) -> str | None:
+    """A plan description as a noun phrase, or None if it's a verb phrase.
+    Plans mix both: "submit the tax form" vs "a hiking trip"."""
+    if what.startswith("a friend's "):
+        return "my " + what[2:]
+    for article in ("a ", "an "):
+        if what.startswith(article):
+            return "the " + what[len(article):]
+    return None
+
+
+def _plan_ref(what: str) -> str:
+    """How a plan is referred to mid-sentence: "the hiking trip", "my plan to
+    submit the tax form" -- never the bare verb phrase ("I moved cancel the
+    gym trial")."""
+    return _plan_np(what) or f"my plan to {what}"
+
+
+def _aim_ref(kind: str, what: str) -> str:
+    """Goals are verb phrases ("visit Japan" -> "my goal to visit Japan");
+    projects are gerunds or noun phrases ("renovating the balcony", "a
+    plant-tracking app") and read correctly on their own."""
+    return f"my goal to {what}" if kind == "goal" else what
+
+
+def _first(sim, entity: str, attribute: str) -> str | None:
+    hist = sim.timeline.history(entity, attribute)
+    return hist[0].value if hist else None
+
+
+def _nonperson_line(sim, entity: str, attribute: str, value: str) -> str | None:
+    """Plans, goals, projects and beliefs are not people: "someone's task is
+    pick Sasha up from the airport" was what the person-shaped line produced
+    for them (about 3.5% of all user speech)."""
+    kind = entity.split(":", 1)[0]
+    if kind == "plan":
+        what = _first(sim, entity, "what") or "something"
+        np = _plan_np(what)
+        if attribute == "when":
+            when = _pretty_when(value)
+            return f"{np} is on {when}" if np else f"I’m going to {what} on {when}"
+        if attribute in ("what", "kind"):
+            return f"I have {what} coming up" if np else f"I need to {what}"
+        if attribute == "with":
+            who = _person(sim, value)
+            return f"I’m going to {np or what} with {who}" if np else f"I’m going to {what} with {who}"
+        if attribute == "where":
+            return f"{np} is in {value}" if np else f"I’m going to {what} in {value}"
+        if attribute == "status":
+            return {
+                "planned": f"{np} is still on" if np else f"I still plan to {what}",
+                "confirmed": f"{np} is confirmed" if np else f"it’s confirmed that I’ll {what}",
+                "cancelled": f"{np} is off" if np else f"I’m not going to {what} after all",
+                "done": f"{np} happened" if np else f"I managed to {what}",
+            }.get(value, f"{_plan_ref(what)} is {value}")
+    if kind in ("goal", "project"):
+        what = _first(sim, entity, "what") or "something"
+        ref = _aim_ref(kind, what)
+        if attribute == "what":
+            return f"one of my goals is to {what}" if kind == "goal" else f"one of my projects is {what}"
+        if attribute == "status":
+            return {
+                "active": f"I’m still working on {ref}",
+                "achieved": f"I achieved {ref}" if kind == "goal" else f"I finished {ref}",
+                "done": f"I finished {ref}",
+                "abandoned": f"I gave up on {ref}",
+            }.get(value, f"{ref} is {value}")
+    if kind == "belief":
+        topic = _first(sim, entity, "topic")
+        if attribute == "stance" and topic:
+            return f"my view on {topic} is that {value}"
+        if attribute == "topic":
+            return f"I have strong views on {value}"
+    return None
+
+
 def _slot_line(sim, entity: str, attribute: str, value: str) -> str:
+    if entity != "user" and entity.split(":", 1)[0] in ("plan", "goal", "project", "belief"):
+        line = _nonperson_line(sim, entity, attribute, value)
+        if line:
+            return line
     label = _ATTR_LABELS.get(attribute, "that detail")
     if entity == "user":
         # No home_city special case needed: _ATTR_LABELS["home_city"] is
@@ -147,6 +228,22 @@ def _slot_line(sim, entity: str, attribute: str, value: str) -> str:
     else:
         subject = _person(sim, entity) + "’s"
     return f"{subject} {label} is {_shown(sim, attribute, value)}"
+
+
+def _past_slot_line(sim, entity: str, attribute: str, value: str) -> str:
+    """A superseded value, said as past. Replaces "I used to have {value} as
+    my {label}", which ignored whose fact it was ("I used to have Bogota as
+    my location" about a friend's city) and printed plan times as raw ISO."""
+    if entity == "user" or entity in sim.world.people or entity in sim.world.pets:
+        owner = "my" if entity == "user" else _person(sim, entity) + "’s"
+        label = _ATTR_LABELS.get(attribute, "that detail")
+        return f"{owner} {label} used to be {_shown(sim, attribute, value)}"
+    if entity.startswith("plan:") and attribute == "when":
+        what = _first(sim, entity, "what") or "something"
+        np = _plan_np(what)
+        when = _pretty_when(value)
+        return f"{np} was going to be on {when}" if np else f"I was going to {what} on {when}"
+    return "at one point, " + _slot_line(sim, entity, attribute, value)
 
 
 def _event_line(sim, ev: Event) -> str:
@@ -225,15 +322,21 @@ def _event_line(sim, ev: Event) -> str:
         companion = f" with {_person(sim, p['with'])}" if p.get("with") else ""
         where = f" in {p['where']}" if p.get("where") else ""
         hedge = "might " if p.get("tentative") else "will "
+        if _plan_np(p["what"]):
+            # "I will a friend's wedding" -- a noun phrase needs "have".
+            hedge = "might have " if p.get("tentative") else "have "
         return f"I {hedge}{p['what']} on {when}{where}{companion}"
     if kind.endswith("_rescheduled"):
-        return f"I moved {p['what']} from {_pretty_when(p['old_when'])} to {_pretty_when(p['when'])}"
+        return f"I moved {_plan_ref(p['what'])} from {_pretty_when(p['old_when'])} to {_pretty_when(p['when'])}"
     if kind.endswith("_confirmed"):
-        return f"{p['what']} is confirmed for {_pretty_when(p['when'])}"
+        np = _plan_np(p["what"])
+        when = _pretty_when(p["when"])
+        return f"{np} is confirmed for {when}" if np else f"it’s confirmed: I’ll {p['what']} on {when}"
     if kind.endswith("_cancelled"):
-        return f"I cancelled {p['what']}"
+        return f"I cancelled {_plan_ref(p['what'])}"
     if kind.endswith("_done"):
-        return f"I finished {p['what']}"
+        np = _plan_np(p["what"])
+        return f"{np} happened" if np else f"I managed to {p['what']}"
     if kind == "trip_start":
         return f"I’m in {p['city']} for {p['purpose']} and staying at {p['lodging']}"
     if kind == "trip_end":
@@ -263,9 +366,20 @@ def _event_line(sim, ev: Event) -> str:
             return f"I’m calling you {p['new']} now, not {p['old']}"
         return f"I’ve decided to call you {p['new']}"
     if kind.startswith(("goal_", "project_")):
+        # Was f"I {action} {what}": "I start visit Japan", "I progress run a
+        # half marathon".
         prefix = "goal" if kind.startswith("goal_") else "project"
         action = kind[len(prefix) + 1 :]
-        return f"I {action} {p['what']}"
+        what = p["what"]
+        ref = _aim_ref(prefix, what)
+        return {
+            "start": f"I’ve set myself a new goal: to {what}"
+            if prefix == "goal"
+            else f"I’ve started a new project: {what}",
+            "progress": f"I made some progress on {ref}",
+            "achieved": f"I achieved {ref}" if prefix == "goal" else f"I finished {ref}",
+            "abandoned": f"I gave up on {ref}",
+        }.get(action, f"{ref} is {action}")
     if kind == "restaurant_visit":
         return f"I went to {p['restaurant']} with {who} for {p['occasion']} and had {p['dish']}"
     if kind == "cafe_visit":
@@ -286,13 +400,46 @@ def _pretty_when(raw: str) -> str:
         return str(raw)
 
 
-def _event_claims(sim, ev: Event) -> list[Claim]:
+def _spoken_forms(sim, value: str) -> tuple[str, ...]:
+    if value.startswith("person:"):
+        return (_person(sim, value),)
+    return (value, _pretty_when(value))
+
+
+def _event_claims(sim, ev: Event, line: str = "") -> list[Claim]:
+    """Claims for what the event makes true, plus -- when ``line`` actually
+    says it -- the value it replaced. "I switched my usual drink from mango
+    lassi to masala chai" tells the listener both values; annotating only the
+    new one made the oracle believe the old value was never said, which left
+    almost no fact eligible for stale-trap or historical probes."""
     claims = []
+    tl = sim.timeline
     for aid in ev.effects:
-        a = sim.timeline.get(aid)
+        a = tl.get(aid)
         claims.append(
             Claim(a.entity, a.attribute, a.value, True, ev.t, a.assertion_id, False)
         )
+        prev = tl.value_at(a.entity, a.attribute, a.valid_from - timedelta(microseconds=1))
+        if (
+            prev is not None
+            and prev.value != a.value
+            and line
+            and any(
+                form and re.search(rf"(?<!\w){re.escape(form)}(?!\w)", line)
+                for form in _spoken_forms(sim, prev.value)
+            )
+        ):
+            claims.append(
+                Claim(
+                    prev.entity,
+                    prev.attribute,
+                    prev.value,
+                    True,
+                    prev.valid_from,
+                    prev.assertion_id,
+                    False,
+                )
+            )
     return claims
 
 
@@ -545,8 +692,8 @@ def render(sim) -> tuple[list[Turn], list[Annotation]]:
             obj_c = None
             if kind == "event":
                 ev = obj
-                claims = _event_claims(sim, ev)
                 line = _event_line(sim, ev)
+                claims = _event_claims(sim, ev, line)
                 if ev.category in ("emotional", "relationship", "loss"):
                     if ev.valence <= -0.7:
                         line = f"I’m heartbroken; {line}"
@@ -837,7 +984,7 @@ def render(sim) -> tuple[list[Turn], list[Annotation]]:
                             assertion.valid_to is not None
                             and assertion.valid_to <= clock
                         ):
-                            line = f"I used to have {_shown(sim, c.attribute, c.value)} as my {_ATTR_LABELS.get(c.attribute, 'detail')}"
+                            line = _past_slot_line(sim, c.entity, c.attribute, c.value)
                         else:
                             line = _slot_line(sim, c.entity, c.attribute, c.value)
                         text, tpl = _pick_text(

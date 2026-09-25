@@ -2,262 +2,273 @@
  "families": {
   "current": {
    "placeholders": [
-    "topic"
+    "what"
+   ],
+   "required": [
+    "what"
    ],
    "templates": [
     {
      "id": "current#000",
-     "text": "What is the current {topic}?"
+     "text": "What is {what} these days?"
     },
     {
      "id": "current#001",
-     "text": "Which {topic} do I have now?"
+     "text": "What did I last tell you about {what}?"
     },
     {
      "id": "current#002",
-     "text": "What did I tell you about my {topic}?"
+     "text": "Remind me: what is {what} right now?"
     },
     {
      "id": "current#003",
-     "text": "Remind me: what is true for me today about {topic}?"
+     "text": "As things stand, what is {what}?"
     },
     {
      "id": "current#004",
-     "text": "What do you remember about the present {topic}?"
+     "text": "What's {what} at the moment?"
     },
     {
      "id": "current#005",
-     "text": "As things stand, what is my {topic}?"
+     "text": "If someone asked you today, what would you say {what} is?"
     },
     {
      "id": "current#006",
-     "text": "Could you remind me: What is the current {topic}?"
+     "text": "Could you remind me: What is {what} these days?"
     },
     {
      "id": "current#007",
-     "text": "Help me recall: Which {topic} do I have now?"
+     "text": "Help me recall: What did I last tell you about {what}?"
     },
     {
      "id": "current#008",
-     "text": "I am trying to remember: What did I tell you about my {topic}?"
+     "text": "I am trying to remember: Remind me: what is {what} right now?"
     },
     {
      "id": "current#009",
-     "text": "Can we go back to this: Remind me: what is true for me today about {topic}?"
+     "text": "Quick memory check: As things stand, what is {what}?"
     },
     {
      "id": "current#010",
-     "text": "One thing I cannot quite recall: What do you remember about the present {topic}?"
+     "text": "One thing I can't quite recall: What's {what} at the moment?"
     },
     {
      "id": "current#011",
-     "text": "Think back for a moment: As things stand, what is my {topic}?"
+     "text": "Think back for a moment: If someone asked you today, what would you say {what} is?"
     },
     {
      "id": "current#012",
-     "text": "I have a memory question: What is the current {topic}?"
+     "text": "I have a memory question: What is {what} these days?"
     },
     {
      "id": "current#013",
-     "text": "Tell me again: Which {topic} do I have now?"
+     "text": "I want to make sure I remember: Remind me: what is {what} right now?"
     },
     {
      "id": "current#014",
-     "text": "For a quick memory check: What did I tell you about my {topic}?"
+     "text": "Let me ask about this: As things stand, what is {what}?"
     },
     {
      "id": "current#015",
-     "text": "I want to make sure I remember: Remind me: what is true for me today about {topic}?"
+     "text": "Do you remember this one: What's {what} at the moment?"
     },
     {
      "id": "current#016",
-     "text": "Let me ask about this: What do you remember about the present {topic}?"
+     "text": "I lost track of one detail: If someone asked you today, what would you say {what} is?"
     },
     {
      "id": "current#017",
-     "text": "Do you remember this one: As things stand, what is my {topic}?"
+     "text": "Can you bring this back to mind: What is {what} these days?"
     },
     {
      "id": "current#018",
-     "text": "I lost track of one detail: What is the current {topic}?"
+     "text": "Something I wanted to check: What did I last tell you about {what}?"
     },
     {
      "id": "current#019",
-     "text": "Can you bring this back to mind: Which {topic} do I have now?"
+     "text": "Help me recall: As things stand, what is {what}?"
     }
    ]
   },
   "historical": {
    "placeholders": [
-    "topic"
+    "newer",
+    "what"
+   ],
+   "required": [
+    "newer",
+    "what"
    ],
    "templates": [
     {
      "id": "historical#000",
-     "text": "What was my {topic} back then?"
+     "text": "What was {what} before it changed to {newer}?"
     },
     {
      "id": "historical#001",
-     "text": "Before that change, what did I have?"
+     "text": "Before {newer}, what was {what}?"
     },
     {
      "id": "historical#002",
-     "text": "What came before the present situation?"
+     "text": "Do you remember what {what} was before {newer}?"
     },
     {
      "id": "historical#003",
-     "text": "What was true earlier in my life?"
+     "text": "Earlier, before it became {newer}, what was {what}?"
     },
     {
      "id": "historical#004",
-     "text": "Can you recall the earlier {topic}?"
+     "text": "What was {what} previously, before switching to {newer}?"
     },
     {
      "id": "historical#005",
-     "text": "What did I tell you about the old days?"
+     "text": "Going back to before {newer}: what was {what}?"
     },
     {
      "id": "historical#006",
-     "text": "Could you remind me: What was my {topic} back then?"
+     "text": "Could you remind me: What was {what} before it changed to {newer}?"
     },
     {
      "id": "historical#007",
-     "text": "Help me recall: Before that change, what did I have?"
+     "text": "Help me recall: Before {newer}, what was {what}?"
     },
     {
      "id": "historical#008",
-     "text": "I am trying to remember: What came before the present situation?"
+     "text": "Quick memory check: Earlier, before it became {newer}, what was {what}?"
     },
     {
      "id": "historical#009",
-     "text": "Can we go back to this: What was true earlier in my life?"
+     "text": "One thing I can't quite recall: What was {what} previously, before switching to {newer}?"
     },
     {
      "id": "historical#010",
-     "text": "One thing I cannot quite recall: Can you recall the earlier {topic}?"
+     "text": "Think back for a moment: Going back to before {newer}: what was {what}?"
     },
     {
      "id": "historical#011",
-     "text": "Think back for a moment: What did I tell you about the old days?"
+     "text": "I have a memory question: What was {what} before it changed to {newer}?"
     },
     {
      "id": "historical#012",
-     "text": "I have a memory question: What was my {topic} back then?"
+     "text": "Tell me again: Before {newer}, what was {what}?"
     },
     {
      "id": "historical#013",
-     "text": "Tell me again: Before that change, what did I have?"
+     "text": "Let me ask about this: Earlier, before it became {newer}, what was {what}?"
     },
     {
      "id": "historical#014",
-     "text": "For a quick memory check: What came before the present situation?"
+     "text": "Do you remember this one: What was {what} previously, before switching to {newer}?"
     },
     {
      "id": "historical#015",
-     "text": "I want to make sure I remember: What was true earlier in my life?"
+     "text": "I lost track of one detail: Going back to before {newer}: what was {what}?"
     },
     {
      "id": "historical#016",
-     "text": "Let me ask about this: Can you recall the earlier {topic}?"
+     "text": "Can you bring this back to mind: What was {what} before it changed to {newer}?"
     },
     {
      "id": "historical#017",
-     "text": "Do you remember this one: What did I tell you about the old days?"
+     "text": "Something I wanted to check: Before {newer}, what was {what}?"
     },
     {
      "id": "historical#018",
-     "text": "I lost track of one detail: What was my {topic} back then?"
+     "text": "Could you remind me: Do you remember what {what} was before {newer}?"
     },
     {
      "id": "historical#019",
-     "text": "Can you bring this back to mind: Before that change, what did I have?"
+     "text": "Help me recall: Earlier, before it became {newer}, what was {what}?"
     }
    ]
   },
   "stale_trap": {
    "placeholders": [
-    "topic"
+    "what"
+   ],
+   "required": [
+    "what"
    ],
    "templates": [
     {
      "id": "stale_trap#000",
-     "text": "What is my {topic} these days?"
+     "text": "What is {what} now, after the change?"
     },
     {
      "id": "stale_trap#001",
-     "text": "Which value replaced the old one?"
+     "text": "I told you about {what} more than once. What is the latest?"
     },
     {
      "id": "stale_trap#002",
-     "text": "What should I use now, rather than the earlier detail?"
+     "text": "What is {what} nowadays, not what it used to be?"
     },
     {
      "id": "stale_trap#003",
-     "text": "What is the latest version of that fact?"
+     "text": "Since it changed, what is {what}?"
     },
     {
      "id": "stale_trap#004",
-     "text": "How did that detail end up changing?"
+     "text": "What's the up-to-date answer for {what}?"
     },
     {
      "id": "stale_trap#005",
-     "text": "What is true now after the switch?"
+     "text": "Ignoring the old answer, what is {what} today?"
     },
     {
      "id": "stale_trap#006",
-     "text": "Could you remind me: What is my {topic} these days?"
+     "text": "Could you remind me: What is {what} now, after the change?"
     },
     {
      "id": "stale_trap#007",
-     "text": "Help me recall: Which value replaced the old one?"
+     "text": "Help me recall: I told you about {what} more than once. What is the latest?"
     },
     {
      "id": "stale_trap#008",
-     "text": "I am trying to remember: What should I use now, rather than the earlier detail?"
+     "text": "I am trying to remember: What is {what} nowadays, not what it used to be?"
     },
     {
      "id": "stale_trap#009",
-     "text": "Can we go back to this: What is the latest version of that fact?"
+     "text": "Quick memory check: Since it changed, what is {what}?"
     },
     {
      "id": "stale_trap#010",
-     "text": "One thing I cannot quite recall: How did that detail end up changing?"
+     "text": "One thing I can't quite recall: What's the up-to-date answer for {what}?"
     },
     {
      "id": "stale_trap#011",
-     "text": "Think back for a moment: What is true now after the switch?"
+     "text": "Think back for a moment: Ignoring the old answer, what is {what} today?"
     },
     {
      "id": "stale_trap#012",
-     "text": "I have a memory question: What is my {topic} these days?"
+     "text": "I have a memory question: What is {what} now, after the change?"
     },
     {
      "id": "stale_trap#013",
-     "text": "Tell me again: Which value replaced the old one?"
+     "text": "Tell me again: I told you about {what} more than once. What is the latest?"
     },
     {
      "id": "stale_trap#014",
-     "text": "For a quick memory check: What should I use now, rather than the earlier detail?"
+     "text": "I want to make sure I remember: What is {what} nowadays, not what it used to be?"
     },
     {
      "id": "stale_trap#015",
-     "text": "I want to make sure I remember: What is the latest version of that fact?"
+     "text": "Let me ask about this: Since it changed, what is {what}?"
     },
     {
      "id": "stale_trap#016",
-     "text": "Let me ask about this: How did that detail end up changing?"
+     "text": "Do you remember this one: What's the up-to-date answer for {what}?"
     },
     {
      "id": "stale_trap#017",
-     "text": "Do you remember this one: What is true now after the switch?"
+     "text": "I lost track of one detail: Ignoring the old answer, what is {what} today?"
     },
     {
      "id": "stale_trap#018",
-     "text": "I lost track of one detail: What is my {topic} these days?"
+     "text": "Can you bring this back to mind: What is {what} now, after the change?"
     },
     {
      "id": "stale_trap#019",
-     "text": "Can you bring this back to mind: Which value replaced the old one?"
+     "text": "Something I wanted to check: I told you about {what} more than once. What is the latest?"
     }
    ]
   },
@@ -265,771 +276,809 @@
    "placeholders": [
     "person"
    ],
+   "required": [
+    "person"
+   ],
    "templates": [
     {
      "id": "multi_hop#000",
-     "text": "Who is connected to {person}, and where do they work?"
+     "text": "Who is {person}'s partner, and where do they work?"
     },
     {
      "id": "multi_hop#001",
-     "text": "Follow the relationship from {person}: who is that, and what is their employer?"
+     "text": "What's the name of {person}'s partner, and who employs them?"
     },
     {
      "id": "multi_hop#002",
-     "text": "What can you tell me about {person}’s close connection and their job?"
+     "text": "Do you remember who {person} is with, and where that person works?"
     },
     {
      "id": "multi_hop#003",
-     "text": "Who is in {person}’s family circle, and where do they work?"
+     "text": "Tell me about {person}'s partner: their name and their workplace."
     },
     {
      "id": "multi_hop#004",
-     "text": "Starting with {person}, identify their partner and workplace."
+     "text": "Who is {person} seeing, and where do they work?"
     },
     {
      "id": "multi_hop#005",
-     "text": "Which person is linked to {person}, and which company employs them?"
+     "text": "Where does {person}'s partner work, and what is their name?"
     },
     {
      "id": "multi_hop#006",
-     "text": "Could you remind me: Who is connected to {person}, and where do they work?"
+     "text": "Could you remind me: Who is {person}'s partner, and where do they work?"
     },
     {
      "id": "multi_hop#007",
-     "text": "Help me recall: Follow the relationship from {person}: who is that, and what is their employer?"
+     "text": "Help me recall: What's the name of {person}'s partner, and who employs them?"
     },
     {
      "id": "multi_hop#008",
-     "text": "I am trying to remember: What can you tell me about {person}’s close connection and their job?"
+     "text": "Quick memory check: Tell me about {person}'s partner: their name and their workplace."
     },
     {
      "id": "multi_hop#009",
-     "text": "Can we go back to this: Who is in {person}’s family circle, and where do they work?"
+     "text": "One thing I can't quite recall: Who is {person} seeing, and where do they work?"
     },
     {
      "id": "multi_hop#010",
-     "text": "One thing I cannot quite recall: Starting with {person}, identify their partner and workplace."
+     "text": "Think back for a moment: Where does {person}'s partner work, and what is their name?"
     },
     {
      "id": "multi_hop#011",
-     "text": "Think back for a moment: Which person is linked to {person}, and which company employs them?"
+     "text": "I have a memory question: Who is {person}'s partner, and where do they work?"
     },
     {
      "id": "multi_hop#012",
-     "text": "I have a memory question: Who is connected to {person}, and where do they work?"
+     "text": "Tell me again: What's the name of {person}'s partner, and who employs them?"
     },
     {
      "id": "multi_hop#013",
-     "text": "Tell me again: Follow the relationship from {person}: who is that, and what is their employer?"
+     "text": "Let me ask about this: Tell me about {person}'s partner: their name and their workplace."
     },
     {
      "id": "multi_hop#014",
-     "text": "For a quick memory check: What can you tell me about {person}’s close connection and their job?"
+     "text": "Do you remember this one: Who is {person} seeing, and where do they work?"
     },
     {
      "id": "multi_hop#015",
-     "text": "I want to make sure I remember: Who is in {person}’s family circle, and where do they work?"
+     "text": "I lost track of one detail: Where does {person}'s partner work, and what is their name?"
     },
     {
      "id": "multi_hop#016",
-     "text": "Let me ask about this: Starting with {person}, identify their partner and workplace."
+     "text": "Can you bring this back to mind: Who is {person}'s partner, and where do they work?"
     },
     {
      "id": "multi_hop#017",
-     "text": "Do you remember this one: Which person is linked to {person}, and which company employs them?"
+     "text": "Something I wanted to check: What's the name of {person}'s partner, and who employs them?"
     },
     {
      "id": "multi_hop#018",
-     "text": "I lost track of one detail: Who is connected to {person}, and where do they work?"
+     "text": "Could you remind me: Do you remember who {person} is with, and where that person works?"
     },
     {
      "id": "multi_hop#019",
-     "text": "Can you bring this back to mind: Follow the relationship from {person}: who is that, and what is their employer?"
+     "text": "Help me recall: Tell me about {person}'s partner: their name and their workplace."
     }
    ]
   },
   "interference": {
    "placeholders": [
-    "date",
-    "person"
+    "what"
+   ],
+   "required": [
+    "what"
    ],
    "templates": [
     {
      "id": "interference#000",
-     "text": "Where did I go with {person} on {date}?"
+     "text": "Do you remember {what}?"
     },
     {
      "id": "interference#001",
-     "text": "Which place did we visit with {person}, on that occasion?"
+     "text": "Can you tell me {what}?"
     },
     {
      "id": "interference#002",
-     "text": "What was the venue for my outing alongside {person}?"
+     "text": "I forget {what}. Do you know?"
     },
     {
      "id": "interference#003",
-     "text": "Can you identify the spot from the {date} story with {person}?"
+     "text": "Remind me {what}."
     },
     {
      "id": "interference#004",
-     "text": "Where was I when I spent time with {person}?"
+     "text": "Any idea {what}?"
     },
     {
      "id": "interference#005",
-     "text": "Which destination belongs to the {date} memory involving {person}?"
+     "text": "Do you still know {what}?"
     },
     {
      "id": "interference#006",
-     "text": "Could you remind me: Where did I go with {person} on {date}?"
+     "text": "Could you remind me: Do you remember {what}?"
     },
     {
      "id": "interference#007",
-     "text": "Help me recall: Which place did we visit with {person}, on that occasion?"
+     "text": "Help me recall: Can you tell me {what}?"
     },
     {
      "id": "interference#008",
-     "text": "I am trying to remember: What was the venue for my outing alongside {person}?"
+     "text": "I am trying to remember: I forget {what}. Do you know?"
     },
     {
      "id": "interference#009",
-     "text": "Can we go back to this: Can you identify the spot from the {date} story with {person}?"
+     "text": "Quick memory check: Remind me {what}."
     },
     {
      "id": "interference#010",
-     "text": "One thing I cannot quite recall: Where was I when I spent time with {person}?"
+     "text": "One thing I can't quite recall: Any idea {what}?"
     },
     {
      "id": "interference#011",
-     "text": "Think back for a moment: Which destination belongs to the {date} memory involving {person}?"
+     "text": "Think back for a moment: Do you still know {what}?"
     },
     {
      "id": "interference#012",
-     "text": "I have a memory question: Where did I go with {person} on {date}?"
+     "text": "I have a memory question: Do you remember {what}?"
     },
     {
      "id": "interference#013",
-     "text": "Tell me again: Which place did we visit with {person}, on that occasion?"
+     "text": "I want to make sure I remember: I forget {what}. Do you know?"
     },
     {
      "id": "interference#014",
-     "text": "For a quick memory check: What was the venue for my outing alongside {person}?"
+     "text": "Let me ask about this: Remind me {what}."
     },
     {
      "id": "interference#015",
-     "text": "I want to make sure I remember: Can you identify the spot from the {date} story with {person}?"
+     "text": "Do you remember this one: Any idea {what}?"
     },
     {
      "id": "interference#016",
-     "text": "Let me ask about this: Where was I when I spent time with {person}?"
+     "text": "I lost track of one detail: Do you still know {what}?"
     },
     {
      "id": "interference#017",
-     "text": "Do you remember this one: Which destination belongs to the {date} memory involving {person}?"
+     "text": "Can you bring this back to mind: Do you remember {what}?"
     },
     {
      "id": "interference#018",
-     "text": "I lost track of one detail: Where did I go with {person} on {date}?"
+     "text": "Something I wanted to check: Can you tell me {what}?"
     },
     {
      "id": "interference#019",
-     "text": "Can you bring this back to mind: Which place did we visit with {person}, on that occasion?"
+     "text": "Could you remind me: I forget {what}. Do you know?"
     }
    ]
   },
   "temporal": {
-   "placeholders": [],
+   "placeholders": [
+    "what"
+   ],
+   "required": [
+    "what"
+   ],
    "templates": [
     {
      "id": "temporal#000",
-     "text": "When did that begin?"
+     "text": "When is {what}?"
     },
     {
      "id": "temporal#001",
-     "text": "What date did I give you for this?"
+     "text": "What date did I give you for {what}?"
     },
     {
      "id": "temporal#002",
-     "text": "When was it scheduled to happen?"
+     "text": "When did I say {what} would be?"
     },
     {
      "id": "temporal#003",
-     "text": "Can you recall the timing I mentioned?"
+     "text": "Remind me when {what} is scheduled."
     },
     {
      "id": "temporal#004",
-     "text": "What was the date of that change?"
+     "text": "What day and time is {what} set for?"
     },
     {
      "id": "temporal#005",
-     "text": "When did I tell you this would happen?"
+     "text": "Do you remember when {what} is happening?"
     },
     {
      "id": "temporal#006",
-     "text": "Could you remind me: When did that begin?"
+     "text": "Could you remind me: When is {what}?"
     },
     {
      "id": "temporal#007",
-     "text": "Help me recall: What date did I give you for this?"
+     "text": "Help me recall: What date did I give you for {what}?"
     },
     {
      "id": "temporal#008",
-     "text": "I am trying to remember: When was it scheduled to happen?"
+     "text": "I am trying to remember: When did I say {what} would be?"
     },
     {
      "id": "temporal#009",
-     "text": "Can we go back to this: Can you recall the timing I mentioned?"
+     "text": "Quick memory check: Remind me when {what} is scheduled."
     },
     {
      "id": "temporal#010",
-     "text": "One thing I cannot quite recall: What was the date of that change?"
+     "text": "One thing I can't quite recall: What day and time is {what} set for?"
     },
     {
      "id": "temporal#011",
-     "text": "Think back for a moment: When did I tell you this would happen?"
+     "text": "Think back for a moment: Do you remember when {what} is happening?"
     },
     {
      "id": "temporal#012",
-     "text": "I have a memory question: When did that begin?"
+     "text": "I have a memory question: When is {what}?"
     },
     {
      "id": "temporal#013",
-     "text": "Tell me again: What date did I give you for this?"
+     "text": "Tell me again: What date did I give you for {what}?"
     },
     {
      "id": "temporal#014",
-     "text": "For a quick memory check: When was it scheduled to happen?"
+     "text": "I want to make sure I remember: When did I say {what} would be?"
     },
     {
      "id": "temporal#015",
-     "text": "I want to make sure I remember: Can you recall the timing I mentioned?"
+     "text": "Let me ask about this: Remind me when {what} is scheduled."
     },
     {
      "id": "temporal#016",
-     "text": "Let me ask about this: What was the date of that change?"
+     "text": "Do you remember this one: What day and time is {what} set for?"
     },
     {
      "id": "temporal#017",
-     "text": "Do you remember this one: When did I tell you this would happen?"
+     "text": "I lost track of one detail: Do you remember when {what} is happening?"
     },
     {
      "id": "temporal#018",
-     "text": "I lost track of one detail: When did that begin?"
+     "text": "Can you bring this back to mind: When is {what}?"
     },
     {
      "id": "temporal#019",
-     "text": "Can you bring this back to mind: What date did I give you for this?"
+     "text": "Something I wanted to check: What date did I give you for {what}?"
     }
    ]
   },
   "trivia_recent": {
-   "placeholders": [],
+   "placeholders": [
+    "what"
+   ],
+   "required": [
+    "what"
+   ],
    "templates": [
     {
      "id": "trivia_recent#000",
-     "text": "What small detail did I mention recently?"
+     "text": "Do you remember {what}?"
     },
     {
      "id": "trivia_recent#001",
-     "text": "What was that everyday thing from the other day?"
+     "text": "Can you tell me {what}?"
     },
     {
      "id": "trivia_recent#002",
-     "text": "Can you recall the little event from lately?"
+     "text": "I forget {what}. Do you know?"
     },
     {
      "id": "trivia_recent#003",
-     "text": "What happened in the casual update?"
+     "text": "Remind me {what}."
     },
     {
      "id": "trivia_recent#004",
-     "text": "What did I say about that recent ordinary moment?"
+     "text": "Any idea {what}?"
     },
     {
      "id": "trivia_recent#005",
-     "text": "Which minor detail came up a day or two ago?"
+     "text": "Do you still know {what}?"
     },
     {
      "id": "trivia_recent#006",
-     "text": "Could you remind me: What small detail did I mention recently?"
+     "text": "Could you remind me: Do you remember {what}?"
     },
     {
      "id": "trivia_recent#007",
-     "text": "Help me recall: What was that everyday thing from the other day?"
+     "text": "Help me recall: Can you tell me {what}?"
     },
     {
      "id": "trivia_recent#008",
-     "text": "I am trying to remember: Can you recall the little event from lately?"
+     "text": "I am trying to remember: I forget {what}. Do you know?"
     },
     {
      "id": "trivia_recent#009",
-     "text": "Can we go back to this: What happened in the casual update?"
+     "text": "Quick memory check: Remind me {what}."
     },
     {
      "id": "trivia_recent#010",
-     "text": "One thing I cannot quite recall: What did I say about that recent ordinary moment?"
+     "text": "One thing I can't quite recall: Any idea {what}?"
     },
     {
      "id": "trivia_recent#011",
-     "text": "Think back for a moment: Which minor detail came up a day or two ago?"
+     "text": "Think back for a moment: Do you still know {what}?"
     },
     {
      "id": "trivia_recent#012",
-     "text": "I have a memory question: What small detail did I mention recently?"
+     "text": "I have a memory question: Do you remember {what}?"
     },
     {
      "id": "trivia_recent#013",
-     "text": "Tell me again: What was that everyday thing from the other day?"
+     "text": "I want to make sure I remember: I forget {what}. Do you know?"
     },
     {
      "id": "trivia_recent#014",
-     "text": "For a quick memory check: Can you recall the little event from lately?"
+     "text": "Let me ask about this: Remind me {what}."
     },
     {
      "id": "trivia_recent#015",
-     "text": "I want to make sure I remember: What happened in the casual update?"
+     "text": "Do you remember this one: Any idea {what}?"
     },
     {
      "id": "trivia_recent#016",
-     "text": "Let me ask about this: What did I say about that recent ordinary moment?"
+     "text": "I lost track of one detail: Do you still know {what}?"
     },
     {
      "id": "trivia_recent#017",
-     "text": "Do you remember this one: Which minor detail came up a day or two ago?"
+     "text": "Can you bring this back to mind: Do you remember {what}?"
     },
     {
      "id": "trivia_recent#018",
-     "text": "I lost track of one detail: What small detail did I mention recently?"
+     "text": "Something I wanted to check: Can you tell me {what}?"
     },
     {
      "id": "trivia_recent#019",
-     "text": "Can you bring this back to mind: What was that everyday thing from the other day?"
+     "text": "Could you remind me: I forget {what}. Do you know?"
     }
    ]
   },
   "trivia_old": {
-   "placeholders": [],
+   "placeholders": [
+    "what"
+   ],
+   "required": [
+    "what"
+   ],
    "templates": [
     {
      "id": "trivia_old#000",
-     "text": "What was the minor detail from a while ago?"
+     "text": "Do you remember {what}?"
     },
     {
      "id": "trivia_old#001",
-     "text": "Can you recall that everyday update from long back?"
+     "text": "Can you tell me {what}?"
     },
     {
      "id": "trivia_old#002",
-     "text": "What little event did I mention months ago?"
+     "text": "I forget {what}. Do you know?"
     },
     {
      "id": "trivia_old#003",
-     "text": "What happened in that old casual story?"
+     "text": "Remind me {what}."
     },
     {
      "id": "trivia_old#004",
-     "text": "Which small detail came up long ago?"
+     "text": "Any idea {what}?"
     },
     {
      "id": "trivia_old#005",
-     "text": "Do you remember the ordinary thing from earlier?"
+     "text": "Do you still know {what}?"
     },
     {
      "id": "trivia_old#006",
-     "text": "Could you remind me: What was the minor detail from a while ago?"
+     "text": "Could you remind me: Do you remember {what}?"
     },
     {
      "id": "trivia_old#007",
-     "text": "Help me recall: Can you recall that everyday update from long back?"
+     "text": "Help me recall: Can you tell me {what}?"
     },
     {
      "id": "trivia_old#008",
-     "text": "I am trying to remember: What little event did I mention months ago?"
+     "text": "I am trying to remember: I forget {what}. Do you know?"
     },
     {
      "id": "trivia_old#009",
-     "text": "Can we go back to this: What happened in that old casual story?"
+     "text": "Quick memory check: Remind me {what}."
     },
     {
      "id": "trivia_old#010",
-     "text": "One thing I cannot quite recall: Which small detail came up long ago?"
+     "text": "One thing I can't quite recall: Any idea {what}?"
     },
     {
      "id": "trivia_old#011",
-     "text": "Think back for a moment: Do you remember the ordinary thing from earlier?"
+     "text": "Think back for a moment: Do you still know {what}?"
     },
     {
      "id": "trivia_old#012",
-     "text": "I have a memory question: What was the minor detail from a while ago?"
+     "text": "I have a memory question: Do you remember {what}?"
     },
     {
      "id": "trivia_old#013",
-     "text": "Tell me again: Can you recall that everyday update from long back?"
+     "text": "I want to make sure I remember: I forget {what}. Do you know?"
     },
     {
      "id": "trivia_old#014",
-     "text": "For a quick memory check: What little event did I mention months ago?"
+     "text": "Let me ask about this: Remind me {what}."
     },
     {
      "id": "trivia_old#015",
-     "text": "I want to make sure I remember: What happened in that old casual story?"
+     "text": "Do you remember this one: Any idea {what}?"
     },
     {
      "id": "trivia_old#016",
-     "text": "Let me ask about this: Which small detail came up long ago?"
+     "text": "I lost track of one detail: Do you still know {what}?"
     },
     {
      "id": "trivia_old#017",
-     "text": "Do you remember this one: Do you remember the ordinary thing from earlier?"
+     "text": "Can you bring this back to mind: Do you remember {what}?"
     },
     {
      "id": "trivia_old#018",
-     "text": "I lost track of one detail: What was the minor detail from a while ago?"
+     "text": "Something I wanted to check: Can you tell me {what}?"
     },
     {
      "id": "trivia_old#019",
-     "text": "Can you bring this back to mind: Can you recall that everyday update from long back?"
+     "text": "Could you remind me: I forget {what}. Do you know?"
     }
    ]
   },
   "unanswerable": {
-   "placeholders": [],
+   "placeholders": [
+    "what"
+   ],
+   "required": [
+    "what"
+   ],
    "templates": [
     {
      "id": "unanswerable#000",
-     "text": "What is the name of the sibling I never mentioned?"
+     "text": "What is {what}?"
     },
     {
      "id": "unanswerable#001",
-     "text": "Which city did I keep secret from you?"
+     "text": "Do you know {what}?"
     },
     {
      "id": "unanswerable#002",
-     "text": "What was the detail I never shared?"
+     "text": "Can you tell me {what}?"
     },
     {
      "id": "unanswerable#003",
-     "text": "Can you name the person I have not told you about?"
+     "text": "Remind me what {what} is."
     },
     {
      "id": "unanswerable#004",
-     "text": "What did I say about that unmentioned subject?"
+     "text": "Have I ever told you {what}? What is it?"
     },
     {
      "id": "unanswerable#005",
-     "text": "Which private fact was absent from our conversations?"
+     "text": "What would you say {what} is?"
     },
     {
      "id": "unanswerable#006",
-     "text": "Could you remind me: What is the name of the sibling I never mentioned?"
+     "text": "Could you remind me: What is {what}?"
     },
     {
      "id": "unanswerable#007",
-     "text": "Help me recall: Which city did I keep secret from you?"
+     "text": "Help me recall: Do you know {what}?"
     },
     {
      "id": "unanswerable#008",
-     "text": "I am trying to remember: What was the detail I never shared?"
+     "text": "I am trying to remember: Can you tell me {what}?"
     },
     {
      "id": "unanswerable#009",
-     "text": "Can we go back to this: Can you name the person I have not told you about?"
+     "text": "Quick memory check: Remind me what {what} is."
     },
     {
      "id": "unanswerable#010",
-     "text": "One thing I cannot quite recall: What did I say about that unmentioned subject?"
+     "text": "One thing I can't quite recall: Have I ever told you {what}? What is it?"
     },
     {
      "id": "unanswerable#011",
-     "text": "Think back for a moment: Which private fact was absent from our conversations?"
+     "text": "Think back for a moment: What would you say {what} is?"
     },
     {
      "id": "unanswerable#012",
-     "text": "I have a memory question: What is the name of the sibling I never mentioned?"
+     "text": "I have a memory question: What is {what}?"
     },
     {
      "id": "unanswerable#013",
-     "text": "Tell me again: Which city did I keep secret from you?"
+     "text": "Tell me again: Do you know {what}?"
     },
     {
      "id": "unanswerable#014",
-     "text": "For a quick memory check: What was the detail I never shared?"
+     "text": "I want to make sure I remember: Can you tell me {what}?"
     },
     {
      "id": "unanswerable#015",
-     "text": "I want to make sure I remember: Can you name the person I have not told you about?"
+     "text": "Let me ask about this: Remind me what {what} is."
     },
     {
      "id": "unanswerable#016",
-     "text": "Let me ask about this: What did I say about that unmentioned subject?"
+     "text": "Do you remember this one: Have I ever told you {what}? What is it?"
     },
     {
      "id": "unanswerable#017",
-     "text": "Do you remember this one: Which private fact was absent from our conversations?"
+     "text": "I lost track of one detail: What would you say {what} is?"
     },
     {
      "id": "unanswerable#018",
-     "text": "I lost track of one detail: What is the name of the sibling I never mentioned?"
+     "text": "Can you bring this back to mind: What is {what}?"
     },
     {
      "id": "unanswerable#019",
-     "text": "Can you bring this back to mind: Which city did I keep secret from you?"
+     "text": "Something I wanted to check: Do you know {what}?"
     }
    ]
   },
   "relationship_defining": {
    "placeholders": [
-    "person"
+    "what"
+   ],
+   "required": [
+    "what"
    ],
    "templates": [
     {
      "id": "relationship_defining#000",
-     "text": "What important moment did I share about {person}?"
+     "text": "Do you remember {what}?"
     },
     {
      "id": "relationship_defining#001",
-     "text": "What happened between us that stayed with me?"
+     "text": "Can you tell me {what}?"
     },
     {
      "id": "relationship_defining#002",
-     "text": "Which painful or joyful event did I tell you about?"
+     "text": "I forget {what}. Do you know?"
     },
     {
      "id": "relationship_defining#003",
-     "text": "What relationship moment mattered deeply to me?"
+     "text": "Remind me {what}."
     },
     {
      "id": "relationship_defining#004",
-     "text": "Can you recall the defining event I discussed?"
+     "text": "Any idea {what}?"
     },
     {
      "id": "relationship_defining#005",
-     "text": "What was the significant personal news from long ago?"
+     "text": "Do you still know {what}?"
     },
     {
      "id": "relationship_defining#006",
-     "text": "Could you remind me: What important moment did I share about {person}?"
+     "text": "Could you remind me: Do you remember {what}?"
     },
     {
      "id": "relationship_defining#007",
-     "text": "Help me recall: What happened between us that stayed with me?"
+     "text": "Help me recall: Can you tell me {what}?"
     },
     {
      "id": "relationship_defining#008",
-     "text": "I am trying to remember: Which painful or joyful event did I tell you about?"
+     "text": "I am trying to remember: I forget {what}. Do you know?"
     },
     {
      "id": "relationship_defining#009",
-     "text": "Can we go back to this: What relationship moment mattered deeply to me?"
+     "text": "Quick memory check: Remind me {what}."
     },
     {
      "id": "relationship_defining#010",
-     "text": "One thing I cannot quite recall: Can you recall the defining event I discussed?"
+     "text": "One thing I can't quite recall: Any idea {what}?"
     },
     {
      "id": "relationship_defining#011",
-     "text": "Think back for a moment: What was the significant personal news from long ago?"
+     "text": "Think back for a moment: Do you still know {what}?"
     },
     {
      "id": "relationship_defining#012",
-     "text": "I have a memory question: What important moment did I share about {person}?"
+     "text": "I have a memory question: Do you remember {what}?"
     },
     {
      "id": "relationship_defining#013",
-     "text": "Tell me again: What happened between us that stayed with me?"
+     "text": "I want to make sure I remember: I forget {what}. Do you know?"
     },
     {
      "id": "relationship_defining#014",
-     "text": "For a quick memory check: Which painful or joyful event did I tell you about?"
+     "text": "Let me ask about this: Remind me {what}."
     },
     {
      "id": "relationship_defining#015",
-     "text": "I want to make sure I remember: What relationship moment mattered deeply to me?"
+     "text": "Do you remember this one: Any idea {what}?"
     },
     {
      "id": "relationship_defining#016",
-     "text": "Let me ask about this: Can you recall the defining event I discussed?"
+     "text": "I lost track of one detail: Do you still know {what}?"
     },
     {
      "id": "relationship_defining#017",
-     "text": "Do you remember this one: What was the significant personal news from long ago?"
+     "text": "Can you bring this back to mind: Do you remember {what}?"
     },
     {
      "id": "relationship_defining#018",
-     "text": "I lost track of one detail: What important moment did I share about {person}?"
+     "text": "Something I wanted to check: Can you tell me {what}?"
     },
     {
      "id": "relationship_defining#019",
-     "text": "Can you bring this back to mind: What happened between us that stayed with me?"
+     "text": "Could you remind me: I forget {what}. Do you know?"
     }
    ]
   },
   "commitment_due": {
-   "placeholders": [],
+   "placeholders": [
+    "window"
+   ],
+   "required": [
+    "window"
+   ],
    "templates": [
     {
      "id": "commitment_due#000",
-     "text": "What task did I ask you to remember for soon?"
+     "text": "What do I have coming up in the next {window}?"
     },
     {
      "id": "commitment_due#001",
-     "text": "What am I supposed to do in the next few days?"
+     "text": "What have I told you I need to do in the next {window}?"
     },
     {
      "id": "commitment_due#002",
-     "text": "Which commitment is coming up?"
+     "text": "Which of my plans are due within the next {window}?"
     },
     {
      "id": "commitment_due#003",
-     "text": "What was I planning to take care of shortly?"
+     "text": "Remind me what's on my plate for the next {window}."
     },
     {
      "id": "commitment_due#004",
-     "text": "What should I remember to do soon?"
+     "text": "What am I supposed to take care of in the next {window}?"
     },
     {
      "id": "commitment_due#005",
-     "text": "Which open task has a near date?"
+     "text": "Anything I said I'd do in the next {window}?"
     },
     {
      "id": "commitment_due#006",
-     "text": "Could you remind me: What task did I ask you to remember for soon?"
+     "text": "Could you remind me: What do I have coming up in the next {window}?"
     },
     {
      "id": "commitment_due#007",
-     "text": "Help me recall: What am I supposed to do in the next few days?"
+     "text": "Help me recall: What have I told you I need to do in the next {window}?"
     },
     {
      "id": "commitment_due#008",
-     "text": "I am trying to remember: Which commitment is coming up?"
+     "text": "I am trying to remember: Which of my plans are due within the next {window}?"
     },
     {
      "id": "commitment_due#009",
-     "text": "Can we go back to this: What was I planning to take care of shortly?"
+     "text": "Quick memory check: Remind me what's on my plate for the next {window}."
     },
     {
      "id": "commitment_due#010",
-     "text": "One thing I cannot quite recall: What should I remember to do soon?"
+     "text": "One thing I can't quite recall: What am I supposed to take care of in the next {window}?"
     },
     {
      "id": "commitment_due#011",
-     "text": "Think back for a moment: Which open task has a near date?"
+     "text": "Think back for a moment: Anything I said I'd do in the next {window}?"
     },
     {
      "id": "commitment_due#012",
-     "text": "I have a memory question: What task did I ask you to remember for soon?"
+     "text": "I have a memory question: What do I have coming up in the next {window}?"
     },
     {
      "id": "commitment_due#013",
-     "text": "Tell me again: What am I supposed to do in the next few days?"
+     "text": "Tell me again: What have I told you I need to do in the next {window}?"
     },
     {
      "id": "commitment_due#014",
-     "text": "For a quick memory check: Which commitment is coming up?"
+     "text": "I want to make sure I remember: Which of my plans are due within the next {window}?"
     },
     {
      "id": "commitment_due#015",
-     "text": "I want to make sure I remember: What was I planning to take care of shortly?"
+     "text": "Let me ask about this: Remind me what's on my plate for the next {window}."
     },
     {
      "id": "commitment_due#016",
-     "text": "Let me ask about this: What should I remember to do soon?"
+     "text": "Do you remember this one: What am I supposed to take care of in the next {window}?"
     },
     {
      "id": "commitment_due#017",
-     "text": "Do you remember this one: Which open task has a near date?"
+     "text": "I lost track of one detail: Anything I said I'd do in the next {window}?"
     },
     {
      "id": "commitment_due#018",
-     "text": "I lost track of one detail: What task did I ask you to remember for soon?"
+     "text": "Can you bring this back to mind: What do I have coming up in the next {window}?"
     },
     {
      "id": "commitment_due#019",
-     "text": "Can you bring this back to mind: What am I supposed to do in the next few days?"
+     "text": "Something I wanted to check: What have I told you I need to do in the next {window}?"
     }
    ]
   },
   "contradiction_surface": {
-   "placeholders": [],
+   "placeholders": [
+    "what"
+   ],
+   "required": [
+    "what"
+   ],
    "templates": [
     {
      "id": "contradiction_surface#000",
-     "text": "What two different versions did I give you?"
+     "text": "I think I gave you two different answers about {what}. What were they?"
     },
     {
      "id": "contradiction_surface#001",
-     "text": "Which details conflict in what I said?"
+     "text": "What were the two versions of {what} I told you?"
     },
     {
      "id": "contradiction_surface#002",
-     "text": "Can you surface both accounts of that fact?"
+     "text": "Did I contradict myself about {what}? What did I say each time?"
     },
     {
      "id": "contradiction_surface#003",
-     "text": "What was the mistaken version and the other version?"
+     "text": "Which two different things did I say about {what}?"
     },
     {
      "id": "contradiction_surface#004",
-     "text": "Which two values appeared in my statements?"
+     "text": "You heard conflicting things from me about {what}. What were both?"
     },
     {
      "id": "contradiction_surface#005",
-     "text": "What disagreement is present in my own account?"
+     "text": "What were the conflicting details I gave you about {what}?"
     },
     {
      "id": "contradiction_surface#006",
-     "text": "Could you remind me: What two different versions did I give you?"
+     "text": "Could you remind me: I think I gave you two different answers about {what}. What were they?"
     },
     {
      "id": "contradiction_surface#007",
-     "text": "Help me recall: Which details conflict in what I said?"
+     "text": "Help me recall: What were the two versions of {what} I told you?"
     },
     {
      "id": "contradiction_surface#008",
-     "text": "I am trying to remember: Can you surface both accounts of that fact?"
+     "text": "I am trying to remember: Did I contradict myself about {what}? What did I say each time?"
     },
     {
      "id": "contradiction_surface#009",
-     "text": "Can we go back to this: What was the mistaken version and the other version?"
+     "text": "Quick memory check: Which two different things did I say about {what}?"
     },
     {
      "id": "contradiction_surface#010",
-     "text": "One thing I cannot quite recall: Which two values appeared in my statements?"
+     "text": "One thing I can't quite recall: You heard conflicting things from me about {what}. What were both?"
     },
     {
      "id": "contradiction_surface#011",
-     "text": "Think back for a moment: What disagreement is present in my own account?"
+     "text": "Think back for a moment: What were the conflicting details I gave you about {what}?"
     },
     {
      "id": "contradiction_surface#012",
-     "text": "I have a memory question: What two different versions did I give you?"
+     "text": "I have a memory question: I think I gave you two different answers about {what}. What were they?"
     },
     {
      "id": "contradiction_surface#013",
-     "text": "Tell me again: Which details conflict in what I said?"
+     "text": "Tell me again: What were the two versions of {what} I told you?"
     },
     {
      "id": "contradiction_surface#014",
-     "text": "For a quick memory check: Can you surface both accounts of that fact?"
+     "text": "I want to make sure I remember: Did I contradict myself about {what}? What did I say each time?"
     },
     {
      "id": "contradiction_surface#015",
-     "text": "I want to make sure I remember: What was the mistaken version and the other version?"
+     "text": "Let me ask about this: Which two different things did I say about {what}?"
     },
     {
      "id": "contradiction_surface#016",
-     "text": "Let me ask about this: Which two values appeared in my statements?"
+     "text": "Do you remember this one: You heard conflicting things from me about {what}. What were both?"
     },
     {
      "id": "contradiction_surface#017",
-     "text": "Do you remember this one: What disagreement is present in my own account?"
+     "text": "I lost track of one detail: What were the conflicting details I gave you about {what}?"
     },
     {
      "id": "contradiction_surface#018",
-     "text": "I lost track of one detail: What two different versions did I give you?"
+     "text": "Can you bring this back to mind: I think I gave you two different answers about {what}. What were they?"
     },
     {
      "id": "contradiction_surface#019",
-     "text": "Can you bring this back to mind: Which details conflict in what I said?"
+     "text": "Something I wanted to check: What were the two versions of {what} I told you?"
     }
    ]
   }

@@ -67,7 +67,9 @@ def validate(
 ) -> tuple[list[str], list[tuple[str, str]]]:
     existing = family_spec["templates"]
     declared = set(family_spec.get("placeholders", ()))
-    required = required_fields(existing)
+    # The family's declared `required` set is authoritative; the intersection
+    # of existing templates is kept as a floor for families that declare none.
+    required = set(family_spec.get("required", ())) | required_fields(existing)
     seen = {_norm(t["text"]) for t in existing}
     ok, rejected = [], []
     for c in candidates:
@@ -129,7 +131,7 @@ def expand(
             need = target - len(spec["templates"])
             if need <= 0:
                 continue
-            required = required_fields(spec["templates"])
+            required = set(spec.get("required", ())) | required_fields(spec["templates"])
             prompt = PROMPT.format(
                 family=fam,
                 required=", ".join("{" + f + "}" for f in sorted(required)) or "(none)",

@@ -98,6 +98,32 @@ describe the *shape* of correct output; they do not read it. After every fix: 80
 turns+probes in the broader correctness sweep) found zero crashes and zero remaining instances of the
 specific defect patterns above.
 
+## Second harsh-critic pass: probe semantics, found while building Phase 6
+
+The Phase 5 pass above read *rendered text* for artifacts. It never asked whether a probe *question*
+identifies its target, or whether the fact it asks about is who it claims to be about. Driving real
+probes through a real memory suite (Phase 6, BrainBench) immediately exposed both gaps:
+
+| Defect | Found by | Fix |
+|---|---|---|
+| About 60% of probe templates named nothing ("When did that begin?", "How did that detail end up changing?") — unanswerable for any persona with more than one dated fact | Reading `banks/probes.json`'s templates directly, then confirming against generated output | Re-authored all 240 probe templates so every one embeds a `{what}`/`{person}`/`{window}` placeholder naming its target; `banks.Bank` now enforces a family's declared `required` placeholders at load time, and `bank_expand.validate` inherits the same rule, so a future LLM-expanded template can't reintroduce a target-less question |
+| Fact probes said "my" about facts belonging to other people ("As things stand, what is my location?" with answer `Istanbul`, about a friend) | Reading sampled probes against their derivation | `probes._fact()` builds the noun phrase from the actual owner ("my" vs. "Farah's") |
+| `historical`/`stale_trap` probes were answerable for only 3 personas total across the whole panel, because a slot's superseded value only counted if a claim's turn happened to precede the checkpoint by coincidence | A systematic funnel trace (slots with 2+ values → nameable → old value told → successor told) | Named by successor value ("before it changed to Accra") instead of a coincidental time window; `observe._event_claims` now also emits a claim for the *old* value whenever the rendered line actually says it (`"switched from X to Y"` tells the listener both) |
+| Trivia probes answered "lunch" instead of what was eaten (`next(iter(ev.payload))` grabbed the first payload key, which is the meal slot, not the food) | Reading sampled trivia probes | Read the fact via each event kind's declared answer key |
+| Interference/trivia/relationship-defining probes could name two different told events with the same description, making the "right" answer arbitrary | Wrote an independent oracle check (`test_event_probes_identify_exactly_one_told_event`) computing ambiguity straight from the event log, then mutation-tested each uniqueness filter by disabling it | `relationship_defining` was verified genuinely necessary this way (34/314 probes became ambiguous with the filter off); `interference`/`trivia` filters were confirmed correct but inert at this panel's scale — kept as defensive code, not removed |
+| `commitment_due` asked "what's on my plate" but only listed one of several genuinely open plans, marking a complete correct recall as mostly wrong | Reading the derivation against the full open-plan set | One probe per checkpoint listing every told, open, due plan |
+| Non-person timeline slots (plans, goals, projects, beliefs) rendered through the person-shaped sentence template, producing "someone's task is pick Sasha up from the airport" and "someone's date is 2026-03-30T19:00" for about 3.5% of all turns in one panel sample | The original probe-audit sweep (this session), tracing `_slot_line`'s only branch | Dedicated rendering per entity kind (`_nonperson_line`): plans read as "the hiking trip is on Saturday" or "I have a dentist appointment coming up"; goals/projects as "I achieved my goal to run a half marathon"; beliefs as "my view on remote work is that ..." |
+| Plans with a noun-phrase description produced ungrammatical verb constructions: "I will a friend's wedding", "I moved cancel the gym trial from...", "I managed to cancel the gym trial" reading fine but "I managed to a hiking trip" would not have | Same sweep, then a targeted regex check across the panel | Every plan-lifecycle sentence branches on whether the description is a noun phrase ("a hiking trip") or a verb phrase ("cancel the gym trial") |
+| `pet:` entities had no attribute label for `species`, producing "Ziggy's that detail is tortoise" | A full-panel, 10-year, 331,671-turn artifact sweep (the only survivor) | Added the missing label |
+
+None of this invalidates Phase 5's own verification — determinism, leakage, timeline integrity and
+anti-gaming gates were and remain correct. It demonstrates that "is the generated text well-formed"
+and "does the generated *question* have a determinable right answer" are different properties, and
+BrainBench (Phase 6), the first real consumer of the probes rather than just their shape, is what
+surfaced the second one. 11 new tests (`test_lifesim_semantics.py`) hold both invariants going
+forward, each confirmed to fail against the pre-fix code and, where a fix could plausibly regress
+silently, mutation-tested against the fix itself.
+
 ## Numbers
 
 - 10 simulated years for the busiest archetype (`socialite`): ~1.7-2.5s, ~39,000 turns, ~900-1000

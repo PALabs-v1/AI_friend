@@ -12,6 +12,12 @@ own fixtures. Changing a bank is a deliberate act: edit, then `freeze`.
 
 Every template's ``{fields}`` must be a subset of its family's declared
 placeholders; that is checked at load time, not discovered mid-generation.
+
+A family may also declare ``"required"``: placeholders every template must
+use. Probe families use it to guarantee each question names its target --
+a question like "When did that begin?" is unanswerable for any persona with
+more than one dated fact, and a bank that only *allows* the target
+placeholder let about 60% of probe templates quietly omit it.
 """
 
 from __future__ import annotations
@@ -49,20 +55,33 @@ def fields_of(text: str) -> set[str]:
 class Bank:
     def __init__(self, families: dict[str, dict]) -> None:
         self.placeholders: dict[str, frozenset[str]] = {}
+        self.required: dict[str, frozenset[str]] = {}
         self.templates: dict[str, tuple[Template, ...]] = {}
         for fam, spec in sorted(families.items()):
             allowed = frozenset(spec.get("placeholders", ()))
+            required = frozenset(spec.get("required", ()))
+            if required - allowed:
+                raise BankIntegrityError(
+                    f"family {fam!r}: required {sorted(required - allowed)} not declared"
+                )
             temps = []
             for row in spec["templates"]:
-                extra = fields_of(row["text"]) - allowed
+                fields = fields_of(row["text"])
+                extra = fields - allowed
                 if extra:
                     raise BankIntegrityError(
                         f"{row['id']}: undeclared placeholders {sorted(extra)}"
+                    )
+                missing = required - fields
+                if missing:
+                    raise BankIntegrityError(
+                        f"{row['id']}: missing required placeholders {sorted(missing)}"
                     )
                 temps.append(Template(row["id"], fam, row["text"]))
             if not temps:
                 raise BankIntegrityError(f"family {fam!r} has no templates")
             self.placeholders[fam] = allowed
+            self.required[fam] = required
             self.templates[fam] = tuple(temps)
 
     def __contains__(self, family: str) -> bool:
