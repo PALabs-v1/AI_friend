@@ -18,20 +18,22 @@ This directory is the working record for the next research/engineering cycle, pe
 | [07-gpu-experiment-audit.md](07-gpu-experiment-audit.md) | Audit of `experiments/gpu/` before running it for real; Codex C2 comparison | done |
 | [08-live-infra-validation.md](08-live-infra-validation.md) | Live Postgres+Qdrant+Neo4j cross-store consistency validation (Phase 4b) | done |
 | [09-gpu-experiment-results.md](09-gpu-experiment-results.md) | Real-embedding (8 models) and real-LLM ToM results, H-R1/H-R2/H-R3/ToM rules applied | done |
+| [10-lifesim.md](10-lifesim.md) | Synthetic longitudinal life simulator: pipeline, leakage boundary, the builder tournament, every defect the harsh-critic pass found and fixed | done |
 | [findings.md](findings.md) | Pre-existing problem ledger (Objective 9) | ongoing, F-001..F-006 |
-| [codex-log.md](codex-log.md) | One line per Codex task: verdict, disagreement, resolution | done (C0, C1, C2) |
+| [codex-log.md](codex-log.md) | One line per Codex task: verdict, disagreement, resolution | done (C0, C1, C2, C3) |
 | `interview/round-1..10.md` | Interview briefs | done, all 10 rounds |
 | `decisions/DR-001..036-*.md` | Recorded architecture decisions from Aniket | done, all 36 |
 | [baseline/manifest.json](baseline/manifest.json), [baseline/RESULTS.md](baseline/RESULTS.md) | Brain V2 Local Baseline: env facts, headline numbers, both machines | done |
-| `results/{mac,home-gpu}/` | Raw JSON/logs backing the baseline (Phase 3) and the GPU experiments (Phase 4a); scale tests and lifesim runs land here in later phases | Phase 3-4 done |
+| `results/{mac,home-gpu}/` | Raw JSON/logs backing the baseline (Phase 3) and the GPU experiments (Phase 4a); scale tests land here in later phases | Phase 3-4 done |
+| `backend/evals/lifesim/` | The lifesim generator itself (code, not docs) | Phase 5 done |
 
 ## Process
 
 Codex CLI runs as an independent second engineer throughout (see root `CLAUDE.md`'s fan-out rules and the plan's Codex protocol). For every audit, Codex runs cold — without my conclusions — and I commit my own audit before reading its output, so the independence is provable from commit timestamps, not just asserted.
 
-## Status (2026-09-24)
+## Status (2026-09-25)
 
-Phases 0-4 are complete: setup, reconstruction + dual audit, the 10-round/36-decision interview, the Brain V2 Local Baseline (both machines), and real infrastructure + GPU validation. Two decisions carry the most weight for everything downstream: DR-002 (an autonomous humanoid mind, not a companion/assistant mode) and DR-020 (personality evolution is entirely self-authored, no external approval).
+Phases 0-5 are complete: setup, reconstruction + dual audit, the 10-round/36-decision interview, the Brain V2 Local Baseline (both machines), real infrastructure + GPU validation, and the synthetic longitudinal life simulator. Two decisions carry the most weight for everything downstream: DR-002 (an autonomous humanoid mind, not a companion/assistant mode) and DR-020 (personality evolution is entirely self-authored, no external approval).
 
 Every open problem now has real, measured evidence behind it, not just an assertion:
 
@@ -42,4 +44,6 @@ Every open problem now has real, measured evidence behind it, not just an assert
 
 Both machines agree on every deterministic result (Rust: 179/179 on both; barge-in mutation kills: 33/38 on both, same 5 equivalents; memory retrieval numbers byte-identical across arm64/x86_64).
 
-Next: Phase 5 (lifesim) and Phase 6 (BrainBench), then Phase 7 (workstreams W1-W11, informed by everything measured in Phases 3-4).
+**Phase 5 (lifesim)**: a builder tournament (Codex C3 vs. an independent Claude sub-agent) collapsed to one surviving builder — the sub-agent stalled and was stopped; Codex crashed near completion from an unrelated network timeout but had already written complete, working code. Its output passed its own tests and this project's 24 independent gate tests, but reading the generated text at scale (not just running the schema-shaped tests) surfaced 10 real defects — including one that crashed the generator outright under enough scale — all fixed. See `10-lifesim.md` for the full defect table. Final state: 80/80 tests, 0 crashes across a 150-seed/10-year stress sweep, 0 remaining text artifacts across a 565,880-row quality sweep.
+
+Next: Phase 6 (BrainBench), then Phase 7 (workstreams W1-W11, informed by everything measured in Phases 3-5).

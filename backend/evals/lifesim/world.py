@@ -717,6 +717,19 @@ def _build_network(w: World, rng: random.Random) -> None:
             source_event=None,
             importance=0.9,
         )
+        # Every other person in the network gets a seeded "city" (world.py's
+        # own invariant that events.py's person_move relies on); this branch
+        # was the one place that didn't, so the first move for the user's own
+        # partner had no prior value to move from.
+        tl.assert_(
+            pid,
+            "city",
+            tl.current("user", "home_city", since) or rng.choice(vocab.CITIES),
+            since,
+            kind="changing",
+            source_event=None,
+            importance=0.7,
+        )
         tl.assert_(
             pid,
             "employer",

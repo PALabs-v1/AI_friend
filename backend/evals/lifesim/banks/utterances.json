@@ -1,0 +1,834 @@
+{
+ "families": {
+  "share": {
+   "placeholders": [
+    "line"
+   ],
+   "templates": [
+    {
+     "id": "share#000",
+     "text": "{line}"
+    },
+    {
+     "id": "share#001",
+     "text": "{line}"
+    },
+    {
+     "id": "share#002",
+     "text": "{line}"
+    },
+    {
+     "id": "share#003",
+     "text": "{line}"
+    },
+    {
+     "id": "share#004",
+     "text": "{line}"
+    },
+    {
+     "id": "share#005",
+     "text": "{line}"
+    }
+   ]
+  },
+  "update": {
+   "placeholders": [
+    "line"
+   ],
+   "templates": [
+    {
+     "id": "update#000",
+     "text": "A little update: {line}"
+    },
+    {
+     "id": "update#001",
+     "text": "Things have changed: {line}"
+    },
+    {
+     "id": "update#002",
+     "text": "So, {line}"
+    },
+    {
+     "id": "update#003",
+     "text": "I should tell you, {line}"
+    },
+    {
+     "id": "update#004",
+     "text": "New development: {line}"
+    },
+    {
+     "id": "update#005",
+     "text": "These days, {line}"
+    }
+   ]
+  },
+  "plan": {
+   "placeholders": [
+    "line"
+   ],
+   "templates": [
+    {
+     "id": "plan#000",
+     "text": "I have a plan: {line}"
+    },
+    {
+     "id": "plan#001",
+     "text": "I might {line}"
+    },
+    {
+     "id": "plan#002",
+     "text": "I’m planning to {line}"
+    },
+    {
+     "id": "plan#003",
+     "text": "Please remember this: {line}"
+    },
+    {
+     "id": "plan#004",
+     "text": "I’ve pencilled in {line}"
+    },
+    {
+     "id": "plan#005",
+     "text": "For the calendar: {line}"
+    }
+   ]
+  },
+  "trivial": {
+   "placeholders": [
+    "line"
+   ],
+   "templates": [
+    {
+     "id": "trivial#000",
+     "text": "Small thing: {line}"
+    },
+    {
+     "id": "trivial#001",
+     "text": "By the way, {line}"
+    },
+    {
+     "id": "trivial#002",
+     "text": "Nothing major, but {line}"
+    },
+    {
+     "id": "trivial#003",
+     "text": "Today’s tiny report: {line}"
+    },
+    {
+     "id": "trivial#004",
+     "text": "Oh, and {line}"
+    },
+    {
+     "id": "trivial#005",
+     "text": "A little detail from today: {line}"
+    }
+   ]
+  },
+  "episode": {
+   "placeholders": [
+    "line"
+   ],
+   "templates": [
+    {
+     "id": "episode#000",
+     "text": "{line}"
+    },
+    {
+     "id": "episode#001",
+     "text": "Quick story: {line}"
+    },
+    {
+     "id": "episode#002",
+     "text": "I was telling you about {line}"
+    },
+    {
+     "id": "episode#003",
+     "text": "Earlier, {line}"
+    },
+    {
+     "id": "episode#004",
+     "text": "A small outing: {line}"
+    },
+    {
+     "id": "episode#005",
+     "text": "You know, {line}"
+    }
+   ]
+  },
+  "relationship": {
+   "placeholders": [
+    "line"
+   ],
+   "templates": [
+    {
+     "id": "relationship#000",
+     "text": "{line}"
+    },
+    {
+     "id": "relationship#001",
+     "text": "I wanted to tell you: {line}"
+    },
+    {
+     "id": "relationship#002",
+     "text": "It’s been on my mind: {line}"
+    },
+    {
+     "id": "relationship#003",
+     "text": "Something happened with {line}"
+    },
+    {
+     "id": "relationship#004",
+     "text": "I’ve been thinking about this: {line}"
+    },
+    {
+     "id": "relationship#005",
+     "text": "There’s news about {line}"
+    }
+   ]
+  },
+  "loss": {
+   "placeholders": [
+    "line"
+   ],
+   "templates": [
+    {
+     "id": "loss#000",
+     "text": "{line}"
+    },
+    {
+     "id": "loss#001",
+     "text": "I’m still carrying this: {line}"
+    },
+    {
+     "id": "loss#002",
+     "text": "I miss them: {line}"
+    },
+    {
+     "id": "loss#003",
+     "text": "This is hard to say: {line}"
+    },
+    {
+     "id": "loss#004",
+     "text": "I keep thinking about it: {line}"
+    },
+    {
+     "id": "loss#005",
+     "text": "It still hurts: {line}"
+    }
+   ]
+  },
+  "emotion": {
+   "placeholders": [
+    "line"
+   ],
+   "templates": [
+    {
+     "id": "emotion#000",
+     "text": "{line}"
+    },
+    {
+     "id": "emotion#001",
+     "text": "I’m feeling a lot about this: {line}"
+    },
+    {
+     "id": "emotion#002",
+     "text": "I wanted to share some news: {line}"
+    },
+    {
+     "id": "emotion#003",
+     "text": "That meant a lot to me: {line}"
+    },
+    {
+     "id": "emotion#004",
+     "text": "I’m still processing it: {line}"
+    },
+    {
+     "id": "emotion#005",
+     "text": "Here’s what happened: {line}"
+    }
+   ]
+  },
+  "robot": {
+   "placeholders": [
+    "line"
+   ],
+   "templates": [
+    {
+     "id": "robot#000",
+     "text": "{line}"
+    },
+    {
+     "id": "robot#001",
+     "text": "I wanted you to know: {line}"
+    },
+    {
+     "id": "robot#002",
+     "text": "About us: {line}"
+    },
+    {
+     "id": "robot#003",
+     "text": "Can I say something? {line}"
+    },
+    {
+     "id": "robot#004",
+     "text": "I’ve been meaning to tell you: {line}"
+    },
+    {
+     "id": "robot#005",
+     "text": "A quick note for you: {line}"
+    }
+   ]
+  },
+  "temporary": {
+   "placeholders": [
+    "line"
+   ],
+   "templates": [
+    {
+     "id": "temporary#000",
+     "text": "For now, {line}"
+    },
+    {
+     "id": "temporary#001",
+     "text": "This is temporary: {line}"
+    },
+    {
+     "id": "temporary#002",
+     "text": "At the moment, {line}"
+    },
+    {
+     "id": "temporary#003",
+     "text": "Just while this lasts, {line}"
+    },
+    {
+     "id": "temporary#004",
+     "text": "A short-term update: {line}"
+    },
+    {
+     "id": "temporary#005",
+     "text": "Right now, {line}"
+    }
+   ]
+  },
+  "lifecycle": {
+   "placeholders": [
+    "line"
+   ],
+   "templates": [
+    {
+     "id": "lifecycle#000",
+     "text": "{line}"
+    },
+    {
+     "id": "lifecycle#001",
+     "text": "I’ve been working on {line}"
+    },
+    {
+     "id": "lifecycle#002",
+     "text": "A progress note: {line}"
+    },
+    {
+     "id": "lifecycle#003",
+     "text": "This matters to me: {line}"
+    },
+    {
+     "id": "lifecycle#004",
+     "text": "I wanted to tell you about {line}"
+    },
+    {
+     "id": "lifecycle#005",
+     "text": "Something I’m pursuing: {line}"
+    }
+   ]
+  },
+  "repeat": {
+   "placeholders": [
+    "line"
+   ],
+   "templates": [
+    {
+     "id": "repeat#000",
+     "text": "Did I mention this? {line}"
+    },
+    {
+     "id": "repeat#001",
+     "text": "I may have said this already: {line}"
+    },
+    {
+     "id": "repeat#002",
+     "text": "This came up before, but {line}"
+    },
+    {
+     "id": "repeat#003",
+     "text": "Just repeating myself: {line}"
+    },
+    {
+     "id": "repeat#004",
+     "text": "In case I forgot to tell you, {line}"
+    },
+    {
+     "id": "repeat#005",
+     "text": "Again, {line}"
+    }
+   ]
+  },
+  "misstatement": {
+   "placeholders": [
+    "line"
+   ],
+   "templates": [
+    {
+     "id": "misstatement#000",
+     "text": "I think {line}"
+    },
+    {
+     "id": "misstatement#001",
+     "text": "Wait, {line}"
+    },
+    {
+     "id": "misstatement#002",
+     "text": "If I remember right, {line}"
+    },
+    {
+     "id": "misstatement#003",
+     "text": "I’m pretty sure {line}"
+    },
+    {
+     "id": "misstatement#004",
+     "text": "Maybe {line}"
+    },
+    {
+     "id": "misstatement#005",
+     "text": "I could be mixing this up: {line}"
+    }
+   ]
+  },
+  "correction": {
+   "placeholders": [
+    "line"
+   ],
+   "templates": [
+    {
+     "id": "correction#000",
+     "text": "No, wait — {line}"
+    },
+    {
+     "id": "correction#001",
+     "text": "I got that wrong: {line}"
+    },
+    {
+     "id": "correction#002",
+     "text": "Correction: {line}"
+    },
+    {
+     "id": "correction#003",
+     "text": "Sorry, I meant {line}"
+    },
+    {
+     "id": "correction#004",
+     "text": "That wasn’t right; {line}"
+    },
+    {
+     "id": "correction#005",
+     "text": "Let me fix that: {line}"
+    }
+   ]
+  },
+  "joke": {
+   "placeholders": [
+    "line"
+   ],
+   "templates": [
+    {
+     "id": "joke#000",
+     "text": "{line} — kidding."
+    },
+    {
+     "id": "joke#001",
+     "text": "I’m joking: {line}"
+    },
+    {
+     "id": "joke#002",
+     "text": "Plot twist: {line} Just kidding."
+    },
+    {
+     "id": "joke#003",
+     "text": "In an alternate universe, {line}"
+    },
+    {
+     "id": "joke#004",
+     "text": "I’m absolutely serious: {line} (not really)."
+    },
+    {
+     "id": "joke#005",
+     "text": "Joke: {line}"
+    }
+   ]
+  },
+  "greeting": {
+   "placeholders": [],
+   "templates": [
+    {
+     "id": "greeting#000",
+     "text": "Hi!"
+    },
+    {
+     "id": "greeting#001",
+     "text": "Hey, good to see you."
+    },
+    {
+     "id": "greeting#002",
+     "text": "Morning!"
+    },
+    {
+     "id": "greeting#003",
+     "text": "Hello there."
+    },
+    {
+     "id": "greeting#004",
+     "text": "There you are!"
+    },
+    {
+     "id": "greeting#005",
+     "text": "Evening — how are you?"
+    }
+   ]
+  },
+  "small_talk": {
+   "placeholders": [],
+   "templates": [
+    {
+     "id": "small_talk#000",
+     "text": "What a day."
+    },
+    {
+     "id": "small_talk#001",
+     "text": "I’m glad we have a quiet moment."
+    },
+    {
+     "id": "small_talk#002",
+     "text": "The light looks lovely today."
+    },
+    {
+     "id": "small_talk#003",
+     "text": "I need a cup of tea and a reset."
+    },
+    {
+     "id": "small_talk#004",
+     "text": "It’s been one of those days."
+    },
+    {
+     "id": "small_talk#005",
+     "text": "I’m taking a breather."
+    }
+   ]
+  },
+  "question": {
+   "placeholders": [],
+   "templates": [
+    {
+     "id": "question#000",
+     "text": "How has your day been?"
+    },
+    {
+     "id": "question#001",
+     "text": "What do you think about that?"
+    },
+    {
+     "id": "question#002",
+     "text": "Could you keep me company for a minute?"
+    },
+    {
+     "id": "question#003",
+     "text": "Do you remember what I just said?"
+    },
+    {
+     "id": "question#004",
+     "text": "What should I do next?"
+    },
+    {
+     "id": "question#005",
+     "text": "Can I ask you something?"
+    }
+   ]
+  },
+  "reminisce": {
+   "placeholders": [
+    "line"
+   ],
+   "templates": [
+    {
+     "id": "reminisce#000",
+     "text": "I was remembering {line}"
+    },
+    {
+     "id": "reminisce#001",
+     "text": "Funny how I still think about {line}"
+    },
+    {
+     "id": "reminisce#002",
+     "text": "Back then, {line}"
+    },
+    {
+     "id": "reminisce#003",
+     "text": "I haven’t thought about {line} in ages"
+    },
+    {
+     "id": "reminisce#004",
+     "text": "That reminds me of {line}"
+    },
+    {
+     "id": "reminisce#005",
+     "text": "Years ago, {line}"
+    }
+   ]
+  },
+  "correction_plan": {
+   "placeholders": [
+    "value",
+    "wrong"
+   ],
+   "templates": [
+    {
+     "id": "correction_plan#000",
+     "text": "No, I meant {value}, not {wrong}"
+    },
+    {
+     "id": "correction_plan#001",
+     "text": "I said {wrong}; I meant {value}"
+    },
+    {
+     "id": "correction_plan#002",
+     "text": "Wait, the date is {value}, not {wrong}"
+    },
+    {
+     "id": "correction_plan#003",
+     "text": "I got the day wrong: {value}, not {wrong}"
+    },
+    {
+     "id": "correction_plan#004",
+     "text": "Correction — {value}, not {wrong}"
+    },
+    {
+     "id": "correction_plan#005",
+     "text": "Sorry, I meant {value}, not {wrong}"
+    }
+   ]
+  },
+  "verbosity_tail": {
+   "placeholders": [],
+   "templates": [
+    {
+     "id": "verbosity_tail#000",
+     "text": "; and that’s the long version."
+    },
+    {
+     "id": "verbosity_tail#001",
+     "text": "; I have a little more to say about it."
+    },
+    {
+     "id": "verbosity_tail#002",
+     "text": "; I’m still sorting out how I feel."
+    },
+    {
+     "id": "verbosity_tail#003",
+     "text": "; there’s a bit more to the story."
+    },
+    {
+     "id": "verbosity_tail#004",
+     "text": "; I could talk about it all evening."
+    },
+    {
+     "id": "verbosity_tail#005",
+     "text": "; that’s the fuller picture."
+    }
+   ]
+  },
+  "style_terse": {
+   "placeholders": [
+    "line"
+   ],
+   "templates": [
+    {
+     "id": "style_terse#000",
+     "text": "{line}"
+    },
+    {
+     "id": "style_terse#001",
+     "text": "Quick note: {line}"
+    },
+    {
+     "id": "style_terse#002",
+     "text": "In short, {line}"
+    },
+    {
+     "id": "style_terse#003",
+     "text": "Just so you know: {line}"
+    },
+    {
+     "id": "style_terse#004",
+     "text": "That is all: {line}"
+    },
+    {
+     "id": "style_terse#005",
+     "text": "One thing: {line}"
+    }
+   ]
+  },
+  "style_plain": {
+   "placeholders": [
+    "line"
+   ],
+   "templates": [
+    {
+     "id": "style_plain#000",
+     "text": "{line}"
+    },
+    {
+     "id": "style_plain#001",
+     "text": "So, {line}"
+    },
+    {
+     "id": "style_plain#002",
+     "text": "Anyway, {line}"
+    },
+    {
+     "id": "style_plain#003",
+     "text": "Here is the thing: {line}"
+    },
+    {
+     "id": "style_plain#004",
+     "text": "For today, {line}"
+    },
+    {
+     "id": "style_plain#005",
+     "text": "That is what happened: {line}"
+    }
+   ]
+  },
+  "style_chatty": {
+   "placeholders": [
+    "line"
+   ],
+   "templates": [
+    {
+     "id": "style_chatty#000",
+     "text": "Oh, and {line}"
+    },
+    {
+     "id": "style_chatty#001",
+     "text": "So anyway, {line}"
+    },
+    {
+     "id": "style_chatty#002",
+     "text": "You know what? {line}"
+    },
+    {
+     "id": "style_chatty#003",
+     "text": "And then, {line}"
+    },
+    {
+     "id": "style_chatty#004",
+     "text": "I was just thinking, {line}"
+    },
+    {
+     "id": "style_chatty#005",
+     "text": "Here is the latest: {line}"
+    }
+   ]
+  },
+  "style_formal": {
+   "placeholders": [
+    "line"
+   ],
+   "templates": [
+    {
+     "id": "style_formal#000",
+     "text": "For the record, {line}"
+    },
+    {
+     "id": "style_formal#001",
+     "text": "I would like to mention that {line}"
+    },
+    {
+     "id": "style_formal#002",
+     "text": "As an update, {line}"
+    },
+    {
+     "id": "style_formal#003",
+     "text": "I should inform you that {line}"
+    },
+    {
+     "id": "style_formal#004",
+     "text": "To summarize, {line}"
+    },
+    {
+     "id": "style_formal#005",
+     "text": "Please note that {line}"
+    }
+   ]
+  },
+  "style_playful": {
+   "placeholders": [
+    "line"
+   ],
+   "templates": [
+    {
+     "id": "style_playful#000",
+     "text": "Plot twist: {line}"
+    },
+    {
+     "id": "style_playful#001",
+     "text": "Well, look at that: {line}"
+    },
+    {
+     "id": "style_playful#002",
+     "text": "Guess what? {line}"
+    },
+    {
+     "id": "style_playful#003",
+     "text": "Would you believe it? {line}"
+    },
+    {
+     "id": "style_playful#004",
+     "text": "Ta-da: {line}"
+    },
+    {
+     "id": "style_playful#005",
+     "text": "And the winner is: {line}"
+    }
+   ]
+  },
+  "style_rambling": {
+   "placeholders": [
+    "line"
+   ],
+   "templates": [
+    {
+     "id": "style_rambling#000",
+     "text": "Long story short, {line}, though there is more to it."
+    },
+    {
+     "id": "style_rambling#001",
+     "text": "I have been turning this over: {line}, and that reminds me of something else."
+    },
+    {
+     "id": "style_rambling#002",
+     "text": "Somehow I keep circling back to this: {line}"
+    },
+    {
+     "id": "style_rambling#003",
+     "text": "Let me start with this: {line}, because the rest of the day connects to it."
+    },
+    {
+     "id": "style_rambling#004",
+     "text": "I was going to tell you three other things, but first: {line}"
+    },
+    {
+     "id": "style_rambling#005",
+     "text": "There is a longer story here, but for now: {line}"
+    }
+   ]
+  }
+ }
+}

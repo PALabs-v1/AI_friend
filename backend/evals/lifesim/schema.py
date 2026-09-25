@@ -81,6 +81,16 @@ def _iso(t: datetime | None) -> str | None:
     return t.isoformat(timespec="seconds") if t is not None else None
 
 
+def _iso_exact(t: datetime | None) -> str | None:
+    # Full precision: `about` must line up exactly with the timeline's own
+    # `valid_from`/`valid_to` instants (events.py computes some of those via
+    # timedelta*float arithmetic, which lands sub-second). Truncating to
+    # whole seconds here can put `about` a fraction of a second before a
+    # same-second supersession, making a truthful claim look false to any
+    # consumer that queries `timeline.value_at(entity, attribute, about)`.
+    return t.isoformat() if t is not None else None
+
+
 @dataclass
 class Turn:
     turn_id: str
@@ -120,7 +130,7 @@ class Claim:
 
     def to_json(self) -> dict:
         d = asdict(self)
-        d["about"] = _iso(self.about)
+        d["about"] = _iso_exact(self.about)
         return d
 
 

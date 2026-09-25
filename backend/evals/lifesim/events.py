@@ -813,6 +813,18 @@ class Life:
                     source_event=None,
                     importance=0.9,
                 ).assertion_id,
+                # Same gap as build_world's initial-partner branch: without a
+                # seeded city, this partner's first person_move has nothing
+                # to move from.
+                self.tl.assert_(
+                    pid,
+                    "city",
+                    self.tl.current("user", "home_city", t) or r.choice(vocab.CITIES),
+                    t,
+                    kind="changing",
+                    source_event=None,
+                    importance=0.4,
+                ).assertion_id,
             ]
             ev = self.emit(
                 t,
@@ -939,12 +951,14 @@ class Life:
         if roll < 0.18 and lead > timedelta(days=2):
             moved_at = made + lead * r.uniform(0.2, 0.8)
             new_when = when + timedelta(days=r.choice((-3, -2, -1, 1, 2, 3, 7, 14)))
-            if new_when <= moved_at:
-                new_when = moved_at + timedelta(days=1)
-            if new_when.replace(second=0, microsecond=0) == when.replace(
-                second=0, microsecond=0
-            ):
-                new_when += timedelta(days=1)
+            # Keep a sensible hour (the original appointment's), never
+            # moved_at's arbitrary computed time: a reschedule changes the
+            # date, not the hour, and a passport appointment does not move
+            # to 2:31am just because that's when the user happened to call.
+            while new_when <= moved_at or new_when.date() == when.date():
+                new_when = datetime.combine(
+                    new_when.date() + timedelta(days=1), when.time()
+                )
 
             def reschedule(moved_at=moved_at, new_when=new_when):
                 a = self.tl.assert_(
@@ -1636,9 +1650,11 @@ class Life:
         cap: int,
     ) -> None:
         t0 = datetime(day.year, day.month, day.day)
+        just_created = None
         if len(active) < cap and r.random() < new_rate:
             t = self.at(day, r, 8, 22)
             gid = self.w.new_id(prefix)
+            just_created = gid
             taken = {self.tl.current(g, "what", t0) for g in active}
             what = r.choice([g for g in pool if g not in taken] or list(pool))
             e1 = self.tl.assert_(
@@ -1666,8 +1682,14 @@ class Life:
             )
             e1.source_event = e2.source_event = ev.event_id
             active.append(gid)
+        # A goal added to `active` above was created at a random hour today,
+        # not at midnight; reading "what" at t0 for that same gid would look
+        # before its own creation and find nothing. Read as of tomorrow's
+        # midnight instead -- "what" never changes for a given gid, so this
+        # is always safe, and it always sees today's creation.
+        what_at = t0 + timedelta(days=1)
         for gid in list(active):
-            what = self.tl.current(gid, "what", t0)
+            what = self.tl.current(gid, "what", what_at)
             if r.random() < 1 / 30:
                 self.emit(
                     self.at(day, r, 8, 22),
@@ -1681,7 +1703,11 @@ class Life:
                     family=f"{prefix}_progress",
                 )
             roll = r.random()
-            if roll < 1 / 300 or roll > 1 - 1 / 450:
+            # A goal just created today has its "active" status at a random
+            # hour today too; an achieved/abandoned roll at an earlier hour
+            # the same day would assert backwards in time on the same slot.
+            # Simplest safe rule: a goal must survive its creation day first.
+            if gid != just_created and (roll < 1 / 300 or roll > 1 - 1 / 450):
                 done = roll < 1 / 300
                 t = self.at(day, r, 8, 22)
                 status = "achieved" if done else "abandoned"
