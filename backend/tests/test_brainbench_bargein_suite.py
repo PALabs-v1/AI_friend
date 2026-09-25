@@ -67,6 +67,19 @@ def test_generator_is_reproducible_and_weighted_mix_is_seeded():
         assert all(text.startswith("[reply:") for text in scenario_replies)
 
 
+def test_stale_stop_events_do_not_claim_confirmed_command_authority():
+    scenarios = generate_scenarios(1000, n_scenarios_per_family=50)
+    stale_stops = [
+        event
+        for scenario in scenarios
+        for event in scenario.events
+        if event.type == "stop" and event.target == "stale"
+    ]
+
+    assert stale_stops
+    assert all(event.reason == "facial_reflex_startle" for event in stale_stops)
+
+
 @pytest.mark.parametrize(
     ("family", "predicate"),
     [
@@ -323,7 +336,7 @@ def test_clean_scenario_has_no_real_brainagent_violations(real_seed_1000_outcome
         "hung",
     ):
         assert outcome.metrics[f"{name}_violation"] == 0.0
-    assert outcome.metrics["replies_unresolved_without_completion"] == 1
+    assert outcome.metrics["replies_unresolved_without_completion"] == 0
 
 
 def test_adr003_superseded_stop_truncates_old_reply_and_preserves_current_turn(
@@ -392,7 +405,7 @@ async def test_progress_cannot_report_words_that_were_never_streamed():
     assert outcome.metrics["terminal_outcomes_per_reply_claimed_violation"] == 0.0
 
 
-def test_ordinary_barge_in_history_gap_is_measured_as_unclaimed(
+def test_ordinary_barge_in_history_matches_the_heard_prefix(
     real_seed_1000_outcomes,
 ):
     outcome = next(
@@ -400,9 +413,9 @@ def test_ordinary_barge_in_history_gap_is_measured_as_unclaimed(
         for row in real_seed_1000_outcomes
         if row.categories == ("confirmed_barge_in",)
     )
-    assert outcome.metrics["history_matches_heard_violation"] == 1.0
+    assert outcome.metrics["history_matches_heard_violation"] == 0.0
     assert outcome.metrics["history_matches_heard_claimed_violation"] == 0.0
-    assert outcome.metrics["history_matches_heard_unclaimed_violation"] == 1.0
+    assert outcome.metrics["history_matches_heard_unclaimed_violation"] == 0.0
 
 
 def test_scoring_functions_report_rates_and_reply_accounting():

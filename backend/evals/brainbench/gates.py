@@ -373,7 +373,10 @@ async def _bargein() -> dict[str, float | None]:
         )
         for invariant in bargein_suite._CLAIMED
     }
-    replies = sum(_values(pooled, "terminal_outcome_replies_eligible"))
+    # Lifecycle terminals now make zero-terminal outcomes measurable for every
+    # started reply, not only replies whose interruption event was claimed by
+    # the old progress-only simulator.
+    replies = sum(_values(pooled, "started_reply_count"))
     zero = sum(_values(pooled, "replies_with_zero_terminal_outcomes"))
     result["bargein.zero_terminal_reply_rate"] = zero / replies if replies else None
     # Numerator and denominator over the same set: every started reply.

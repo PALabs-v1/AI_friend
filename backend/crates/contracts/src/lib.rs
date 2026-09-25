@@ -9,12 +9,23 @@ pub mod topics {
     pub const AUDIO_RESUME: &str = "audio.resume";
     pub const AUDIO_INBOUND: &str = "audio.inbound";
     pub const AUDIO_STREAM: &str = "audio.stream";
+    pub const VISION_CONTROL: &str = "vision.control";
+    pub const VISION_FRAMES: &str = "vision.frames";
     pub const VISION_DESCRIPTION: &str = "vision.description";
+    pub const VISION_FACIAL_REFLEX: &str = "vision.facial_reflex";
+    pub const VOICE_SEGMENTATION_FEEDBACK: &str = "voice.segmentation_feedback";
+    pub const SYSTEM_TICK: &str = "system.tick";
+    pub const MEMORY_SURFACED: &str = "memory.surfaced";
+    pub const STATE_UPDATE: &str = "state.update";
+    pub const STATE_SUBCONSCIOUS: &str = "state.subconscious";
     pub const USER_VOICE_PROPERTIES: &str = "user.voice.properties";
     pub const AGENT_VOICE_MODULATION: &str = "agent.voice.modulation";
     pub const AUDIO_PLAYBACK_VISEMES: &str = "audio.playback.visemes";
     pub const AUDIO_PLAYBACK_PROGRESS: &str = "audio.playback.progress";
+    pub const AUDIO_PLAYBACK_BACKLOG: &str = "audio.playback.backlog";
+    pub const AUDIO_PLAYBACK_LIFECYCLE: &str = "audio.playback.lifecycle";
     pub const AMBIENT_NOISE_TELEMETRY: &str = "ambient.noise.telemetry";
+    pub const SESSION_PRESENCE: &str = "state.presence";
 }
 
 pub const HEADER_LATENCY_META: &str = "X-Latency-Meta";
@@ -270,6 +281,8 @@ pub struct AudioStop {
     #[serde(default = "default_true")]
     pub interrupt: bool,
     #[serde(default)]
+    pub flush: bool,
+    #[serde(default)]
     pub speculative: bool,
     #[serde(default)]
     pub reason: Option<String>,
@@ -347,7 +360,6 @@ pub struct AgentVoiceModulation {
     pub timestamp: f64,
 }
 
-
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PlaybackVisemes {
     pub target_level: f64,
@@ -362,6 +374,110 @@ pub struct AudioPlaybackProgress {
     pub word_index: u64,
     pub completed: bool,
     pub timestamp: f64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum PlaybackLifecycleState {
+    Started,
+    Playing,
+    Completed,
+    Interrupted,
+    Failed,
+}
+
+impl PlaybackLifecycleState {
+    fn is_terminal(self) -> bool {
+        matches!(self, Self::Completed | Self::Interrupted | Self::Failed)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AudioPlaybackLifecycle {
+    pub utterance_id: String,
+    pub turn_id: String,
+    pub seq: u64,
+    pub state: PlaybackLifecycleState,
+    pub words_played: u64,
+    pub words_streamed: u64,
+    pub heard_offset: u64,
+    pub streamed_offset: u64,
+    pub timestamp: f64,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AudioStreamTrailer {
+    pub kind: String,
+    pub utterance_id: String,
+    pub turn_id: String,
+    #[serde(default)]
+    pub failed: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LifecycleApplyResult {
+    Applied,
+    Duplicate,
+    OutOfOrder,
+    ProtocolError,
+}
+
+#[derive(Debug, Default)]
+pub struct PlaybackLifecycleTracker {
+    events: BTreeMap<(String, String), AudioPlaybackLifecycle>,
+    protocol_errors: u64,
+}
+
+impl PlaybackLifecycleTracker {
+    pub fn protocol_errors(&self) -> u64 {
+        self.protocol_errors
+    }
+
+    pub fn get(&self, utterance_id: &str, turn_id: &str) -> Option<&AudioPlaybackLifecycle> {
+        self.events
+            .get(&(utterance_id.to_string(), turn_id.to_string()))
+    }
+
+    pub fn apply(&mut self, event: AudioPlaybackLifecycle) -> LifecycleApplyResult {
+        if event.words_played > event.words_streamed || event.heard_offset > event.streamed_offset {
+            self.protocol_errors += 1;
+            return LifecycleApplyResult::ProtocolError;
+        }
+        let key = (event.utterance_id.clone(), event.turn_id.clone());
+        let Some(previous) = self.events.get(&key) else {
+            // A source may fail before accepting its first frame.
+            if !matches!(
+                event.state,
+                PlaybackLifecycleState::Started | PlaybackLifecycleState::Failed
+            ) {
+                return LifecycleApplyResult::OutOfOrder;
+            }
+            self.events.insert(key, event);
+            return LifecycleApplyResult::Applied;
+        };
+
+        if previous.state.is_terminal() {
+            if event.state == previous.state {
+                return LifecycleApplyResult::Duplicate;
+            }
+            if event.state.is_terminal() {
+                self.protocol_errors += 1;
+                return LifecycleApplyResult::ProtocolError;
+            }
+            return LifecycleApplyResult::OutOfOrder;
+        }
+        if event.seq < previous.seq {
+            return LifecycleApplyResult::OutOfOrder;
+        }
+        if event.seq == previous.seq {
+            return LifecycleApplyResult::Duplicate;
+        }
+        if event.state == PlaybackLifecycleState::Started {
+            return LifecycleApplyResult::OutOfOrder;
+        }
+        self.events.insert(key, event);
+        LifecycleApplyResult::Applied
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -402,7 +518,9 @@ pub fn vad_to_prosody(affect: Option<&ChatOutputAffect>) -> Prosody {
     let rate = 1.0 + rate_input.tanh();
 
     // Pm = 1.0 + tanh(0.05 * valence + 0.15 * arousal - 0.10 * dominance - fatigue_pitch_drop + dist_pitch_mod)
-    let pitch_input = (0.05 * affect.valence) + (0.15 * affect.arousal) - (0.10 * affect.dominance) - fatigue_pitch_drop
+    let pitch_input = (0.05 * affect.valence) + (0.15 * affect.arousal)
+        - (0.10 * affect.dominance)
+        - fatigue_pitch_drop
         + dist_pitch_mod;
     let pitch = 1.0 + pitch_input.tanh();
 
@@ -433,6 +551,7 @@ pub fn silence_pcm(ms: u32, sample_rate: u32) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use proptest::{prop_assert, prop_assert_eq};
 
     #[test]
     fn chat_output_round_trips_current_contract_shape() {
@@ -503,7 +622,11 @@ mod tests {
 
         assert_eq!(
             parsed.trajectory,
-            vec![(0, 0.95, 1.1, 0.1), (50, 0.96, 1.08, 0.12), (100, 0.97, 1.05, 0.13)]
+            vec![
+                (0, 0.95, 1.1, 0.1),
+                (50, 0.96, 1.08, 0.12),
+                (100, 0.97, 1.05, 0.13)
+            ]
         );
 
         let round_tripped: SpeechExpressionWire =
@@ -530,11 +653,98 @@ mod tests {
 
         assert!(parsed.interrupt);
         assert!(parsed.speculative);
+        assert!(!parsed.flush);
         assert_eq!(parsed.intent.as_deref(), Some("SPECULATIVE_STOP"));
 
         let serialized = serde_json::to_value(parsed).unwrap();
         let expected: serde_json::Value = serde_json::from_str(fixture).unwrap();
         assert_eq!(serialized, expected);
+    }
+
+    #[test]
+    fn lifecycle_fixture_matches_the_rust_contract() {
+        let fixture = include_str!("../fixtures/audio_playback_lifecycle_started.json");
+        let parsed: AudioPlaybackLifecycle = serde_json::from_str(fixture).unwrap();
+        assert_eq!(parsed.utterance_id, "utt-1");
+        assert_eq!(parsed.turn_id, "turn-1");
+        assert_eq!(parsed.seq, 0);
+        assert_eq!(parsed.state, PlaybackLifecycleState::Started);
+        assert_eq!(parsed.words_played, 0);
+        assert_eq!(parsed.words_streamed, 4);
+    }
+
+    #[test]
+    fn audio_stream_trailer_fixture_matches_the_rust_contract() {
+        let fixture = include_str!("../fixtures/audio_stream_trailer.json");
+        let parsed: AudioStreamTrailer = serde_json::from_str(fixture).unwrap();
+        assert_eq!(parsed.kind, "END_OF_STREAM");
+        assert_eq!(parsed.utterance_id, "utt-1");
+        assert_eq!(parsed.turn_id, "turn-1");
+        assert!(!parsed.failed);
+    }
+
+    #[test]
+    fn source_failure_before_first_frame_is_terminal() {
+        let mut tracker = PlaybackLifecycleTracker::default();
+        let failed = AudioPlaybackLifecycle {
+            utterance_id: "utt-1".into(),
+            turn_id: "turn-1".into(),
+            seq: 0,
+            state: PlaybackLifecycleState::Failed,
+            words_played: 0,
+            words_streamed: 1,
+            heard_offset: 0,
+            streamed_offset: 7,
+            timestamp: 0.0,
+        };
+        assert_eq!(tracker.apply(failed.clone()), LifecycleApplyResult::Applied);
+        let mut completed = failed;
+        completed.seq = 1;
+        completed.state = PlaybackLifecycleState::Completed;
+        assert_eq!(
+            tracker.apply(completed),
+            LifecycleApplyResult::ProtocolError
+        );
+    }
+
+    proptest::proptest! {
+        #[test]
+        fn lifecycle_state_machine_keeps_one_terminal_and_ignores_reordering(
+            states in proptest::collection::vec(0u8..5, 1..80),
+            seqs in proptest::collection::vec(0u64..80, 1..80),
+        ) {
+            let mut tracker = PlaybackLifecycleTracker::default();
+            let mut terminal = None;
+            let count = states.len().min(seqs.len());
+            for index in 0..count {
+                let state = match states[index] {
+                    0 => PlaybackLifecycleState::Started,
+                    1 => PlaybackLifecycleState::Playing,
+                    2 => PlaybackLifecycleState::Completed,
+                    3 => PlaybackLifecycleState::Interrupted,
+                    _ => PlaybackLifecycleState::Failed,
+                };
+                let event = AudioPlaybackLifecycle {
+                    utterance_id: "utt-1".into(),
+                    turn_id: "turn-1".into(),
+                    seq: seqs[index],
+                    state,
+                    words_played: 0,
+                    words_streamed: 0,
+                    heard_offset: 0,
+                    streamed_offset: 0,
+                    timestamp: index as f64,
+                };
+                let result = tracker.apply(event);
+                if result == LifecycleApplyResult::Applied && state.is_terminal() {
+                    prop_assert!(terminal.is_none());
+                    terminal = Some(state);
+                }
+                if let Some(terminal_state) = terminal {
+                    prop_assert_eq!(tracker.get("utt-1", "turn-1").unwrap().state, terminal_state);
+                }
+            }
+        }
     }
 
     #[test]

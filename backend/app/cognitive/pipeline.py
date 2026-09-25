@@ -939,6 +939,8 @@ class CognitivePipeline:
             full_response: str = ""
             done_chunk: dict[str, Any] | None = None
             is_spec = plan.payload.get("speculative", False)
+            if session_state is not None and session_state.turn_id:
+                plan.payload.setdefault("turn_id", session_state.turn_id)
             pass_result: dict[str, Any] = {"response": "", "done": None}
             async for chunk in self._stream_action_pass(plan, is_spec, pass_result):
                 yield chunk

@@ -1,12 +1,16 @@
 import json
+import re
 from pathlib import Path
 
 from app.contracts import (
     AudioPerception,
+    AudioPlaybackLifecycle,
     AudioStop,
+    AudioStreamTrailer,
     ChatInput,
     ChatOutput,
     SpeechExpressionWire,
+    Topics,
 )
 
 FIXTURE_DIR = Path(__file__).resolve().parents[1] / "crates" / "contracts" / "fixtures"
@@ -54,6 +58,41 @@ def test_rust_audio_stop_fixture_matches_current_pydantic_contract():
     assert parsed.confidence == 0.9
     assert parsed.perception_text == "stop"
     assert parsed.utterance_id == "utt-1"
+    assert parsed.flush is False
+
+
+def test_rust_audio_playback_lifecycle_fixture_matches_current_pydantic_contract():
+    payload = _load_fixture("audio_playback_lifecycle_started.json")
+    parsed = AudioPlaybackLifecycle.model_validate(payload)
+
+    assert parsed.utterance_id == "utt-1"
+    assert parsed.turn_id == "turn-1"
+    assert parsed.seq == 0
+    assert parsed.state == "STARTED"
+    assert parsed.words_played == 0
+    assert parsed.words_streamed == 4
+    assert parsed.heard_offset == 0
+    assert parsed.streamed_offset == 22
+
+
+def test_rust_audio_stream_trailer_fixture_matches_current_pydantic_contract():
+    payload = _load_fixture("audio_stream_trailer.json")
+    parsed = AudioStreamTrailer.model_validate(payload)
+    assert parsed.kind == "END_OF_STREAM"
+    assert parsed.utterance_id == "utt-1"
+    assert parsed.turn_id == "turn-1"
+    assert parsed.failed is False
+
+
+def test_python_and_rust_topic_constants_have_exact_parity():
+    rust_source = (FIXTURE_DIR.parent / "src" / "lib.rs").read_text(encoding="utf-8")
+    rust_topics = set(
+        re.findall(
+            r'pub const [A-Z0-9_]+: &str = "([^"]+)";',
+            rust_source.split("pub const HEADER_LATENCY_META", 1)[0],
+        )
+    )
+    assert rust_topics == {topic.value for topic in Topics}
 
 
 def test_rust_audio_perception_fixture_matches_current_pydantic_contract():

@@ -20,7 +20,7 @@ import time
 from enum import Enum
 from typing import Any, ClassVar, Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 class Topics(str, Enum):
@@ -45,6 +45,7 @@ class Topics(str, Enum):
     AUDIO_PLAYBACK_VISEMES = "audio.playback.visemes"
     AUDIO_PLAYBACK_PROGRESS = "audio.playback.progress"
     AUDIO_PLAYBACK_BACKLOG = "audio.playback.backlog"
+    AUDIO_PLAYBACK_LIFECYCLE = "audio.playback.lifecycle"
     AMBIENT_NOISE_TELEMETRY = "ambient.noise.telemetry"
     # "state.presence", not "session.presence": AI_MESSAGES' JetStream
     # subject pattern is state.>, and a subject outside every declared
@@ -106,6 +107,7 @@ TOPIC_DELIVERY: dict[Topics, Literal["durable", "best_effort"]] = {
     Topics.AUDIO_PLAYBACK_VISEMES: "best_effort",
     Topics.AUDIO_PLAYBACK_PROGRESS: "best_effort",
     Topics.AUDIO_PLAYBACK_BACKLOG: "best_effort",
+    Topics.AUDIO_PLAYBACK_LIFECYCLE: "best_effort",
     Topics.AMBIENT_NOISE_TELEMETRY: "best_effort",  # override: no declared stream, see above
     Topics.SESSION_PRESENCE: "durable",
 }
@@ -231,6 +233,9 @@ class AudioStop(BaseModel):
     """Published on `audio.stop` to halt voice playback."""
 
     interrupt: bool = True
+    # Flush already-rendered audio without cancelling the generation that is
+    # producing its replacement (self-correction, DR-029).
+    flush: bool = False
     speculative: bool = False
     reason: str | None = None
     command_text: str | None = None
@@ -458,6 +463,87 @@ class AudioPlaybackProgress(BaseModel):
     word_index: int = Field(..., ge=0)
     completed: bool
     timestamp: float = Field(default_factory=time.time)
+
+
+class AudioPlaybackLifecycle(BaseModel):
+    """Transport-owned, ordered state for one spoken reply."""
+
+    model_config = {"extra": "allow"}
+
+    utterance_id: str
+    turn_id: str
+    seq: int = Field(..., ge=0)
+    state: Literal["STARTED", "PLAYING", "COMPLETED", "INTERRUPTED", "FAILED"]
+    words_played: int = Field(..., ge=0)
+    words_streamed: int = Field(..., ge=0)
+    heard_offset: int = Field(..., ge=0)
+    streamed_offset: int = Field(..., ge=0)
+    timestamp: float = Field(default_factory=time.time)
+
+    @model_validator(mode="after")
+    def heard_position_is_streamed(self):
+        if self.words_played > self.words_streamed:
+            raise ValueError("words_played cannot exceed words_streamed")
+        if self.heard_offset > self.streamed_offset:
+            raise ValueError("heard_offset cannot exceed streamed_offset")
+        return self
+
+
+class AudioStreamTrailer(BaseModel):
+    """Typed, non-PCM end marker for one voice-agent output stream."""
+
+    kind: Literal["END_OF_STREAM"]
+    utterance_id: str
+    turn_id: str
+    failed: bool = False
+
+
+class LifecycleApplyResult(str, Enum):
+    APPLIED = "applied"
+    DUPLICATE = "duplicate"
+    OUT_OF_ORDER = "out_of_order"
+    PROTOCOL_ERROR = "protocol_error"
+
+
+class PlaybackLifecycleTracker:
+    """Small deterministic reducer used at the durable lifecycle boundary."""
+
+    _TERMINAL = {"COMPLETED", "INTERRUPTED", "FAILED"}
+
+    def __init__(self) -> None:
+        self._events: dict[tuple[str, str], AudioPlaybackLifecycle] = {}
+        self.protocol_errors = 0
+
+    def apply(self, event: AudioPlaybackLifecycle) -> LifecycleApplyResult:
+        key = (event.utterance_id, event.turn_id)
+        previous = self._events.get(key)
+        if previous is None:
+            # A source can fail before accepting its first frame, so no
+            # STARTED/PLAYING event exists for that attempt.
+            if event.state not in {"STARTED", "FAILED"}:
+                return LifecycleApplyResult.OUT_OF_ORDER
+            self._events[key] = event
+            return LifecycleApplyResult.APPLIED
+
+        if previous.state in self._TERMINAL:
+            if event.state == previous.state:
+                return LifecycleApplyResult.DUPLICATE
+            if event.state in self._TERMINAL:
+                self.protocol_errors += 1
+                return LifecycleApplyResult.PROTOCOL_ERROR
+            return LifecycleApplyResult.OUT_OF_ORDER
+
+        if event.seq < previous.seq:
+            return LifecycleApplyResult.OUT_OF_ORDER
+        if event.seq == previous.seq:
+            return LifecycleApplyResult.DUPLICATE
+        if event.state == "STARTED":
+            return LifecycleApplyResult.OUT_OF_ORDER
+        self._events[key] = event
+        return LifecycleApplyResult.APPLIED
+
+    def get(self, utterance_id: str, turn_id: str) -> AudioPlaybackLifecycle | None:
+        return self._events.get((utterance_id, turn_id))
 
 
 # ─── audio.playback.backlog ───────────────────────────────────

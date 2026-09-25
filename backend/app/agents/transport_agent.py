@@ -1,5 +1,6 @@
 import asyncio
 import base64
+import json
 import logging
 import time
 from typing import Any
@@ -10,7 +11,9 @@ from livekit.api import AccessToken, VideoGrants
 from ..config import Config
 from ..contracts import (
     AudioPlaybackBacklog,
+    AudioPlaybackLifecycle,
     AudioPlaybackProgress,
+    AudioStreamTrailer,
     PlaybackVisemes,
     SessionPresence,
     Topics,
@@ -57,7 +60,16 @@ class TransportAgent(BaseAgent):
             "ai-voice", self.audio_source
         )
         self.audio_queue: asyncio.Queue[
-            tuple[bytes, int, int, str | None, int | None, int | None, bool]
+            tuple[
+                bytes,
+                int,
+                int,
+                str | None,
+                str | None,
+                int | None,
+                int | None,
+                str | None,
+            ]
         ] = asyncio.Queue(
             maxsize=max(32, int(getattr(Config, "TRANSPORT_AUDIO_QUEUE_SIZE", 256)))
         )
@@ -94,6 +106,17 @@ class TransportAgent(BaseAgent):
         # stale offset from the previous one.
         self._last_progress_turn_id = None
         self._last_progress_offset = -1
+        self._active_utterance_id: str | None = None
+        self._active_utterance_turn_id: str | None = None
+        self._lifecycle_active_by_turn: dict[str, str] = {}
+        self._lifecycle_attempts: dict[str, int] = {}
+        self._lifecycle_seq: dict[tuple[str, str], int] = {}
+        self._lifecycle_terminal: dict[tuple[str, str], str] = {}
+        self._lifecycle_started: set[tuple[str, str]] = set()
+        self._lifecycle_position: dict[tuple[str, str], tuple[int, int]] = {}
+        self._lifecycle_dropped: set[tuple[str, str]] = set()
+        self._lifecycle_publish_lock = asyncio.Lock()
+        self.lifecycle_protocol_errors = 0
 
         # #173: mirrors the outbound queue above, for the opposite direction.
         # `_process_remote_audio` used to `await self.publish(...)` directly
@@ -316,6 +339,7 @@ class TransportAgent(BaseAgent):
             # P1-3: track which turn is currently flowing so a later
             # audio.stop can tell whether it names this turn or a stale one.
             turn_id = metadata.get("turn_id") if metadata else None
+            utterance_id = (metadata or {}).get("utterance_id") or turn_id
             if turn_id:
                 self._active_turn_id = turn_id
             # P4-2: pass-through values (brain_agent computes them, voice-agent
@@ -328,13 +352,44 @@ class TransportAgent(BaseAgent):
             audio_bytes = b""
             sample_rate = self.output_sample_rate
             num_channels = self.output_channels
-            is_done = False
+            terminal_state = None
+
+            if metadata and metadata.get("audio_stream_kind") == "trailer":
+                try:
+                    trailer = AudioStreamTrailer.model_validate(json.loads(bytes(data)))
+                except Exception as exc:
+                    logger.error("Dropping invalid audio stream trailer: %s", exc)
+                    return
+                terminal_state = "FAILED" if trailer.failed else "COMPLETED"
+                turn_id = trailer.turn_id
+                utterance_id = self._lifecycle_active_by_turn.get(turn_id)
+                if utterance_id is None:
+                    return
+                trailer_offset = character_offset
+                trailer_words = word_index
+                if trailer_offset is None:
+                    trailer_offset = 0
+                if trailer_words is None:
+                    trailer_words = 0
+                marker = (
+                    b"",
+                    sample_rate,
+                    num_channels,
+                    utterance_id,
+                    turn_id,
+                    trailer_offset,
+                    trailer_words,
+                    terminal_state,
+                )
+                # Unlike media frames, losing this marker would leave a fully
+                # played reply unresolved. Let the bounded queue drain first.
+                await self.audio_queue.put(marker)
+                return
 
             if isinstance(data, (bytes, bytearray)):
                 audio_bytes = bytes(data)
             elif isinstance(data, dict):
                 audio_b64 = data.get("audio", "")
-                is_done = data.get("done", False)
                 sample_rate = data.get("sample_rate", sample_rate)
                 num_channels = data.get("channels", num_channels)
                 if audio_b64:
@@ -354,14 +409,27 @@ class TransportAgent(BaseAgent):
                     pcm_data = audio_bytes
 
                 if pcm_data:
+                    if turn_id:
+                        active_utterance = self._lifecycle_active_by_turn.get(turn_id)
+                        if active_utterance is None:
+                            attempt = self._lifecycle_attempts.get(turn_id, 0)
+                            self._lifecycle_attempts[turn_id] = attempt + 1
+                            active_utterance = (
+                                utterance_id
+                                if attempt == 0
+                                else f"{utterance_id or turn_id}:{attempt}"
+                            )
+                            self._lifecycle_active_by_turn[turn_id] = active_utterance
+                        utterance_id = active_utterance
                     queued_frame = (
                         pcm_data,
                         sample_rate,
                         num_channels,
+                        utterance_id,
                         turn_id,
                         character_offset,
                         word_index,
-                        False,
+                        None,
                     )
                     try:
                         self.audio_queue.put_nowait(queued_frame)
@@ -390,6 +458,8 @@ class TransportAgent(BaseAgent):
                         # 68 of 256 slots, so this path is a rare-overflow safety net,
                         # not the common case.
                         self.dropped_audio_frames += 1
+                        if utterance_id and turn_id:
+                            self._lifecycle_dropped.add((utterance_id, turn_id))
                         if self.dropped_audio_frames % 50 == 1:
                             logger.warning(
                                 "Transport audio queue overloaded; dropped %s frames.",
@@ -404,39 +474,6 @@ class TransportAgent(BaseAgent):
 
                     self._maybe_publish_playback_backlog()
 
-            if is_done:
-                logger.info("AI Utterance stream complete.")
-                # FIX-CLD-02: nothing downstream of this bridge ever
-                # published a terminal `completed=True` progress event on
-                # the normal (non-interrupted) playback path, so BrainAgent
-                # never emitted a COMPLETED OutcomeRecord for a turn that
-                # simply finished speaking (only an audio.stop interruption
-                # produced any terminal record at all). Queued as a marker
-                # frame -- not published here directly -- so it drains
-                # through the same FIFO `audio_queue` behind any real PCM
-                # this same message just enqueued above, and the worker
-                # only reports "completed" once every real frame ahead of
-                # it has actually reached `audio_source.capture_frame`, the
-                # closest observable "reached the speaker" point (see
-                # `_maybe_publish_playback_progress`'s own docstring).
-                completion_marker = (
-                    b"",
-                    sample_rate,
-                    num_channels,
-                    turn_id,
-                    character_offset,
-                    word_index,
-                    True,
-                )
-                try:
-                    self.audio_queue.put_nowait(completion_marker)
-                except asyncio.QueueFull:
-                    logger.warning(
-                        "Transport audio queue full; dropping completion "
-                        "marker for turn %s.",
-                        turn_id,
-                    )
-
         except Exception as e:
             logger.error(f"Error bridging audio: {e}")
 
@@ -448,20 +485,72 @@ class TransportAgent(BaseAgent):
                     pcm_data,
                     sample_rate,
                     num_channels,
+                    utterance_id,
                     turn_id,
                     character_offset,
                     word_index,
-                    completed,
+                    terminal_state,
                 ) = await self.audio_queue.get()
                 try:
-                    if completed:
-                        # FIX-CLD-02: a marker frame carries no audio -- it
-                        # exists only to report, in FIFO order behind every
-                        # real frame this turn queued, that playback for
-                        # this turn has actually finished.
-                        self._maybe_publish_playback_progress(
-                            turn_id, character_offset, word_index, completed=True
+                    if terminal_state:
+                        lifecycle_key = (utterance_id or "", turn_id or "")
+                        heard_words, heard_offset = self._lifecycle_position.get(
+                            lifecycle_key, (0, 0)
                         )
+                        streamed_words = max(heard_words, word_index or 0)
+                        streamed_offset = max(heard_offset, character_offset or 0)
+                        if (
+                            terminal_state == "COMPLETED"
+                            and lifecycle_key in self._lifecycle_dropped
+                        ):
+                            terminal_state = "FAILED"
+                        self._lifecycle_dropped.discard(lifecycle_key)
+                        if terminal_state == "COMPLETED":
+                            source = self.audio_source
+                            try:
+                                await source.wait_for_playout()
+                            except Exception:
+                                self._emit_lifecycle(
+                                    utterance_id=utterance_id or "",
+                                    turn_id=turn_id or "",
+                                    state="FAILED",
+                                    words_played=heard_words,
+                                    words_streamed=streamed_words,
+                                    heard_offset=heard_offset,
+                                    streamed_offset=streamed_offset,
+                                )
+                                raise
+                            if (
+                                self._lifecycle_terminal.get(
+                                    (utterance_id or "", turn_id or "")
+                                )
+                                == "INTERRUPTED"
+                            ):
+                                continue
+                        self._emit_lifecycle(
+                            utterance_id=utterance_id or "",
+                            turn_id=turn_id or "",
+                            state=terminal_state,
+                            words_played=(
+                                streamed_words
+                                if terminal_state == "COMPLETED"
+                                else heard_words
+                            ),
+                            words_streamed=streamed_words,
+                            heard_offset=(
+                                streamed_offset
+                                if terminal_state == "COMPLETED"
+                                else heard_offset
+                            ),
+                            streamed_offset=streamed_offset,
+                        )
+                        if self._lifecycle_active_by_turn.get(turn_id or "") == (
+                            utterance_id or ""
+                        ):
+                            self._lifecycle_active_by_turn.pop(turn_id or "", None)
+                        if self._active_utterance_id == utterance_id:
+                            self._active_utterance_id = None
+                            self._active_utterance_turn_id = None
                         continue
                     if not pcm_data or num_channels <= 0:
                         continue
@@ -476,7 +565,35 @@ class TransportAgent(BaseAgent):
                         num_channels=num_channels,
                         samples_per_channel=samples_per_channel,
                     )
-                    await self.audio_source.capture_frame(frame)
+                    lifecycle_key = (utterance_id or "", turn_id or "")
+                    try:
+                        await self.audio_source.capture_frame(frame)
+                    except Exception:
+                        heard_words, heard_offset = self._lifecycle_position.get(
+                            lifecycle_key, (0, 0)
+                        )
+                        self._emit_lifecycle(
+                            utterance_id=utterance_id or "",
+                            turn_id=turn_id or "",
+                            state="FAILED",
+                            words_played=heard_words,
+                            words_streamed=word_index or 0,
+                            heard_offset=heard_offset,
+                            streamed_offset=character_offset or 0,
+                        )
+                        if self._lifecycle_active_by_turn.get(turn_id or "") == (
+                            utterance_id or ""
+                        ):
+                            self._lifecycle_active_by_turn.pop(turn_id or "", None)
+                        if self._active_utterance_id == utterance_id:
+                            self._active_utterance_id = None
+                            self._active_utterance_turn_id = None
+                        raise
+                    self._active_utterance_id = utterance_id
+                    self._active_utterance_turn_id = turn_id
+                    self._emit_playing_lifecycle(
+                        utterance_id, turn_id, character_offset, word_index
+                    )
                     self._trace(
                         "buffer3_to_4",
                         qsize=self.audio_queue.qsize(),
@@ -520,7 +637,7 @@ class TransportAgent(BaseAgent):
         self.spawn(self.publish(Topics.AUDIO_PLAYBACK_BACKLOG, backlog.model_dump()))
 
     def _maybe_publish_playback_progress(
-        self, turn_id, character_offset, word_index, completed: bool = False
+        self, turn_id, character_offset, word_index
     ) -> None:
         """P4-2: fires once a PCM frame carrying a *new* offset has actually
         reached the LiveKit audio source -- the closest observable "reached
@@ -532,24 +649,15 @@ class TransportAgent(BaseAgent):
         delay the next PCM frame -- the same reasoning voice-agent's own
         `publish_pcm` documents for its own ack.
 
-        FIX-CLD-02: `completed=True` (the turn's terminal marker frame) must
-        always publish, even when its offset does not exceed the last one
-        already reported -- the de-dupe gate below exists to collapse
-        several PCM chunks that share one unchanged mid-utterance offset,
-        not to swallow the one event that tells BrainAgent the turn is over.
-        A marker with no offset of its own (a bodiless trailer message, see
-        `_on_nats_audio`) falls back to the last real offset this turn
-        already published, which is exactly the length actually delivered.
+        Terminal state is carried on `audio.playback.lifecycle`; this legacy
+        progress topic remains nonterminal for word-offset consumers.
         """
         if character_offset is None or word_index is None:
-            if not completed:
-                return
-            character_offset = max(self._last_progress_offset, 0)
-            word_index = 0
+            return
         if turn_id != self._last_progress_turn_id:
             self._last_progress_turn_id = turn_id
             self._last_progress_offset = -1
-        if not completed and character_offset <= self._last_progress_offset:
+        if character_offset <= self._last_progress_offset:
             return
         self._last_progress_offset = max(self._last_progress_offset, character_offset)
 
@@ -557,9 +665,86 @@ class TransportAgent(BaseAgent):
             utterance_id=turn_id or "",
             character_offset=character_offset,
             word_index=word_index,
-            completed=completed,
+            completed=False,
         )
         self.spawn(self.publish(Topics.AUDIO_PLAYBACK_PROGRESS, progress.model_dump()))
+
+    def _emit_playing_lifecycle(
+        self, utterance_id, turn_id, character_offset, word_index
+    ) -> None:
+        if not turn_id or not utterance_id:
+            return
+        offset = max(0, int(character_offset or 0))
+        words = max(0, int(word_index or 0))
+        key = (utterance_id, turn_id)
+        self._lifecycle_position[key] = (words, offset)
+        if key not in self._lifecycle_started:
+            self._lifecycle_started.add(key)
+            self._emit_lifecycle(
+                utterance_id=utterance_id,
+                turn_id=turn_id,
+                state="STARTED",
+                words_played=0,
+                words_streamed=words,
+                heard_offset=0,
+                streamed_offset=offset,
+            )
+        self._emit_lifecycle(
+            utterance_id=utterance_id,
+            turn_id=turn_id,
+            state="PLAYING",
+            words_played=words,
+            words_streamed=words,
+            heard_offset=offset,
+            streamed_offset=offset,
+        )
+
+    def _emit_lifecycle(
+        self,
+        *,
+        utterance_id: str,
+        turn_id: str,
+        state: str,
+        words_played: int,
+        words_streamed: int,
+        heard_offset: int,
+        streamed_offset: int,
+    ) -> None:
+        key = (utterance_id, turn_id)
+        terminal_states = {"COMPLETED", "INTERRUPTED", "FAILED"}
+        terminal = self._lifecycle_terminal.get(key)
+        if terminal:
+            if state != terminal and state in terminal_states:
+                self.lifecycle_protocol_errors += 1
+                logger.error(
+                    "Conflicting playback terminal %s after %s for %s/%s (count=%d)",
+                    state,
+                    terminal,
+                    utterance_id,
+                    turn_id,
+                    self.lifecycle_protocol_errors,
+                )
+            return
+        if state in terminal_states:
+            self._lifecycle_terminal[key] = state
+        seq = self._lifecycle_seq.get(key, 0)
+        self._lifecycle_seq[key] = seq + 1
+        event = AudioPlaybackLifecycle(
+            utterance_id=utterance_id,
+            turn_id=turn_id,
+            seq=seq,
+            state=state,
+            words_played=words_played,
+            words_streamed=max(words_played, words_streamed),
+            heard_offset=heard_offset,
+            streamed_offset=max(heard_offset, streamed_offset),
+        )
+        self.spawn(self._publish_lifecycle(event))
+
+    async def _publish_lifecycle(self, event: AudioPlaybackLifecycle) -> None:
+        # Preserve seq order without awaiting NATS from the real-time PCM loop.
+        async with self._lifecycle_publish_lock:
+            await self.publish(Topics.AUDIO_PLAYBACK_LIFECYCLE, event.model_dump())
 
     async def _on_viseme(self, data: dict) -> None:
         """Forward one viseme frame onto the room's data channel.
@@ -620,6 +805,26 @@ class TransportAgent(BaseAgent):
                 self._active_turn_id,
             )
             return
+
+        if self._active_utterance_id:
+            utterance_id = self._active_utterance_id
+            active_turn = self._active_utterance_turn_id or ""
+            words, offset = self._lifecycle_position.get(
+                (utterance_id, active_turn), (0, 0)
+            )
+            self._emit_lifecycle(
+                utterance_id=utterance_id,
+                turn_id=active_turn,
+                state="INTERRUPTED",
+                words_played=words,
+                words_streamed=words,
+                heard_offset=offset,
+                streamed_offset=offset,
+            )
+            if self._lifecycle_active_by_turn.get(active_turn) == utterance_id:
+                self._lifecycle_active_by_turn.pop(active_turn, None)
+            self._active_utterance_id = None
+            self._active_utterance_turn_id = None
 
         await self._flush_downstream_audio()
 

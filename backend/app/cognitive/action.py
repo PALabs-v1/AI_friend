@@ -1325,12 +1325,18 @@ class ActionService:
             "opening, leave it -- do not force it, and do not ask twice.\n"
         )
 
-    async def _announce_self_correction(self, reason: str):
+    async def _announce_self_correction(self, reason: str, turn_id: str | None):
         """Interrupt playback so the retry is not spoken over the bad take."""
         if self.publish_cb:
             try:
                 await self.publish_cb(
-                    "audio.stop", {"interrupt": True, "reason": reason}
+                    "audio.stop",
+                    {
+                        "interrupt": True,
+                        "flush": True,
+                        "reason": reason,
+                        "turn_id": turn_id,
+                    },
                 )
             except Exception as pe:
                 logger.error(f"[System 3] Failed to publish interrupt: {pe}")
@@ -1521,7 +1527,9 @@ class ActionService:
                 logger.warning(
                     f"[System 3] Metacognitive violation: {me.reason}. Triggering self-correction."
                 )
-                await self._announce_self_correction(me.reason)
+                await self._announce_self_correction(
+                    me.reason, plan.payload.get("turn_id")
+                )
 
                 # Reported, not acted on: this layer has no StateService, and
                 # giving it one to fire a hormone would invert the dependency.

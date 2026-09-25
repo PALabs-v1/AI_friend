@@ -56,6 +56,7 @@ class Mutation:
     old: str
     new: str
     equivalent: str | None = None  # why no behaviour changes, if so
+    additional: tuple[tuple[str, str], ...] = ()
 
 
 MUTATIONS = [
@@ -82,15 +83,20 @@ MUTATIONS = [
     Mutation(
         "M4_completed_ignores_owner",
         BRAIN,
-        "                    owner is None\n                    or (\n",
-        "                    True\n                    or (\n",
+        "            context = self._reply_contexts.get(event.turn_id)\n",
+        '            context = self._reply_contexts.get(getattr(self, "_reply_turn_id", event.turn_id))\n',
     ),
     Mutation(
         "M5_completed_not_once",
         BRAIN,
-        "                        owner == progress.utterance_id\n"
-        '                        and not getattr(self, "_reply_resolved", False)\n',
-        "                        owner == progress.utterance_id\n",
+        "            if result is not LifecycleApplyResult.APPLIED:\n                return\n",
+        "            if result is LifecycleApplyResult.PROTOCOL_ERROR:\n                return\n",
+        additional=(
+            (
+                "            if prior or context is None:\n",
+                "            if context is None:\n",
+            ),
+        ),
     ),
     Mutation(
         "M6_cancelled_ignores_generating",
@@ -216,9 +222,12 @@ MUTATIONS = [
     Mutation(
         "N14_completed_does_not_resolve",
         BRAIN,
-        "                    if owner is not None:\n                        self._reply_resolved = True\n"
-        "                    delivered",
-        "                    delivered",
+        '                if event.state in {"COMPLETED", "FAILED"} and event.turn_id == getattr(\n'
+        '                    self, "_reply_turn_id", None\n'
+        "                ):\n                    self._reply_resolved = True\n",
+        '                if event.state in {"COMPLETED", "FAILED"} and event.turn_id == getattr(\n'
+        '                    self, "_reply_turn_id", None\n'
+        "                ):\n                    self._reply_resolved = False\n",
     ),
     Mutation(
         "N17_row_id_never_recorded",
@@ -260,12 +269,12 @@ MUTATIONS = [
     Mutation(
         "Y20_record_offset_is_trimmed_length",
         BRAIN,
-        '                        status="TRUNCATED",\n'
-        "                        actual_delivered_text=truncated_text,\n"
-        "                        character_offset=offset,\n",
-        '                        status="TRUNCATED",\n'
-        "                        actual_delivered_text=truncated_text,\n"
-        "                        character_offset=len(truncated_text),\n",
+        '                            status="TRUNCATED",\n'
+        "                            actual_delivered_text=truncated_text,\n"
+        "                            character_offset=offset,\n",
+        '                            status="TRUNCATED",\n'
+        "                            actual_delivered_text=truncated_text,\n"
+        "                            character_offset=len(truncated_text),\n",
     ),
     Mutation(
         "N9_timed_out_wait_still_writes",
@@ -342,14 +351,19 @@ def check_patterns(root: Path = BACKEND) -> list[str]:
     """Mutations whose `old` text does not occur exactly once."""
     problems = []
     for m in MUTATIONS:
-        count = (root / m.path).read_text().count(m.old)
-        if count != 1:
-            problems.append(f"{m.name}: pattern found {count} times in {m.path}")
+        patterns = ((m.old, m.new), *m.additional)
+        source = (root / m.path).read_text()
+        for old, _ in patterns:
+            count = source.count(old)
+            if count != 1:
+                problems.append(f"{m.name}: pattern found {count} times in {m.path}")
     return problems
 
 
 def _copy_backend(dest: Path) -> Path:
-    ignore = shutil.ignore_patterns("crates", "target", "__pycache__", ".venv", "*.db")
+    ignore = shutil.ignore_patterns(
+        "crates", "target", "__pycache__", ".venv", "*.db", "*.db-*"
+    )
     shutil.copytree(BACKEND, dest, ignore=ignore)
     return dest
 
@@ -424,7 +438,10 @@ def main(argv: list[str]) -> int:
             for path, text in originals.items():
                 (root / path).write_text(text)
             target = root / m.path
-            target.write_text(target.read_text().replace(m.old, m.new, 1))
+            mutated = target.read_text()
+            for old, new in ((m.old, m.new), *m.additional):
+                mutated = mutated.replace(old, new, 1)
+            target.write_text(mutated)
             run = _run_tests(root)
             outcome = classify(run and run.returncode, run.stdout if run else "")
             if outcome == "error":
