@@ -551,6 +551,24 @@ def _build_checkpoint(sim, turns, annotations, at, *, final, rng, used):
 
     # Abstention: true assertion exists, but no truthful mention has occurred by the checkpoint.
     spoken_before = [t.text for t in turns if t.t < at]
+    _haystack_cache: dict[str | None, str] = {}
+
+    def _haystack(owner: str | None) -> str:
+        """Turns mentioning `owner`, joined with a separator that cannot be
+        part of a spoken value -- so a single regex search over the joined
+        text is equivalent to searching turn-by-turn, but shared across every
+        candidate with the same owner instead of rescanned per candidate.
+        Cached: a ten-year life has thousands of untold candidates funneling
+        through a handful of distinct owners."""
+        if owner not in _haystack_cache:
+            if owner is None:
+                _haystack_cache[owner] = "\n".join(spoken_before)
+            else:
+                owner_re = re.compile(rf"(?<!\w){re.escape(owner)}(?!\w)")
+                _haystack_cache[owner] = "\n".join(
+                    text for text in spoken_before if owner_re.search(text)
+                )
+        return _haystack_cache[owner]
 
     def leaked(entity: str, value: str) -> bool:
         """Annotations under-count what was said ("my friend Farah" states a
@@ -558,12 +576,11 @@ def _build_checkpoint(sim, turns, annotations, at, *, final, rng, used):
         the true value never appears in a turn that mentions its owner."""
         forms = [v for v in {_value(sim, value), _spoken(sim, value)} if v]
         owner = None if entity == "user" else _name(sim, entity)
-        for text in spoken_before:
-            if owner and not re.search(rf"(?<!\w){re.escape(owner)}(?!\w)", text):
-                continue
-            if any(re.search(rf"(?<!\w){re.escape(f)}(?!\w)", text, re.I) for f in forms):
-                return True
-        return False
+        haystack = _haystack(owner)
+        return any(
+            re.search(rf"(?<!\w){re.escape(f)}(?!\w)", haystack, re.IGNORECASE)
+            for f in forms
+        )
 
     untold = []
     told_ids = {
@@ -571,6 +588,10 @@ def _build_checkpoint(sim, turns, annotations, at, *, final, rng, used):
         for key, rows in claims.items()
         if key[2] and any(r[2].truthful for r in rows)
     }
+    # A set, not a per-candidate scan of `claims`: `claims` can hold thousands
+    # of (entity, attribute, assertion_id) keys on a ten-year life, and this
+    # membership check runs once per timeline assertion.
+    told_slots = {(key[0], key[1]) for key, rows in claims.items() if rows}
     for a in tl:
         if a.valid_from >= at or a.assertion_id in told_ids:
             continue
@@ -578,10 +599,7 @@ def _build_checkpoint(sim, turns, annotations, at, *, final, rng, used):
             continue
         # The slot must never have been told at all (not just this value),
         # or "what is my home city?" has a real answer from an older value.
-        if any(
-            key[0] == a.entity and key[1] == a.attribute and rows
-            for key, rows in claims.items()
-        ):
+        if (a.entity, a.attribute) in told_slots:
             continue
         untold.append(a)
     rng.shuffle(untold)

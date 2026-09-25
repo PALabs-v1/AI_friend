@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import sys
 import time
 from collections import Counter
 from dataclasses import replace
@@ -134,13 +135,23 @@ def test_persona_knobs_move_observable_rates():
 
 
 def test_ten_year_render_and_probes_fit_budget():
+    """CI always runs the backend suite under `--cov=app` (`ci.yml`,
+    `macos-ci.yml`). Line-tracing multiplies wall time by ~20-30x for a
+    checkpoint pass this loop-heavy, regardless of the code's real
+    performance -- confirmed by measuring the identical build both traced
+    and untraced. `sys.gettrace()` reliably reports coverage's CTracer
+    (verified against a real `--cov` run) when tracing is active, so the
+    budget scales to match instead of being fooled by test-runner overhead.
+    """
+    coverage_active = sys.gettrace() is not None
     t0 = time.perf_counter()
     _sim, turns, _annotations, question_rows, answers = build(1005, "socialite", "10y")
     elapsed = time.perf_counter() - t0
     assert len(turns) > 10_000
     assert len(turns) == len(_annotations)
     assert len(question_rows) == len(answers)
-    assert elapsed < 30
+    budget = 240 if coverage_active else 30
+    assert elapsed < budget, f"{elapsed:.1f}s exceeded the {budget}s budget"
 
 
 def test_probe_categories_and_checkpoint_support_are_well_formed():
