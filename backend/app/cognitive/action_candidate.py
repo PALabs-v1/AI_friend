@@ -185,9 +185,7 @@ def _control_modulation(candidate: ActionCandidate, global_controls: Any) -> flo
         modulation += urgency_gain * _URGENCY_RISK_WEIGHT * (1.0 - risk)
         modulation -= urgency_gain * _URGENCY_COST_WEIGHT * cost
     if exploration_budget > _EXPLORATION_BUDGET_THRESHOLD:
-        modulation += (
-            exploration_budget * _EXPLORATION_UNCERTAINTY_WEIGHT * uncertainty
-        )
+        modulation += exploration_budget * _EXPLORATION_UNCERTAINTY_WEIGHT * uncertainty
     if effort_budget < _EFFORT_BUDGET_LOW_THRESHOLD:
         modulation -= (1.0 - effort_budget) * _EFFORT_COST_PENALTY_WEIGHT * cost
     return modulation
@@ -215,6 +213,7 @@ class ActionCandidate(BaseModel):
     # candidate-generation time and drive filtering/realization, not
     # metacognitive stance.
     metadata: dict[str, Any] = Field(default_factory=dict)
+
 
 import functools
 
@@ -483,8 +482,7 @@ class CandidateSelector:
         def combined_score(candidate: ActionCandidate) -> float:
             return (
                 candidate.score
-                + _GOAL_ALIGNMENT_WEIGHT
-                * self._goal_alignment(candidate, active_goals)
+                + _GOAL_ALIGNMENT_WEIGHT * self._goal_alignment(candidate, active_goals)
                 + _control_modulation(candidate, global_controls)
                 + _metacognitive_modulation(candidate, metacognitive_directive)
             )

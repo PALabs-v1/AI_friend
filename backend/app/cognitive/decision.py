@@ -52,7 +52,13 @@ class ActionPlan:
 
 
 # Ordered coarsest -> warmest; _bucket_relational_stance clamps into this.
-_RELATIONAL_STANCES: tuple[str, ...] = ("distant", "guarded", "neutral", "warm", "close")
+_RELATIONAL_STANCES: tuple[str, ...] = (
+    "distant",
+    "guarded",
+    "neutral",
+    "warm",
+    "close",
+)
 
 # Urgency at/above this maps a turn's interruption_policy to "reflex" --
 # naming, for conversational turns, the same class of "high-arousal signal
@@ -102,12 +108,61 @@ _REGULATION_CONSTRAINT_CLAIM = "emotion_regulation_response"
 # forbidden claims.
 _TOPIC_STOPWORDS = frozenset(
     {
-        "a", "an", "the", "do", "does", "did", "you", "your", "yours", "im",
-        "is", "are", "am", "to", "of", "in", "on", "and", "or", "have",
-        "has", "had", "that", "this", "it", "what", "how", "why", "who",
-        "when", "can", "could", "will", "would", "should", "with", "for",
-        "me", "my", "mine", "we", "us", "our", "be", "been", "being",
-        "was", "were", "not", "no", "yes", "but", "so", "just", "really",
+        "a",
+        "an",
+        "the",
+        "do",
+        "does",
+        "did",
+        "you",
+        "your",
+        "yours",
+        "im",
+        "is",
+        "are",
+        "am",
+        "to",
+        "of",
+        "in",
+        "on",
+        "and",
+        "or",
+        "have",
+        "has",
+        "had",
+        "that",
+        "this",
+        "it",
+        "what",
+        "how",
+        "why",
+        "who",
+        "when",
+        "can",
+        "could",
+        "will",
+        "would",
+        "should",
+        "with",
+        "for",
+        "me",
+        "my",
+        "mine",
+        "we",
+        "us",
+        "our",
+        "be",
+        "been",
+        "being",
+        "was",
+        "were",
+        "not",
+        "no",
+        "yes",
+        "but",
+        "so",
+        "just",
+        "really",
     }
 )
 _TOPIC_WORD_PATTERN = re.compile(r"[A-Za-z']+")
@@ -185,8 +240,7 @@ def _is_acute_distress(state_snapshot: dict[str, Any]) -> bool:
     valence = float(state_snapshot.get("mood", 0.0))
     arousal = float(state_snapshot.get("energy", 0.5))
     return (
-        valence < _DISTRESS_VALENCE_THRESHOLD
-        and arousal > _DISTRESS_AROUSAL_THRESHOLD
+        valence < _DISTRESS_VALENCE_THRESHOLD and arousal > _DISTRESS_AROUSAL_THRESHOLD
     )
 
 
@@ -839,9 +893,7 @@ class DecisionService:
                 # otherwise Stage 8 dispatches on action_type alone and an
                 # ASK selection silently realizes as ordinary chat.
                 action_type = "CLARIFY"
-                clarification_subject = _clarification_subject_from_candidate(
-                    selected
-                )
+                clarification_subject = _clarification_subject_from_candidate(selected)
             elif selected_kind == "WAIT":
                 action_type = "WAIT"
             elif selected_kind in ("REAPPRAISE", "REDIRECT_ATTENTION"):
