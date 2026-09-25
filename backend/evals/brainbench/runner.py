@@ -12,6 +12,7 @@ import multiprocessing
 import os
 import platform
 import re
+import shutil
 import subprocess
 import sys
 import time
@@ -554,10 +555,21 @@ def run_plan(
     embeddings: str | None = None,
     allow_model_embeddings_in_architecture_only: bool = False,
     workers: int = 1,
+    cell_root: Path | None = None,
 ) -> int:
+    """Run `cells` into `out`.
+
+    `cell_root` places each cell's working directory elsewhere, typically a
+    tmpfs such as /dev/shm. A cell commits SQLite hundreds of times per
+    simulated month, and on Linux each commit is a real fsync (about 2 ms on
+    home-gpu's NVMe; macOS's plain fsync skips the full flush, which is why
+    the Mac looked 14x faster). With a cell root, each working directory is
+    deleted once its outcomes are written under `out`.
+    """
     if workers < 1:
         raise ValueError("--workers must be at least 1")
     out = Path(out)
+    cell_root = Path(cell_root) if cell_root is not None else None
     mode = cells[0].mode if cells else None
     embeddings = embeddings or (
         "deterministic" if mode == "architecture_only" else "model"
@@ -595,8 +607,6 @@ def run_plan(
         for name in ("cells", "outcome-cells"):
             directory = out / name
             if directory.exists():
-                import shutil
-
                 shutil.rmtree(directory)
     _write_json(plan_path, plan_data)
     sha, dirty = _backend_git()
@@ -634,6 +644,9 @@ def run_plan(
         "variants": sorted({c.variant for c in cells}),
         "embeddings": embeddings,
         "workers": workers,
+        # Where cells' working state lived (None: under out/cells). Timing
+        # metrics depend on it: tmpfs has no fsync cost.
+        "cell_root": str(cell_root) if cell_root is not None else None,
         "llm_url": active_llm_url
         if any(c.mode == "llm_augmented" for c in cells)
         else None,
@@ -714,18 +727,28 @@ def run_plan(
             stream.flush()
             os.fsync(stream.fileno())
 
+    def fresh_cell_dir(cell: Cell) -> Path:
+        run_dir = (cell_root or out / "cells") / cell.cell_id
+        if run_dir.exists():
+            shutil.rmtree(run_dir)
+        return run_dir
+
+    def discard_cell_dir(cell: Cell) -> None:
+        # A scratch cell root (tmpfs) holds only working state; the outcomes
+        # are already on disk under `out`, so free the memory at once.
+        if cell_root is not None:
+            shutil.rmtree(cell_root / cell.cell_id, ignore_errors=True)
+
     def run_one(
         cell: Cell,
     ) -> tuple[list[SuiteOutcome] | None, BaseException | None, float]:
         started_cell = time.monotonic()
         try:
-            run_dir = out / "cells" / cell.cell_id
-            if run_dir.exists():
-                import shutil
-
-                shutil.rmtree(run_dir)
             outcomes = _invoke(
-                cell, run_dir, llm_url=active_llm_url, embeddings=embeddings
+                cell,
+                fresh_cell_dir(cell),
+                llm_url=active_llm_url,
+                embeddings=embeddings,
             )
         except KeyboardInterrupt:
             manifest["ended_at"] = datetime.now(UTC).isoformat()
@@ -739,55 +762,59 @@ def run_plan(
         for cell in pending:
             result, exc, wall = run_one(cell)
             finish_cell(cell, result, exc, wall)
+            discard_cell_dir(cell)
     else:
+        # A rolling pool: a new cell starts the moment any finishes. Fixed
+        # batches left every worker idle behind the batch's slowest cell,
+        # and one grid mixes 1-week and 10-year cells.
         context = multiprocessing.get_context("spawn")
         remaining = iter(pending)
-        while True:
-            batch = list(__import__("itertools").islice(remaining, workers))
-            if not batch:
-                break
-            starts = {cell.cell_id: time.monotonic() for cell in batch}
-            executors = {}
-            futures = {}
-            for cell in batch:
-                run_dir = out / "cells" / cell.cell_id
-                if run_dir.exists():
-                    import shutil
+        in_flight: dict[concurrent.futures.Future, tuple[Cell, Any, float]] = {}
 
-                    shutil.rmtree(run_dir)
-                executor = concurrent.futures.ProcessPoolExecutor(
-                    max_workers=1, mp_context=context, max_tasks_per_child=1
+        def submit_next() -> bool:
+            cell = next(remaining, None)
+            if cell is None:
+                return False
+            # One process per cell (max_tasks_per_child=1): Config patches,
+            # the clock ContextVar and module globals never carry over.
+            executor = concurrent.futures.ProcessPoolExecutor(
+                max_workers=1, mp_context=context, max_tasks_per_child=1
+            )
+            future = executor.submit(
+                _process_cell,
+                cell,
+                fresh_cell_dir(cell),
+                active_llm_url,
+                embeddings,
+                SUITES[cell.suite],
+            )
+            in_flight[future] = (cell, executor, time.monotonic())
+            return True
+
+        try:
+            while len(in_flight) < workers and submit_next():
+                pass
+            while in_flight:
+                done, _ = concurrent.futures.wait(
+                    in_flight, return_when=concurrent.futures.FIRST_COMPLETED
                 )
-                executors[cell.cell_id] = executor
-                future = executor.submit(
-                    _process_cell,
-                    cell,
-                    run_dir,
-                    active_llm_url,
-                    embeddings,
-                    SUITES[cell.suite],
-                )
-                futures[future] = cell
-            try:
-                for future in concurrent.futures.as_completed(futures):
-                    cell = futures[future]
+                for future in done:
+                    cell, executor, started_cell = in_flight.pop(future)
                     try:
-                        result = future.result()
-                        exc = None
+                        result, exc = future.result(), None
                     except BaseException as error:
                         result, exc = None, error
-                    finish_cell(
-                        cell, result, exc, time.monotonic() - starts[cell.cell_id]
-                    )
-            except KeyboardInterrupt:
-                for future in futures:
-                    future.cancel()
-                manifest["ended_at"] = datetime.now(UTC).isoformat()
-                _write_json(manifest_path, manifest)
-                raise
-            finally:
-                for executor in executors.values():
-                    executor.shutdown(wait=True, cancel_futures=True)
+                    executor.shutdown(wait=True)
+                    finish_cell(cell, result, exc, time.monotonic() - started_cell)
+                    discard_cell_dir(cell)
+                    submit_next()
+        except KeyboardInterrupt:
+            for future, (_cell, executor, _started) in in_flight.items():
+                future.cancel()
+                executor.shutdown(wait=False, cancel_futures=True)
+            manifest["ended_at"] = datetime.now(UTC).isoformat()
+            _write_json(manifest_path, manifest)
+            raise
     manifest["ended_at"] = datetime.now(UTC).isoformat()
     manifest["dirty"] = _backend_git()[1]
     _write_json(manifest_path, manifest)

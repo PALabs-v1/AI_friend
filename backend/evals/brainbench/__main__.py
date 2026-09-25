@@ -45,6 +45,13 @@ def _parser() -> argparse.ArgumentParser:
                 "--allow-model-embeddings-in-architecture-only", action="store_true"
             )
             sub.add_argument("--workers", type=int, default=1)
+            sub.add_argument(
+                "--cell-root",
+                type=Path,
+                default=None,
+                help="put cells' working dirs here (e.g. /dev/shm/...); "
+                "each is deleted once its outcomes are saved",
+            )
     report = commands.add_parser("report")
     report.add_argument("out", type=Path)
     compare = commands.add_parser("compare")
@@ -102,6 +109,7 @@ def main(argv: list[str] | None = None) -> int:
                 embeddings=args.embeddings,
                 allow_model_embeddings_in_architecture_only=args.allow_model_embeddings_in_architecture_only,
                 workers=args.workers,
+                cell_root=args.cell_root,
             )
             return status
         if args.command == "report":

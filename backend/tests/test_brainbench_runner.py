@@ -24,6 +24,65 @@ def _spawn_fake(seed, archetype, horizon, **kwargs):
     return [_outcome(seed, float(seed), probe=f"{archetype}:{horizon}")]
 
 
+def _slow_first_fake(seed, archetype, horizon, **kwargs):
+    import time
+
+    time.sleep(3.0 if seed == 1000 else 0.1)
+    return [_outcome(seed, float(seed), probe=f"{archetype}:{horizon}")]
+
+
+def test_parallel_pool_keeps_workers_busy_behind_a_slow_cell(tmp_path, monkeypatch):
+    # Fixed batches of `workers` made every worker wait for the batch's
+    # slowest cell; a rolling pool starts the next cell as soon as one ends.
+    monkeypatch.setitem(
+        runner.SUITES,
+        "bargein",
+        SuiteSpec(
+            _slow_first_fake, frozenset({"architecture_only"}), async_function=False
+        ),
+    )
+    plan = runner.build_plan(
+        mode="architecture_only",
+        arm="baseline",
+        suites="bargein",
+        archetypes="steady_professional,chatty_student,forgetful_retiree,volatile_creative",
+        seeds="1000-1003",
+        horizons="1w",
+    )
+    out = tmp_path / "out"
+    assert runner.run_plan(plan, out, workers=2) == 0
+    order = [
+        json.loads(line)["seed"]
+        for line in (out / "cells.jsonl").read_text().splitlines()
+    ]
+    # Batching would finish 1002 and 1003 only after the slow 1000.
+    assert order[-1] == 1000, order
+
+
+@pytest.mark.parametrize("workers", [1, 2])
+def test_cell_root_holds_working_dirs_and_frees_them(tmp_path, monkeypatch, workers):
+    monkeypatch.setitem(
+        runner.SUITES,
+        "bargein",
+        SuiteSpec(_spawn_fake, frozenset({"architecture_only"}), async_function=False),
+    )
+    plan = runner.build_plan(
+        mode="architecture_only",
+        arm="baseline",
+        suites="bargein",
+        archetypes="steady_professional,chatty_student",
+        seeds="1000,1001",
+        horizons="1w",
+    )
+    out, scratch = tmp_path / "out", tmp_path / "shm"
+    assert runner.run_plan(plan, out, workers=workers, cell_root=scratch) == 0
+    assert len(runner._outcomes(out)) == 2  # results kept on disk
+    assert not (out / "cells").exists()  # working dirs were not under out
+    assert list(scratch.iterdir()) == []  # and were freed after each cell
+    manifest = json.loads((out / "manifest.json").read_text())
+    assert manifest["cell_root"] == str(scratch)
+
+
 def test_plan_zip_cross_variants_and_cell_ids():
     zipped = runner.build_plan(
         mode="architecture_only",
