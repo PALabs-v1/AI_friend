@@ -49,6 +49,7 @@ def _parse_typed_realization(raw: str) -> dict[str, Any] | None:
         "claim_ids_used": value.get("claim_ids_used", []),
     }
 
+
 # Phrases where the assistant attributes a fact to the shared past or the user's
 # prior statements ("you told me…", "remember when we…"). Such a phrase asserts a
 # memory; if its content is absent from the surfaced memories AND the user's
@@ -867,7 +868,9 @@ class ActionService:
         evidence = payload.get("visual_evidence")
         if evidence is not None:
             age_s = max(0.0, time.time() - evidence.timestamp)
-            recency = "novel observation" if evidence.confidence >= 1.0 else "previously seen"
+            recency = (
+                "novel observation" if evidence.confidence >= 1.0 else "previously seen"
+            )
             heading = f"WHAT YOU CURRENTLY SEE (as of {age_s:.0f}s ago, {recency})"
         else:
             heading = "WHAT YOU CURRENTLY SEE"
@@ -893,9 +896,7 @@ class ActionService:
             lines.append(f"- Relational stance: {intent.relational_stance}")
             lines.append(f"- Urgency: {intent.urgency:.2f}")
             if decision.allowed_claims:
-                lines.append(
-                    f"- You may claim: {', '.join(decision.allowed_claims)}"
-                )
+                lines.append(f"- You may claim: {', '.join(decision.allowed_claims)}")
             if decision.forbidden_claims:
                 lines.append(
                     "- You must NOT claim or imply: "
@@ -1917,7 +1918,9 @@ class ActionService:
             yield {"type": "error", "data": "Unknown operation."}
             yield {"type": "done", "data": ""}
 
-    async def _execute_wait(self, plan: ActionPlan) -> AsyncGenerator[dict[str, Any], None]:
+    async def _execute_wait(
+        self, plan: ActionPlan
+    ) -> AsyncGenerator[dict[str, Any], None]:
         """Realize a WAIT decision as terminal silence."""
         del plan
         yield {"type": "done", "data": ""}

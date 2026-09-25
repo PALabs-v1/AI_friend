@@ -386,7 +386,9 @@ async def test_on_nats_audio_overflow_drops_the_newest_frame_not_the_oldest():
     already queued in its original order.
     """
     agent = _transport_agent()
-    agent.audio_queue = asyncio.Queue(maxsize=2)  # constructor floors below 32; override
+    agent.audio_queue = asyncio.Queue(
+        maxsize=2
+    )  # constructor floors below 32; override
 
     await agent._on_nats_audio(b"first", metadata={"turn_id": "turn-1"})
     await agent._on_nats_audio(b"second", metadata={"turn_id": "turn-1"})

@@ -136,9 +136,11 @@ class CognitivePipeline:
         workspace: WorkspaceSnapshotLike | None,
     ) -> WorkspaceSnapshotLike | None:
         """Persist session state and refresh the authoritative workspace view."""
-        workspace_session_id = getattr(workspace, "session_id", None) or raw_event.get(
-            "user_id"
-        ) or event_metadata.get("user_id")
+        workspace_session_id = (
+            getattr(workspace, "session_id", None)
+            or raw_event.get("user_id")
+            or event_metadata.get("user_id")
+        )
         await persist_session_state(
             self.session_store,
             session_state,
