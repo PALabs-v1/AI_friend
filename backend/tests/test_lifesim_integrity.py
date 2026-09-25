@@ -11,13 +11,14 @@ import json
 import re
 from collections import Counter, defaultdict
 from datetime import datetime, timedelta
+from itertools import pairwise
 from pathlib import Path
 
 import pytest
 
 from evals.lifesim import banks
 from evals.lifesim import probes as probes_mod
-from evals.lifesim.generate import generate, parse_horizon, simulate_truth
+from evals.lifesim.generate import build, generate, parse_horizon, simulate_truth
 from evals.lifesim.schema import (
     EXPECTED,
     INTENTS,
@@ -93,6 +94,32 @@ class Oracle:
 def _all(out):
     for key, d in out.items():
         yield key, d, load(d)
+
+
+# ---- time order ------------------------------------------------------------------
+
+
+def test_turn_times_strictly_increase(out):
+    # BrainBench replays turns on a clock that only moves forward.
+    for key, _d, data in _all(out):
+        times = [_t(t["t"]) for t in data["turns"]]
+        backwards = [(a, b) for a, b in pairwise(times) if b <= a]
+        assert not backwards, (key, backwards[:3])
+
+
+def test_a_session_waits_for_the_one_still_running():
+    # Seed 1075 schedules session s000018 while s000017 is still talking; under
+    # lifesim-1 its first turn came before the previous session's last turn.
+    sim, turns, _a, _p, _ans = build(1075, "chatty_student", "1w")
+    by_session: dict[str, list[datetime]] = defaultdict(list)
+    for turn in turns:
+        by_session[turn.session_id].append(turn.t)
+    scheduled = {s.session_id: s.start for s in sim.sessions}
+    assert by_session["s000018"][0] > max(by_session["s000017"])
+    assert by_session["s000018"][0] > scheduled["s000018"]
+    # Sessions that did not overlap still open at their scheduled start.
+    on_time = [sid for sid, ts in by_session.items() if ts[0] == scheduled[sid]]
+    assert len(on_time) == len(by_session) - 1
 
 
 # ---- R9 public schema and leakage ------------------------------------------------
