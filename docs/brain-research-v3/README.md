@@ -19,7 +19,7 @@ This directory is the working record for the next research/engineering cycle, pe
 | [08-live-infra-validation.md](08-live-infra-validation.md) | Live Postgres+Qdrant+Neo4j cross-store consistency validation (Phase 4b) | done |
 | [09-gpu-experiment-results.md](09-gpu-experiment-results.md) | Real-embedding (8 models) and real-LLM ToM results, H-R1/H-R2/H-R3/ToM rules applied | done |
 | [10-lifesim.md](10-lifesim.md) | Synthetic longitudinal life simulator: pipeline, leakage boundary, the builder tournament, every defect the harsh-critic pass found and fixed | done |
-| [findings.md](findings.md) | Pre-existing problem ledger (Objective 9) | ongoing, F-001..F-008 |
+| [findings.md](findings.md) | Pre-existing problem ledger (Objective 9) | ongoing, F-001..F-009 |
 | [codex-log.md](codex-log.md) | One line per Codex task: verdict, disagreement, resolution | done (C0, C1, C2, C3) |
 | `interview/round-1..10.md` | Interview briefs | done, all 10 rounds |
 | `decisions/DR-001..036-*.md` | Recorded architecture decisions from Aniket | done, all 36 |
