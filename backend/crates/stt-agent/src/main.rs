@@ -782,6 +782,9 @@ async fn publish_partial(
         if should_fire {
             let stop = AudioStop {
                 interrupt: true,
+                // A speculative duck never flushes (flush is the brain's
+                // self-correction stop, DR-029).
+                flush: false,
                 speculative: true,
                 reason: None,
                 command_text: None,
