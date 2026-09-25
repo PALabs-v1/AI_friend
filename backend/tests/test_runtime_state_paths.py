@@ -67,14 +67,24 @@ def _read(path: str | Path) -> str:
         conn.close()
 
 
-def test_legacy_state_is_migrated_once_and_left_in_place(tmp_path, monkeypatch):
-    workdir, base = tmp_path / "work", tmp_path / "data"
+def _deployment(tmp_path, monkeypatch, legacy_value: str | None = None) -> Path:
+    """A production-shaped layout: the working directory holds the legacy
+    file, IDENTITY_BASE_PATH names the data volume."""
+    workdir, data = tmp_path / "work", tmp_path / "data"
     workdir.mkdir()
     monkeypatch.chdir(workdir)
-    _legacy_db(workdir / "state_cache.db", "learned")
+    monkeypatch.setattr(Config, "IDENTITY_BASE_PATH", str(data))
+    if legacy_value is not None:
+        _legacy_db(workdir / "state_cache.db", legacy_value)
+    return workdir
 
-    path = runtime_state_db("state_cache.db", base_path=base)
 
+def test_legacy_state_is_migrated_once_and_left_in_place(tmp_path, monkeypatch):
+    workdir = _deployment(tmp_path, monkeypatch, "learned")
+
+    path = runtime_state_db("state_cache.db")
+
+    assert path == str(tmp_path / "data" / "state_cache.db")
     assert _read(path) == "learned"
     assert _read(workdir / "state_cache.db") == "learned"  # rollback copy kept
     # A second start never overwrites state written since the migration.
@@ -82,23 +92,43 @@ def test_legacy_state_is_migrated_once_and_left_in_place(tmp_path, monkeypatch):
     conn.execute("UPDATE t SET v = 'newer'")
     conn.commit()
     conn.close()
-    runtime_state_db("state_cache.db", base_path=base)
+    runtime_state_db("state_cache.db")
     assert _read(path) == "newer"
 
 
 def test_legacy_filename_migrates_into_a_differently_named_target(
     tmp_path, monkeypatch
 ):
-    workdir = tmp_path / "work"
-    workdir.mkdir()
-    monkeypatch.chdir(workdir)
-    _legacy_db(workdir / "state_cache.db", "subconscious")
+    _deployment(tmp_path, monkeypatch, "subconscious")
     path = runtime_state_db(
-        "state_cache_subconscious.db",
-        base_path=tmp_path / "data",
-        legacy_filename="state_cache.db",
+        "state_cache_subconscious.db", legacy_filename="state_cache.db"
     )
     assert _read(path) == "subconscious"
+
+
+def test_an_explicit_base_path_starts_empty(tmp_path, monkeypatch):
+    # A caller-owned directory (a BrainBench cell, a test) must not inherit
+    # whatever stale state_cache.db sits in the working directory.
+    _deployment(tmp_path, monkeypatch, "stale")
+    path = runtime_state_db("state_cache.db", base_path=tmp_path / "cell")
+    assert not Path(path).exists()
+
+
+def test_cognitive_service_migrates_in_the_production_shape(tmp_path, monkeypatch):
+    # Production: no base_path argument, IDENTITY_BASE_PATH set by compose.
+    from app.cognitive.core import CognitiveService
+
+    _deployment(tmp_path, monkeypatch, "learned")
+    monkeypatch.setattr(Config, "REDIS_URL", "")
+    cognitive = CognitiveService(
+        llm_service=MagicMock(), memory_store=MagicMock(), graph_db=MagicMock()
+    )
+    try:
+        expected = str(tmp_path / "data" / "state_cache.db")
+        assert cognitive.state.db_path == expected
+        assert _read(expected) == "learned"
+    finally:
+        cognitive.close()
 
 
 def _record_redis(monkeypatch) -> list[dict]:

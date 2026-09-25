@@ -123,8 +123,10 @@ class CognitiveService:
         # used to land in the working directory, which in the production
         # container is the image layer, so a redeploy reset what the agent had
         # learned (#117/H6, #118/H7). With no runtime directory it stays the
-        # relative `state_cache.db`, as before.
-        state_db_path = runtime_state_db("state_cache.db", base_path=runtime_state_dir)
+        # relative `state_cache.db`, as before. Only the explicit `base_path`
+        # is passed: resolved from IDENTITY_BASE_PATH it is the deployment's
+        # location, which is the one place a legacy file is migrated from.
+        state_db_path = runtime_state_db("state_cache.db", base_path=base_path)
         self.appraisal = AppraisalEngine()  # §1: OCC/Lazarus/EMA
         self.reappraisal = ReappraisalEngine(  # Gross/Bosse feedback loop
             store=AdaptiveWeightsStore(state_db_path)

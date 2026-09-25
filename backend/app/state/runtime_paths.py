@@ -57,13 +57,19 @@ def runtime_state_db(
     bare relative filename is returned, which is the historical behaviour
     for local and test use.
 
-    Migration: when the target does not exist yet but the legacy file
-    (`legacy_filename`, default `filename`) exists in the working directory,
-    it is copied over with SQLite's online backup API. That is consistent
-    even for a database in WAL mode, and it leaves the original in place for
-    rollback. A deployment moving to this code keeps its learned state
-    instead of silently starting over.
+    Migration, only for the deployment location (`IDENTITY_BASE_PATH`, not an
+    explicit `base_path`): when the target does not exist yet but the legacy
+    file (`legacy_filename`, default `filename`) exists in the working
+    directory, it is copied over with SQLite's online backup API. That is
+    consistent even for a database in WAL mode, and it leaves the original
+    in place for rollback. A deployment moving to this code keeps its learned
+    state instead of silently starting over.
+
+    An explicit `base_path` is a caller-owned directory (a BrainBench cell,
+    a test): it starts empty. Migrating into it copied an unrelated stale
+    `state_cache.db` into every benchmark cell.
     """
+    from_deployment = not base_path
     base = base_path or getattr(Config, "IDENTITY_BASE_PATH", None)
     if not base:
         return filename
@@ -72,7 +78,8 @@ def runtime_state_db(
     target.parent.mkdir(parents=True, exist_ok=True)
     legacy = Path(legacy_filename or filename)
     if (
-        not target.exists()
+        from_deployment
+        and not target.exists()
         and legacy.is_file()
         and legacy.resolve() != target.resolve()
     ):
