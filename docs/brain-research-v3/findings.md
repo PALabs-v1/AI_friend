@@ -100,3 +100,64 @@ Running record of pre-existing problems found during the Brain V3 cycle (Objecti
 - **Measurement note**: the suite's first draft reported `hostile_trust_rise_rate = 0.0` on seed 1015, which reads as "trust correctly held under hostility". Every hostile turn in that run had landed after saturation, so the 0.0 was the clamp, not the model. The suite now records per-component before-values and a `ceiling_masked` flag. It scores aggregate metrics over unmasked turns only, and scores component metrics masked on the component they read. It reports `None` rather than 0.0 when every turn in a group is masked. The same trap applies when judging any Phase 7 W3 fix.
 - **Fix**: not attempted in Phase 6 (W3 territory, Phase 7, gated on interview round R4's decisions about what trust means). The trust suite is the instrument W3 should be judged against, via `hostility_response`, `competence_warmth_separation`, and `background_drift.turns_to_ceiling`.
 - **Status**: open. Found during Phase 6 building and verifying the trust suite (Codex C7, `codex-log.md`).
+
+## F-011: V-4 is a flood, not a reset -- once the user is idle 2 h, V2 reaches out every tick (60 per hour) instead of once per hour
+
+- **Severity**: high. V-4 (`docs/brain-research/01-problems.md`) was filed as "the proactive cooldown can reset". Measured end to end, it disables the cooldown entirely.
+- **Where**: three pieces that are each reasonable alone.
+  1. Every `system.tick` also reaches the brain: `backend/app/cognitive/core.py` subscribes (~line 370), and `_on_system_tick` (~392) calls `StateService.handle_system_tick` (`backend/app/state/agent_state.py:1682`). That handler ends in `persist_state()` (~1767), which publishes `state.broadcast` carrying the brain's own `last_proactive_attempt`.
+  2. The brain never marks an attempt. `mark_proactive_attempt` (~1851) runs only in the subconscious process, sets only its local field, and does not bump `revision`. So the brain's next broadcast passes `apply_external_state`'s revision guard (~928-950) and overwrites the mark (~988). The subconscious never publishes its own state (`backend/app/agents/subconscious_agent.py` only subscribes), so the sync is one-way.
+  3. The idle clock ignores the agent's own outreach. `backend/app/agents/brain_agent.py:971-973` records user interaction only when the chat input is not subconscious-sourced, so idle keeps growing through every outreach turn.
+- **Evidence** (BrainBench proactive suite, `architecture_only`, real brain `StateService` + real subconscious-shaped `StateService` + real `SubconsciousEngine`, seed 1001 `steady_professional` `1w`, 7,446 simulated ticks, no capped gaps):
+
+  | Sync | Tick order | Outreach per sim day | Per idle hour past 2 h | Cooldown violations | Resets | Min spacing |
+  |---|---|---:|---:|---:|---:|---:|
+  | broadcast (production shape) | brain first | 1,319.8 | 60.01 | 6,831 | 6,836 | 60 s |
+  | broadcast | subconscious first | 1,319.8 | 60.01 | 6,831 | 6,836 | 60 s |
+  | none (control) | either | 22.4 | 1.03 | 0 | 0 | 3,600 s |
+
+  6,836 initiations in one simulated week versus 116 with the sync removed. Tick order does not matter. 35% landed in the persona's sleep window, and 0 were useful by the suite's commitment oracle (a known plan due within 24 h).
+- **Measurement note**: the suite's first draft modelled only the subconscious's ticks. It saw 5 cooldown resets that had no effect, because a user turn resets idle and the 2 h idle threshold exceeds the 1 h cooldown. Only with the brain's own tick handler in the replay does the reset repeat every tick. Any W9 fix must be judged with brain ticks in the replay.
+- **Caveat**: `NullLLM` always yields a non-empty thought, so this is the gate's behaviour. With a real model, a thought generation that fails or returns empty skips that tick. While nobody is connected, thoughts go to `proactive_queue` at the same rate.
+- **Fix**: not attempted in Phase 6 (W9, Phase 7, with R5's decisions). Candidates: make `apply_external_state` take `max(local, incoming)` for `last_proactive_attempt`; have the brain record the attempt when it processes a subconscious-sourced turn so the broadcast carries it; or move the cooldown check to the brain. The proactive suite's `broadcast` arm with brain ticks is the instrument.
+- **Status**: open. Found during Phase 6, proactive suite (Codex C9, reviewer round 2).
+
+## F-012: personality evolution is frozen in V2, and the DR-020 path replaces the whole adaptive self in a week with no content gate
+
+- **Severity**: high for W11. V2 as shipped cannot evolve; the path DR-020 wants has no gate that reads content.
+- **Where**: `backend/app/cognitive/learning.py::_consolidate_persona` (~276-327). With `Config.LEARNING_REVIEW_REQUIRED=True` (the default, `app/config.py:276`) a confident proposal goes through `_governed_persona_proposal` into `review_queue`, which nothing approves. With it False, `identity.evolve_persona(suggestions)` is called directly (~320) and `LearningGovernor` is never consulted. `LearningGovernor`'s check (`backend/app/cognitive/learning_governance.py::check_targets_protected_domain`) scans key names only, never values.
+- **Evidence** (BrainBench personality suite, `llm_augmented`, home-gpu `llama3.2:3b`, seed 1000 `chatty_student` `1w`, 62 turns, both arms on the same simulation):
+
+  | | review_queue (V2 default) | direct_apply (DR-020 path today) |
+  |---|---:|---:|
+  | reflections / persona replies parsed | 56 / 100% | 55 / 100% |
+  | confident proposals (>= 0.8) | 41 (73%) | 32 (58%) |
+  | queued / applied | 41 / 0 | 0 / 32 |
+  | adaptive trait distance from seed | 0.0 | 1.0 (entire set replaced) |
+  | traits added + dropped | 0 | 91 |
+  | relationship label changes | 0 | 23 |
+  | persona prompt chars | 1439 -> 1439 | 1439 -> 1530 (max 1548) |
+  | immutable / constitutional violations | 0 / 0 | 0 / 0 |
+
+  Scripted probes against the same code: a proposal adding the trait `deceptive` with relationship `Manipulative rival` was applied in full under `direct_apply`, and under `review_queue` it passed the governor and was queued. A proposal smuggling `name`/`traits`/`values` was rejected by the governor in `review_queue`, and ignored by `evolve_persona`'s key whitelist (`identity.py:712-729`) in `direct_apply`. The tier boundary holds structurally; content does not have a gate.
+- **Reading**: the hard boundary (immutable, constitutional) is intact in both arms. The adaptive self is either frozen forever or rewritten on nearly every confident reflection: 23 relationship relabels in one week is churn, not development. `value_conflicts = 0` in the real run is a lexical lower bound (the suite's own docstring), not evidence of safe content.
+- **Fix**: not attempted in Phase 6 (W11, Phase 7). What W11 needs: a rate or inertia on adaptive change (so a week cannot replace the self), a content check that reads values against `IMMUTABLE_CORE` (the governor cannot), and the governor on the direct path.
+- **Status**: open. Found during Phase 6, personality suite (Codex C8).
+
+## F-013: a barge-in by real user speech leaves the stopped reply with no terminal outcome and its full text in history
+
+- **Severity**: medium. Documented by ADR-003 as "known and not changed", now measured.
+- **Where**: `backend/app/agents/brain_agent.py::_on_audio_stop` (~1194-1260): a `confirmed_user_speech` stop flushes audio but neither emits an `OutcomeRecord` for the playing reply nor truncates its history row (ADR-003 lines ~91 and ~106).
+- **Evidence** (BrainBench barge-in suite, real `BrainAgent` in-process, seed 1000, 50 scenarios per family, 350 total, 0.6 s): 50/50 `confirmed_barge_in` scenarios end with zero terminal outcomes for the stopped reply and a history row that still holds unheard text (both counted as unclaimed by ADR-003). Every reply that plays in full also ends unresolved (0 COMPLETED outcomes across 350 scenarios), which is F-002 from the brain's side. ADR-003's claimed guarantees hold: 0 stale or unknown stops applied, 0 current-turn harm, 0 duplicate outcomes, 0 hangs.
+- **Measurement note**: two harness defects produced false V2 failures and were fixed before these numbers (24% false "current turn harmed" and 4% false missing outcomes in the random family). See codex-log C10.
+- **Fix**: W4 (lifecycle contract) and W5 (barge-in end to end), per R8.
+- **Status**: open.
+
+## F-014: hygiene findings from the Phase 6 suites (low)
+
+- **Severity**: low, each.
+- `workspace_transitions` (`backend/app/state/workspace_store.py` ~354) gains one row per turn and has no DELETE, prune or trim path anywhere in production. Measured by the resources suite: 10 -> 223 rows over a 6-month replay, slope 1.0 row per turn.
+- `backend/app/agents/surfacing_agent.py:111` and `:187`: the chat and sweep throttles read `time.time()`, not `app.clock`, so the clock seam (Phase 6) does not cover them and a simulated replay cannot pace them. The metacognition suite bypasses them and records their simulated effect instead.
+- `MemoryStore.last_search_error` (`memory_store.py` ~3899-3942) is one shared field that the next successful search clears, so it is not a durable outage signal for M-8 (see the metacognition suite's outage injection).
+- Formatting is not enforced: the pre-commit hook is not installed in this clone, and CI runs `ruff check` but never `ruff format --check`. Seven BrainBench files had drifted; fixed in `eb10425b`.
+- **Status**: open (first three), fixed (formatting drift; enforcement left to Aniket).
