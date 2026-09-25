@@ -478,6 +478,9 @@ class AudioPlaybackLifecycle(BaseModel):
     words_streamed: int = Field(..., ge=0)
     heard_offset: int = Field(..., ge=0)
     streamed_offset: int = Field(..., ge=0)
+    # INTERRUPTED by a self-correction flush (DR-029): the take was rejected
+    # and a retry of the same turn follows, so this is not the reply's end.
+    flushed: bool = False
     timestamp: float = Field(default_factory=time.time)
 
     @model_validator(mode="after")
@@ -506,23 +509,28 @@ class LifecycleApplyResult(str, Enum):
 
 
 class PlaybackLifecycleTracker:
-    """Small deterministic reducer used at the durable lifecycle boundary."""
+    """Small deterministic reducer at the lifecycle consumer.
+
+    The topic is best effort, so any event can be the first one seen: a lost
+    STARTED must not turn the reply's COMPLETED away. `seq` orders what does
+    arrive. One entry per utterance, oldest dropped past `max_entries`, so a
+    long-running brain does not keep every reply it ever spoke.
+    """
 
     _TERMINAL = {"COMPLETED", "INTERRUPTED", "FAILED"}
 
-    def __init__(self) -> None:
+    def __init__(self, max_entries: int = 1024) -> None:
         self._events: dict[tuple[str, str], AudioPlaybackLifecycle] = {}
+        self._max_entries = max_entries
         self.protocol_errors = 0
 
     def apply(self, event: AudioPlaybackLifecycle) -> LifecycleApplyResult:
         key = (event.utterance_id, event.turn_id)
         previous = self._events.get(key)
         if previous is None:
-            # A source can fail before accepting its first frame, so no
-            # STARTED/PLAYING event exists for that attempt.
-            if event.state not in {"STARTED", "FAILED"}:
-                return LifecycleApplyResult.OUT_OF_ORDER
             self._events[key] = event
+            while len(self._events) > self._max_entries:
+                self._events.pop(next(iter(self._events)))
             return LifecycleApplyResult.APPLIED
 
         if previous.state in self._TERMINAL:
@@ -536,7 +544,11 @@ class PlaybackLifecycleTracker:
         if event.seq < previous.seq:
             return LifecycleApplyResult.OUT_OF_ORDER
         if event.seq == previous.seq:
-            return LifecycleApplyResult.DUPLICATE
+            if event.state == previous.state:
+                return LifecycleApplyResult.DUPLICATE
+            # One seq, two states: the producer broke its own ordering.
+            self.protocol_errors += 1
+            return LifecycleApplyResult.PROTOCOL_ERROR
         if event.state == "STARTED":
             return LifecycleApplyResult.OUT_OF_ORDER
         self._events[key] = event

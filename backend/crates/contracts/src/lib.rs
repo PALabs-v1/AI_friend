@@ -402,6 +402,10 @@ pub struct AudioPlaybackLifecycle {
     pub words_streamed: u64,
     pub heard_offset: u64,
     pub streamed_offset: u64,
+    /// INTERRUPTED by a self-correction flush (DR-029): a retry of the same
+    /// turn follows, so this is not the reply's end.
+    #[serde(default)]
+    pub flushed: bool,
     pub timestamp: f64,
 }
 
@@ -422,13 +426,41 @@ pub enum LifecycleApplyResult {
     ProtocolError,
 }
 
-#[derive(Debug, Default)]
+/// Mirrors `app.contracts.PlaybackLifecycleTracker`: any event may be the
+/// first one seen (the topic is best effort), `seq` orders the rest, and
+/// the oldest utterance is dropped past `max_entries`.
+#[derive(Debug)]
 pub struct PlaybackLifecycleTracker {
     events: BTreeMap<(String, String), AudioPlaybackLifecycle>,
+    order: std::collections::VecDeque<(String, String)>,
+    max_entries: usize,
     protocol_errors: u64,
 }
 
+impl Default for PlaybackLifecycleTracker {
+    fn default() -> Self {
+        Self::with_capacity(1024)
+    }
+}
+
 impl PlaybackLifecycleTracker {
+    pub fn with_capacity(max_entries: usize) -> Self {
+        Self {
+            events: BTreeMap::new(),
+            order: std::collections::VecDeque::new(),
+            max_entries,
+            protocol_errors: 0,
+        }
+    }
+
+    pub fn len(&self) -> usize {
+        self.events.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.events.is_empty()
+    }
+
     pub fn protocol_errors(&self) -> u64 {
         self.protocol_errors
     }
@@ -445,14 +477,16 @@ impl PlaybackLifecycleTracker {
         }
         let key = (event.utterance_id.clone(), event.turn_id.clone());
         let Some(previous) = self.events.get(&key) else {
-            // A source may fail before accepting its first frame.
-            if !matches!(
-                event.state,
-                PlaybackLifecycleState::Started | PlaybackLifecycleState::Failed
-            ) {
-                return LifecycleApplyResult::OutOfOrder;
-            }
+            self.order.push_back(key.clone());
             self.events.insert(key, event);
+            while self.events.len() > self.max_entries {
+                match self.order.pop_front() {
+                    Some(oldest) => {
+                        self.events.remove(&oldest);
+                    }
+                    None => break,
+                }
+            }
             return LifecycleApplyResult::Applied;
         };
 
@@ -470,7 +504,12 @@ impl PlaybackLifecycleTracker {
             return LifecycleApplyResult::OutOfOrder;
         }
         if event.seq == previous.seq {
-            return LifecycleApplyResult::Duplicate;
+            if event.state == previous.state {
+                return LifecycleApplyResult::Duplicate;
+            }
+            // One seq, two states: the producer broke its own ordering.
+            self.protocol_errors += 1;
+            return LifecycleApplyResult::ProtocolError;
         }
         if event.state == PlaybackLifecycleState::Started {
             return LifecycleApplyResult::OutOfOrder;
@@ -695,6 +734,7 @@ mod tests {
             words_streamed: 1,
             heard_offset: 0,
             streamed_offset: 7,
+            flushed: false,
             timestamp: 0.0,
         };
         assert_eq!(tracker.apply(failed.clone()), LifecycleApplyResult::Applied);
@@ -705,6 +745,75 @@ mod tests {
             tracker.apply(completed),
             LifecycleApplyResult::ProtocolError
         );
+    }
+
+    fn lifecycle(
+        utterance: &str,
+        seq: u64,
+        state: PlaybackLifecycleState,
+    ) -> AudioPlaybackLifecycle {
+        AudioPlaybackLifecycle {
+            utterance_id: utterance.into(),
+            turn_id: "turn-1".into(),
+            seq,
+            state,
+            words_played: 0,
+            words_streamed: 0,
+            heard_offset: 0,
+            streamed_offset: 0,
+            flushed: false,
+            timestamp: 0.0,
+        }
+    }
+
+    #[test]
+    fn a_lost_started_does_not_turn_the_terminal_away() {
+        // Best-effort topic: STARTED and PLAYING may never arrive.
+        let mut tracker = PlaybackLifecycleTracker::default();
+        let completed = lifecycle("utt-1", 5, PlaybackLifecycleState::Completed);
+        assert_eq!(tracker.apply(completed), LifecycleApplyResult::Applied);
+        let late_started = lifecycle("utt-1", 0, PlaybackLifecycleState::Started);
+        assert_eq!(
+            tracker.apply(late_started),
+            LifecycleApplyResult::OutOfOrder
+        );
+    }
+
+    #[test]
+    fn one_seq_with_two_states_is_a_protocol_error() {
+        let mut tracker = PlaybackLifecycleTracker::default();
+        tracker.apply(lifecycle("utt-1", 3, PlaybackLifecycleState::Playing));
+        assert_eq!(
+            tracker.apply(lifecycle("utt-1", 3, PlaybackLifecycleState::Playing)),
+            LifecycleApplyResult::Duplicate
+        );
+        assert_eq!(
+            tracker.apply(lifecycle("utt-1", 3, PlaybackLifecycleState::Completed)),
+            LifecycleApplyResult::ProtocolError
+        );
+        assert_eq!(tracker.protocol_errors(), 1);
+    }
+
+    #[test]
+    fn the_tracker_keeps_at_most_max_entries_utterances() {
+        let mut tracker = PlaybackLifecycleTracker::with_capacity(3);
+        for n in 0..10 {
+            tracker.apply(lifecycle(
+                &format!("utt-{n}"),
+                0,
+                PlaybackLifecycleState::Started,
+            ));
+        }
+        assert_eq!(tracker.len(), 3);
+        assert!(tracker.get("utt-0", "turn-1").is_none());
+        assert!(tracker.get("utt-9", "turn-1").is_some());
+    }
+
+    #[test]
+    fn flushed_defaults_to_false_on_the_wire() {
+        let fixture = include_str!("../fixtures/audio_playback_lifecycle_started.json");
+        let parsed: AudioPlaybackLifecycle = serde_json::from_str(fixture).unwrap();
+        assert!(!parsed.flushed);
     }
 
     proptest::proptest! {
@@ -733,6 +842,7 @@ mod tests {
                     words_streamed: 0,
                     heard_offset: 0,
                     streamed_offset: 0,
+                    flushed: false,
                     timestamp: index as f64,
                 };
                 let result = tracker.apply(event);
