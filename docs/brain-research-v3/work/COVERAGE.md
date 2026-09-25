@@ -23,8 +23,7 @@ Waves (2026-09-25):
    and it reads W1's contradiction records).
 4. Wave C:
    - W6 and W7 after W1 and P8.
-   - W11 after W2, and only once DR-038 (the evolution-pace decision in
-     `W11.md`) is recorded.
+   - W11 after W2. DR-038, the evolution-pace decision, is recorded.
 5. P9 runs alongside Waves B and C, and P10 comes last.
 
 Every workstream has a spec in this directory: `W1.md`..`W11.md`, `SW.md`,
@@ -117,6 +116,7 @@ F-008 and F-014 item 4 are fixed (`167db41b`, `e2b73f89`).
 | DR-035 | CONSTRAINT | no intent detection for deliberate testing (W1 must not build one) |
 | DR-036 | CLOSED | lifesim guardrail; Phase 5 honoured it |
 | DR-037 | CLOSED | reflection stays LLM; Phase 6 suites honour it |
+| DR-038 | W11 | persona change needs corroboration across reflections; refines DR-021 |
 
 ## Everything else
 
