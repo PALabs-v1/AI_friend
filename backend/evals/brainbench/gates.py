@@ -489,7 +489,9 @@ def record(path: Path = BANDS_PATH) -> dict[str, Any]:
         # Writing this file is what makes the tree dirty; anything else is not.
         "dirty": any(
             not line.endswith(BANDS_PATH.name)
-            for line in _git("status", "--porcelain", "--", ".").splitlines()
+            for line in _git(
+                "status", "--porcelain", "--untracked-files=all", "--", "."
+            ).splitlines()
         ),
         "slice": {
             "personas": [list(p) for p in SLICE],
