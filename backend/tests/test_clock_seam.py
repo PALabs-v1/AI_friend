@@ -211,7 +211,9 @@ def test_no_bare_wall_clock_calls_remain_in_seamed_modules():
         mod = __import__(modname, fromlist=["_"])
         tree = ast.parse(inspect.getsource(mod))
         for node in ast.walk(tree):
-            if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)):
+            if not (
+                isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+            ):
                 continue
             if (
                 node.func.attr == "time"

@@ -1367,9 +1367,7 @@ class StateService:
 
             self.current_state.last_update = clock.now()
             self._enforce_bounds()
-            self._refresh_global_controls_locked(
-                urgency=R, prediction_error=N
-            )
+            self._refresh_global_controls_locked(urgency=R, prediction_error=N)
         await self.persist_state()
 
         logger.debug(
@@ -1406,9 +1404,7 @@ class StateService:
             self.current_state.interaction_count += 1
             self.current_state.last_update = now
             self._enforce_bounds()
-            self._refresh_global_controls_locked(
-                prediction_error=abs(event_valence)
-            )
+            self._refresh_global_controls_locked(prediction_error=abs(event_valence))
         await self.persist_state()
 
     async def apply_sensory_perception(self, perception_metadata: dict[str, Any]):
@@ -1645,7 +1641,9 @@ class StateService:
         async with self._state_lock:
             level = self.current_state.release_cortisol(amount)
         if reason:
-            logger.info("[Endocrine] Cortisol released (%s) -- now %.2f.", reason, level)
+            logger.info(
+                "[Endocrine] Cortisol released (%s) -- now %.2f.", reason, level
+            )
         return level
 
     async def release_dopamine(self, amount: float, *, reason: str = "") -> float:
@@ -1659,7 +1657,9 @@ class StateService:
         async with self._state_lock:
             level = self.current_state.release_dopamine(amount)
         if reason:
-            logger.info("[Endocrine] Dopamine released (%s) -- now %.2f.", reason, level)
+            logger.info(
+                "[Endocrine] Dopamine released (%s) -- now %.2f.", reason, level
+            )
         return level
 
     async def release_adrenaline(self, amount: float, *, reason: str = "") -> float:

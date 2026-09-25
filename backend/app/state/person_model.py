@@ -61,13 +61,9 @@ class PersonModel(BaseModel):
         if not math.isfinite(magnitude):
             return
         if kind == "rupture":
-            self.trust_benevolence = max(
-                0.0, self.trust_benevolence - magnitude * 1.5
-            )
+            self.trust_benevolence = max(0.0, self.trust_benevolence - magnitude * 1.5)
         elif kind == "repair":
-            self.trust_benevolence = min(
-                1.0, self.trust_benevolence + magnitude * 0.5
-            )
+            self.trust_benevolence = min(1.0, self.trust_benevolence + magnitude * 0.5)
 
         self.rupture_repair_history.append(
             {

@@ -14,6 +14,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
+      with:
+        # Full history so the format ratchet below can diff against the base.
+        fetch-depth: 0
     - name: Set up Node.js
       uses: actions/setup-node@v4
       with:
@@ -35,6 +38,24 @@ jobs:
         python -m pip install --upgrade pip
         pip install -r requirements-dev.txt
         ruff check app/ tests/ --output-format=github
+    # Ratchet, not a big-bang reformat: ~96 backend files predate format
+    # enforcement, so only Python files this change touches must be
+    # ruff-formatted. The pre-commit hook (.pre-commit-config.yaml) does the
+    # same locally at commit time; this catches commits made without it.
+    - name: Backend format check (changed files only)
+      env:
+        BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+      run: |
+        if [ -z "$BASE_SHA" ] || ! git cat-file -e "$BASE_SHA^{commit}" 2>/dev/null; then
+          BASE_SHA=$(git rev-parse HEAD~1 2>/dev/null || git rev-parse HEAD)
+        fi
+        changed=$(git diff --name-only --diff-filter=ACMR "$BASE_SHA" HEAD -- 'backend/*.py' | sed 's#^backend/##')
+        if [ -z "$changed" ]; then
+          echo "No backend Python files changed."
+          exit 0
+        fi
+        cd backend
+        echo "$changed" | xargs ruff format --check
 
   frontend-build:
     needs: [lint]

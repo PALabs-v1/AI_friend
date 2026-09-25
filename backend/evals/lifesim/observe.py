@@ -144,7 +144,7 @@ def _plan_np(what: str) -> str | None:
         return "my " + what[2:]
     for article in ("a ", "an "):
         if what.startswith(article):
-            return "the " + what[len(article):]
+            return "the " + what[len(article) :]
     return None
 
 
@@ -182,25 +182,39 @@ def _nonperson_line(sim, entity: str, attribute: str, value: str) -> str | None:
             return f"I have {what} coming up" if np else f"I need to {what}"
         if attribute == "with":
             who = _person(sim, value)
-            return f"I’m going to {np or what} with {who}" if np else f"I’m going to {what} with {who}"
+            return (
+                f"I’m going to {np or what} with {who}"
+                if np
+                else f"I’m going to {what} with {who}"
+            )
         if attribute == "where":
             return f"{np} is in {value}" if np else f"I’m going to {what} in {value}"
         if attribute == "status":
             return {
                 "planned": f"{np} is still on" if np else f"I still plan to {what}",
-                "confirmed": f"{np} is confirmed" if np else f"it’s confirmed that I’ll {what}",
-                "cancelled": f"{np} is off" if np else f"I’m not going to {what} after all",
+                "confirmed": f"{np} is confirmed"
+                if np
+                else f"it’s confirmed that I’ll {what}",
+                "cancelled": f"{np} is off"
+                if np
+                else f"I’m not going to {what} after all",
                 "done": f"{np} happened" if np else f"I managed to {what}",
             }.get(value, f"{_plan_ref(what)} is {value}")
     if kind in ("goal", "project"):
         what = _first(sim, entity, "what") or "something"
         ref = _aim_ref(kind, what)
         if attribute == "what":
-            return f"one of my goals is to {what}" if kind == "goal" else f"one of my projects is {what}"
+            return (
+                f"one of my goals is to {what}"
+                if kind == "goal"
+                else f"one of my projects is {what}"
+            )
         if attribute == "status":
             return {
                 "active": f"I’m still working on {ref}",
-                "achieved": f"I achieved {ref}" if kind == "goal" else f"I finished {ref}",
+                "achieved": f"I achieved {ref}"
+                if kind == "goal"
+                else f"I finished {ref}",
                 "done": f"I finished {ref}",
                 "abandoned": f"I gave up on {ref}",
             }.get(value, f"{ref} is {value}")
@@ -214,7 +228,12 @@ def _nonperson_line(sim, entity: str, attribute: str, value: str) -> str | None:
 
 
 def _slot_line(sim, entity: str, attribute: str, value: str) -> str:
-    if entity != "user" and entity.split(":", 1)[0] in ("plan", "goal", "project", "belief"):
+    if entity != "user" and entity.split(":", 1)[0] in (
+        "plan",
+        "goal",
+        "project",
+        "belief",
+    ):
         line = _nonperson_line(sim, entity, attribute, value)
         if line:
             return line
@@ -242,7 +261,11 @@ def _past_slot_line(sim, entity: str, attribute: str, value: str) -> str:
         what = _first(sim, entity, "what") or "something"
         np = _plan_np(what)
         when = _pretty_when(value)
-        return f"{np} was going to be on {when}" if np else f"I was going to {what} on {when}"
+        return (
+            f"{np} was going to be on {when}"
+            if np
+            else f"I was going to {what} on {when}"
+        )
     return "at one point, " + _slot_line(sim, entity, attribute, value)
 
 
@@ -331,7 +354,11 @@ def _event_line(sim, ev: Event) -> str:
     if kind.endswith("_confirmed"):
         np = _plan_np(p["what"])
         when = _pretty_when(p["when"])
-        return f"{np} is confirmed for {when}" if np else f"it’s confirmed: I’ll {p['what']} on {when}"
+        return (
+            f"{np} is confirmed for {when}"
+            if np
+            else f"it’s confirmed: I’ll {p['what']} on {when}"
+        )
     if kind.endswith("_cancelled"):
         return f"I cancelled {_plan_ref(p['what'])}"
     if kind.endswith("_done"):
@@ -377,7 +404,9 @@ def _event_line(sim, ev: Event) -> str:
             if prefix == "goal"
             else f"I’ve started a new project: {what}",
             "progress": f"I made some progress on {ref}",
-            "achieved": f"I achieved {ref}" if prefix == "goal" else f"I finished {ref}",
+            "achieved": f"I achieved {ref}"
+            if prefix == "goal"
+            else f"I finished {ref}",
             "abandoned": f"I gave up on {ref}",
         }.get(action, f"{ref} is {action}")
     if kind == "restaurant_visit":
@@ -419,7 +448,9 @@ def _event_claims(sim, ev: Event, line: str = "") -> list[Claim]:
         claims.append(
             Claim(a.entity, a.attribute, a.value, True, ev.t, a.assertion_id, False)
         )
-        prev = tl.value_at(a.entity, a.attribute, a.valid_from - timedelta(microseconds=1))
+        prev = tl.value_at(
+            a.entity, a.attribute, a.valid_from - timedelta(microseconds=1)
+        )
         if (
             prev is not None
             and prev.value != a.value
@@ -686,7 +717,7 @@ def render(sim) -> tuple[list[Turn], list[Annotation]]:
             robot_val = None
             competence = 0
             correction_for = None
-            mis = False
+            misstated = False
             is_joke = False
             hedged = False
             obj_c = None
@@ -754,7 +785,7 @@ def render(sim) -> tuple[list[Turn], list[Annotation]]:
                     original = rng.choice(factual)
                     wrong = _wrong_value(sim, original, rng)
                     if wrong:
-                        mis = True
+                        misstated = True
                         intentional = rng.random() < sim.persona.deception_rate / max(
                             0.01, sim.persona.contradiction_rate
                         )
@@ -806,7 +837,7 @@ def render(sim) -> tuple[list[Turn], list[Annotation]]:
                     tags.append("important") if ev.importance >= 0.7 else None
                 else:
                     tags.extend(_tags(ev, hedged=hedged))
-                if mis:
+                if misstated:
                     tags.append(
                         "contradiction_intentional"
                         if intentional
@@ -814,7 +845,7 @@ def render(sim) -> tuple[list[Turn], list[Annotation]]:
                     )
                 if hedged:
                     intent = "share_plan" if ev.category == "plan" else intent
-                if mis:
+                if misstated:
                     known.append((claims[0], tid, ev.t, ev.event_id, False))
                 else:
                     known.extend((c, tid, ev.t, ev.event_id, True) for c in claims)
@@ -1078,7 +1109,7 @@ def render(sim) -> tuple[list[Turn], list[Annotation]]:
                     arousal,
                     robot_val,
                     competence,
-                    mis,
+                    misstated,
                     is_joke,
                     correction_for,
                     tpl.family,

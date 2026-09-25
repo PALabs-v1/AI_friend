@@ -100,7 +100,7 @@ def _plan(what: str) -> str:
         return "my " + what[2:]
     for article in ("a ", "an "):
         if what.startswith(article):
-            return "the " + what[len(article):]
+            return "the " + what[len(article) :]
     return "my plan to " + what
 
 
@@ -165,7 +165,6 @@ def _name(sim, entity: str | None) -> str:
     if entity in sim.world.pets:
         return sim.world.pets[entity].name
     return "someone"
-
 
 
 def _claim_index(annotations: list[Annotation], turns: list, before: datetime):

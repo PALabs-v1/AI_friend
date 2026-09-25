@@ -311,10 +311,11 @@ class ReflectionService:
 
             if suggestions and suggestions.get("confidence", 0.0) >= 0.8:
                 if getattr(Config, "LEARNING_REVIEW_REQUIRED", False):
-                    contradicts_id = await self._find_persona_contradiction(
-                        suggestions
-                    )
-                    if self._governed_persona_proposal(suggestions, contradicts_id) is None:
+                    contradicts_id = await self._find_persona_contradiction(suggestions)
+                    if (
+                        self._governed_persona_proposal(suggestions, contradicts_id)
+                        is None
+                    ):
                         return
                     self.review_queue.submit(suggestions, contradicts_id=contradicts_id)
                 else:

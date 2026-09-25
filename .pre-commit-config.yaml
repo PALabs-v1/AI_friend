@@ -7,8 +7,11 @@ repos:
       - id: check-merge-conflict
       - id: detect-private-key
 
+  # Must match backend/requirements-dev.txt's ruff pin, which is what CI runs.
+  # A different version here lints and formats differently from CI
+  # (backend/ruff.toml documents the 0.15 -> 0.16 rule changes).
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.14.1
+    rev: v0.16.1
     hooks:
       - id: ruff
         args: [--fix]
@@ -18,5 +21,6 @@ repos:
     rev: v2.4.1
     hooks:
       - id: codespell
-        args: [--ignore-words=.lycheeignore]
+        # --ignore-words-list: real words codespell does not know (lifesim vocab).
+        args: [--ignore-words=.lycheeignore, --ignore-words-list=brunch]
         exclude: (?x)^(.*package-lock\.json|.*pnpm-lock\.yaml|.*yarn\.lock|.*schema\.prisma|\.agents/.*|.*test_identity\.py|.*test_performance\.py|backend/app/state/memory_store\.py)$

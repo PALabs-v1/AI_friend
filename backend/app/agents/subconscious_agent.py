@@ -807,10 +807,12 @@ class SubconsciousAgent(BaseAgent):
         See `.agents/CONTEXT.md` for the concrete design this followed.
         """
         try:
-            contents = await self.memory_store.get_recent_high_importance_memory_contents(
-                limit=Config.REST_PHASE_REPLAY_LIMIT,
-                min_importance=Config.REST_PHASE_REPLAY_MIN_IMPORTANCE,
-                lookback_hours=Config.REST_PHASE_REPLAY_LOOKBACK_HOURS,
+            contents = (
+                await self.memory_store.get_recent_high_importance_memory_contents(
+                    limit=Config.REST_PHASE_REPLAY_LIMIT,
+                    min_importance=Config.REST_PHASE_REPLAY_MIN_IMPORTANCE,
+                    lookback_hours=Config.REST_PHASE_REPLAY_LOOKBACK_HOURS,
+                )
             )
             if not contents:
                 logger.info(
@@ -823,12 +825,10 @@ class SubconsciousAgent(BaseAgent):
                 len(contents),
             )
 
-            relink_candidates = (
-                await self.memory_store.get_recent_high_importance_memories_for_relinking(
-                    limit=Config.REST_PHASE_REPLAY_LIMIT,
-                    min_importance=Config.REST_PHASE_REPLAY_MIN_IMPORTANCE,
-                    lookback_hours=Config.REST_PHASE_REPLAY_LOOKBACK_HOURS,
-                )
+            relink_candidates = await self.memory_store.get_recent_high_importance_memories_for_relinking(
+                limit=Config.REST_PHASE_REPLAY_LIMIT,
+                min_importance=Config.REST_PHASE_REPLAY_MIN_IMPORTANCE,
+                lookback_hours=Config.REST_PHASE_REPLAY_LOOKBACK_HOURS,
             )
             relinked = await self.memory_store.relink_memory_entities(relink_candidates)
             logger.info(

@@ -58,7 +58,9 @@ def _contains(text: str, value: str) -> bool:
 def test_every_probe_family_requires_a_target_placeholder():
     bank = banks.load()
     for family in PROBE_CATEGORIES:
-        assert bank.required[family], f"{family} declares no required target placeholder"
+        assert bank.required[family], (
+            f"{family} declares no required target placeholder"
+        )
 
 
 def test_bank_rejects_a_template_that_omits_a_required_placeholder():
@@ -68,7 +70,9 @@ def test_bank_rejects_a_template_that_omits_a_required_placeholder():
                 "temporal": {
                     "placeholders": ["what"],
                     "required": ["what"],
-                    "templates": [{"id": "temporal#000", "text": "When did that begin?"}],
+                    "templates": [
+                        {"id": "temporal#000", "text": "When did that begin?"}
+                    ],
                 }
             }
         )
@@ -128,6 +132,7 @@ def test_event_probes_identify_exactly_one_told_event(lives):
 
                 def same(ev, target=target):
                     return ev.t.date() == target.t.date()
+
             matches = [
                 ev
                 for ev in sim.events
@@ -137,7 +142,11 @@ def test_event_probes_identify_exactly_one_told_event(lives):
                 and same(ev)
                 and any(t < p.t for t in told_before.get(ev.event_id, ()))
             ]
-            assert len(matches) == 1, (a.category, p.text, [m.event_id for m in matches])
+            assert len(matches) == 1, (
+                a.category,
+                p.text,
+                [m.event_id for m in matches],
+            )
 
 
 def test_the_same_question_at_the_same_time_has_the_same_answer(lives):
@@ -157,7 +166,10 @@ def test_fact_probes_name_whose_fact_it_is(lives):
     for sim, _turns, _ann, probes, answers in lives:
         for p, a in zip(probes, answers, strict=True):
             entity = a.derivation.get("entity")
-            if a.derivation.get("kind") not in ("timeline", "untold_assertion") or not entity:
+            if (
+                a.derivation.get("kind") not in ("timeline", "untold_assertion")
+                or not entity
+            ):
                 continue
             if entity == "user":
                 assert re.search(r"\bmy\b", p.text), p.text
@@ -186,7 +198,12 @@ def test_trivia_answers_are_the_fact_not_the_meal_name(lives):
     for *_, answers in lives:
         for a in answers:
             if a.category.startswith("trivia"):
-                assert not {v.lower() for v in a.answer} & {"breakfast", "lunch", "dinner", "brunch"}
+                assert not {v.lower() for v in a.answer} & {
+                    "breakfast",
+                    "lunch",
+                    "dinner",
+                    "brunch",
+                }
 
 
 def test_commitment_due_is_one_probe_listing_every_due_plan(lives):
@@ -210,7 +227,9 @@ def test_abstention_values_were_never_said_about_their_owner(lives):
             value = truth.value
             if value.startswith("person:"):
                 value = sim.world.people[value].name
-            owner = None if truth.entity == "user" else sim.world.people[truth.entity].name
+            owner = (
+                None if truth.entity == "user" else sim.world.people[truth.entity].name
+            )
             for t in turns:
                 if t.t >= p.t or (owner and owner not in t.text):
                     continue
@@ -235,11 +254,13 @@ def test_user_speech_has_no_machine_artifacts(lives):
     for sim, turns, *_ in lives:
         for t in turns:
             for name, pattern in ARTIFACTS.items():
-                assert not re.search(pattern, t.text), f"{sim.archetype} {name}: {t.text}"
+                assert not re.search(pattern, t.text), (
+                    f"{sim.archetype} {name}: {t.text}"
+                )
 
 
 def test_change_utterances_annotate_the_value_they_replace(lives):
-    """"I switched my usual drink from mango lassi to masala chai" tells the
+    """ "I switched my usual drink from mango lassi to masala chai" tells the
     listener both values; the annotation must say so, or the oracle believes
     the old value was never said and no stale-fact probe can be built."""
     checked = 0
@@ -253,5 +274,7 @@ def test_change_utterances_annotate_the_value_they_replace(lives):
                 old = ev.payload["old"]
                 if old in text_of[a.turn_id]:
                     checked += 1
-                    assert any(c.value == old and c.truthful for c in a.claims), text_of[a.turn_id]
+                    assert any(c.value == old and c.truthful for c in a.claims), (
+                        text_of[a.turn_id]
+                    )
     assert checked > 0

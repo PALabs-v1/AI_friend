@@ -85,7 +85,9 @@ class ManualClock:
 
     def advance(self, seconds: float) -> None:
         if seconds < 0:
-            raise ValueError(f"ManualClock only moves forward: advance({seconds}) is negative")
+            raise ValueError(
+                f"ManualClock only moves forward: advance({seconds}) is negative"
+            )
         self._now = datetime.fromtimestamp(self._now.timestamp() + seconds)
 
 

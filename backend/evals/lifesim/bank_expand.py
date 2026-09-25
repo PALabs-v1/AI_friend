@@ -131,7 +131,9 @@ def expand(
             need = target - len(spec["templates"])
             if need <= 0:
                 continue
-            required = set(spec.get("required", ())) | required_fields(spec["templates"])
+            required = set(spec.get("required", ())) | required_fields(
+                spec["templates"]
+            )
             prompt = PROMPT.format(
                 family=fam,
                 required=", ".join("{" + f + "}" for f in sorted(required)) or "(none)",

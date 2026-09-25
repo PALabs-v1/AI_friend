@@ -61,7 +61,9 @@ async def _cleanup_wing(store) -> None:
             "SELECT id FROM memories WHERE wing = $1", CONSISTENCY_CHECK_WING
         )
         ids = [str(r["id"]) for r in rows]
-        await conn.execute("DELETE FROM memories WHERE wing = $1", CONSISTENCY_CHECK_WING)
+        await conn.execute(
+            "DELETE FROM memories WHERE wing = $1", CONSISTENCY_CHECK_WING
+        )
         await conn.execute(
             "DELETE FROM archived_memories WHERE wing = $1", CONSISTENCY_CHECK_WING
         )
@@ -114,13 +116,17 @@ async def check_write_parity(store, n: int = 20) -> CheckResult:
                 CONSISTENCY_CHECK_WING,
             )
         if row is None:
-            mismatches.append({"index": i, "reason": "no Postgres row for written content"})
+            mismatches.append(
+                {"index": i, "reason": "no Postgres row for written content"}
+            )
             continue
         memory_id = str(row["id"])
         written_ids.append(memory_id)
         point = _qdrant_point(store, memory_id)
         if point is None:
-            mismatches.append({"id": memory_id, "reason": "no Qdrant point under the row's UUID"})
+            mismatches.append(
+                {"id": memory_id, "reason": "no Qdrant point under the row's UUID"}
+            )
             continue
         for field_name, pg_val in (
             ("content", row["content"]),
@@ -128,7 +134,9 @@ async def check_write_parity(store, n: int = 20) -> CheckResult:
             ("importance_score", row["importance_score"]),
             ("valence", row["valence"]),
         ):
-            qdrant_key = "importance_score" if field_name == "importance_score" else field_name
+            qdrant_key = (
+                "importance_score" if field_name == "importance_score" else field_name
+            )
             if point.get(qdrant_key) != pg_val:
                 mismatches.append(
                     {
@@ -277,7 +285,14 @@ async def check_promotion_consistency(store) -> CheckResult:
     row_dict = dict(row)
     payload_meta = store._build_promotion_payload(row_dict, {})
     await store._write_promoted_memory(
-        mem_id, content, row_dict, vector, row_dict["recall_count"], now, payload_meta, {}
+        mem_id,
+        content,
+        row_dict,
+        vector,
+        row_dict["recall_count"],
+        now,
+        payload_meta,
+        {},
     )
     async with store.pool.acquire() as conn:
         active = await conn.fetchrow("SELECT * FROM memories WHERE id = $1", mem_id)
