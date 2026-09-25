@@ -19,9 +19,16 @@ Waves (2026-09-25):
 1. Wave A: W4, W9, the W10 attack corpus, P8.
 2. Then W5, which needs W4's lifecycle and W9's importance score. Then W10's
    `subconscious_agent.py` items, after W9.
-3. Wave B: W1, W3, W2, W8, SW.
-4. Wave C: W6, W7, W11.
+3. Wave B: W1, W3, W2 and SW in parallel. W8 follows W1 (same search path,
+   and it reads W1's contradiction records).
+4. Wave C:
+   - W6 and W7 after W1 and P8.
+   - W11 after W2, and only once DR-038 (the evolution-pace decision in
+     `W11.md`) is recorded.
 5. P9 runs alongside Waves B and C, and P10 comes last.
+
+Every workstream has a spec in this directory: `W1.md`..`W11.md`, `SW.md`,
+`P8.md`.
 
 ## Register (`docs/brain-research/01-problems.md`)
 
