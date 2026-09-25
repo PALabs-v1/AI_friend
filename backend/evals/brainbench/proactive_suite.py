@@ -31,7 +31,7 @@ from app import clock
 from app.cognitive.subconscious import SubconsciousEngine
 from app.config import Config
 from app.state.agent_state import StateService
-from evals.brainbench.adapters import BrainBenchService, NullLLM
+from evals.brainbench.adapters import BrainBenchService, NullLLM, isolated_runtime
 from evals.brainbench.stats import SuiteOutcome
 from evals.lifesim.generate import build
 
@@ -387,12 +387,15 @@ async def run_proactive_suite(
     run_dir.mkdir(parents=True, exist_ok=True)
     seed = sim.seed if persona_seed is None else persona_seed
     brain_state = service.cognitive.state
-    subconscious_state = StateService(
-        graph_store=MagicMock(),
-        db_path=str(run_dir / "subconscious_state.db"),
-        persona=service.cognitive.identity.persona,
-        writer_id="subconscious_agent",
-    )
+    # Same isolation as the brain's own service (adapters.isolated_runtime):
+    # no Redis, so this cell's subconscious state lives only in run_dir.
+    with isolated_runtime():
+        subconscious_state = StateService(
+            graph_store=MagicMock(),
+            db_path=str(run_dir / "subconscious_state.db"),
+            persona=service.cognitive.identity.persona,
+            writer_id="subconscious_agent",
+        )
     subconscious_state.current_state.last_user_interaction = sim.start.timestamp()
     subconscious_state.current_state.last_proactive_attempt = 0.0
     engine = SubconsciousEngine(llm_client=NullLLM())

@@ -474,14 +474,27 @@ class StateService:
     def __init__(
         self,
         graph_store=None,
-        db_path="state_cache.db",
-        redis_host="127.0.0.1",
-        redis_port=6379,
+        db_path: str | None = None,
+        redis_host: str | None = None,
+        redis_port: int | None = None,
         publish_cb=None,
         persona: "PersonaProfile | None" = None,
         writer_id: str = "",
     ):
+        from .runtime_paths import redis_endpoint, runtime_state_db
+
         self.graph = graph_store
+        # F-016: resolved under the deployment's data directory, not the
+        # working directory. The subconscious gets its own file: in
+        # production both processes share the `/app/data` volume, and
+        # sharing one file would have each overwrite the other's row.
+        if db_path is None:
+            filename = (
+                "state_cache_subconscious.db"
+                if writer_id == "subconscious_agent"
+                else "state_cache.db"
+            )
+            db_path = runtime_state_db(filename, legacy_filename="state_cache.db")
         self.db_path = db_path
         self.publish_cb = publish_cb
         # Stamped onto `current_state.writer_id` on every `persist_state` call --
@@ -538,19 +551,27 @@ class StateService:
         # state.broadcast publish below.
         self._background_tasks: set[asyncio.Task] = set()
 
-        # Connect to Redis
-        self.redis_client: redis.Redis | None
-        try:
-            self.redis_client = redis.Redis(
-                host=redis_host,
-                port=redis_port,
-                db=0,
-                socket_connect_timeout=1.0,
-                decode_responses=True,
-            )
-            self.redis_client.ping()
-        except Exception:
-            self.redis_client = None
+        # Connect to Redis. The endpoint comes from `Config.REDIS_URL` like
+        # every other client (F-016: this one used to hardcode localhost);
+        # an empty URL disables it.
+        self.redis_client: redis.Redis | None = None
+        endpoint = (
+            (redis_host or "127.0.0.1", redis_port or 6379)
+            if redis_host or redis_port
+            else redis_endpoint()
+        )
+        if endpoint is not None:
+            try:
+                self.redis_client = redis.Redis(
+                    host=endpoint[0],
+                    port=endpoint[1],
+                    db=0,
+                    socket_connect_timeout=1.0,
+                    decode_responses=True,
+                )
+                self.redis_client.ping()
+            except Exception:
+                self.redis_client = None
 
         self._initialize_sqlite()
 

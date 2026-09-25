@@ -183,6 +183,29 @@ Running record of pre-existing problems found during the Brain V3 cycle (Objecti
 - **Fix**: W8 (Phase 7). The metacognition suite's surfacing arm is the instrument.
 - **Status**: open.
 
+## F-016: learned state is written to the container's image layer in production, and `StateService` ignores `REDIS_URL`
+
+- **Severity**: high for production persistence; it also broke BrainBench cell isolation on any host with Redis running.
+- **Where**:
+  - `StateService.__init__` (`backend/app/state/agent_state.py` ~474-480) defaults `db_path="state_cache.db"`, a relative path. It hardcodes `redis_host="127.0.0.1"`, `redis_port=6379`, and `Config.REDIS_URL` is never read.
+  - `CognitiveService.__init__` (`backend/app/cognitive/core.py` ~83-131) puts the workspace, temporal and session databases under its runtime directory (`base_path` or `Config.IDENTITY_BASE_PATH`). It then builds `StateService`, `ReappraisalEngine` and `DecisionService` without a path, so their SQLite files land in the process's working directory. The last two use `AdaptiveWeightsStore()` with default `state_cache.db`.
+  - `SubconsciousAgent` builds its own `StateService` the same way.
+  - `WorkingMemoryStore` does read `REDIS_URL`, but writes to global keys (`working:turns`, `working:state`) with no session in the key.
+- **Evidence**:
+  - `docker-compose.prod.yml` sets `IDENTITY_BASE_PATH=/app/data` and mounts only `identity_data:/app/data` for `brain_agent` and `subconscious_agent`, and the image's `WORKDIR` is `/app`. So `/app/state_cache.db` is on the image's writable layer.
+  - `docker-compose.prod.yml` has no Redis service and sets no `REDIS_URL`. Inside a container, `127.0.0.1:6379` is the container itself, so both Redis clients always fail and every state write goes to that SQLite file.
+  - So in production, every redeploy silently resets all persisted agent state: mood, trust, attachment and `last_proactive_attempt`. It also resets the learned reappraisal weights (#117/H6) and goal utilities (#118/H7), whose persistence fixes therefore never held in production. This is the same class as #113/H2, which was fixed for identity only.
+  - On home-gpu, with the infra stack's Redis up, every BrainBench cell in every worker process shared one Redis and one `backend/state_cache.db`. The runner logged `database is locked`, and cells ran 30-60x slower than on the Mac, where Redis was down and each fell back to SQLite. The shared state was write-only in BrainBench: `hydrate_state()` / `load_session_state()` / `get_recent_turns()` are never called on a turn. So no cross-cell leakage reached any recorded number, and the Phase 6 real-model runs stand. The first V2-baseline attempt was stopped anyway, and is rerun isolated.
+- **Fix**: `backend/app/state/runtime_paths.py` is one place for both.
+  - `redis_endpoint()` parses `Config.REDIS_URL` for `StateService` and `WorkingMemoryStore`, and an empty URL disables Redis.
+  - `runtime_state_db()` puts `state_cache.db` under `base_path` / `IDENTITY_BASE_PATH`, creates the directory, and migrates a legacy working-directory file once with SQLite's backup API, leaving the original for rollback.
+  - `CognitiveService` routes the state file and both `AdaptiveWeightsStore`s through it.
+  - The subconscious gets its own `state_cache_subconscious.db`, because both processes share the production volume.
+  - BrainBench builds every service under `isolated_runtime()` (Redis off), including the proactive suite's second `StateService`.
+  - Tests: `tests/test_runtime_state_paths.py`, 14 tests. 4 of them fail on the pre-fix code, which was checked by stashing the fix.
+- **Operational note**: a production deploy picks up the new path on restart. The first start migrates each container's legacy `/app/state_cache.db` into `/app/data`. Nothing needs running by hand.
+- **Status**: fixed (commit to follow in this change).
+
 ## Real-model resource baseline (not a finding, recorded for Phase 8)
 
 BrainBench resources suite, `llm_augmented`, home-gpu `llama3.2:3b` (RTX 2060 SUPER), seed 1015 `private_minimalist` `1m`, 33 turns: turn latency P50 2.47 s, P95 3.22 s, P99 4.17 s, max 4.37 s (model time dominates; architecture-only overhead is about 3 ms per turn). Memory rows and vectors grew 5 -> 32 (about one per turn, linear), vocabulary 248 -> 422, run directory 0.56 -> 1.55 MB, peak RSS 164 -> 173 MiB.

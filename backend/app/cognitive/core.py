@@ -32,6 +32,8 @@ from ..persona.biography import (
 )
 from ..persona.history_migration import migrate_history_memories
 from ..state import StateService
+from ..state.adaptive_weights_store import AdaptiveWeightsStore
+from ..state.runtime_paths import runtime_state_db
 from ..state.self_knowledge_store import SelfKnowledgeStore
 from ..state.temporal_store import TemporalMemoryStore
 from ..state.working_memory_store import WorkingMemoryStore
@@ -116,8 +118,17 @@ class CognitiveService:
         self.provider_capability_negotiator = ProviderCapabilityNegotiator()
         self.external_action_dispatcher = ExternalActionDispatcher()
         self.perception = PerceptionService(llm_service=llm_service)
+        # F-016: agent state and the learned adaptive weights share one file,
+        # under the same runtime directory as the three databases above. It
+        # used to land in the working directory, which in the production
+        # container is the image layer, so a redeploy reset what the agent had
+        # learned (#117/H6, #118/H7). With no runtime directory it stays the
+        # relative `state_cache.db`, as before.
+        state_db_path = runtime_state_db("state_cache.db", base_path=runtime_state_dir)
         self.appraisal = AppraisalEngine()  # §1: OCC/Lazarus/EMA
-        self.reappraisal = ReappraisalEngine()  # Gross/Bosse feedback loop
+        self.reappraisal = ReappraisalEngine(  # Gross/Bosse feedback loop
+            store=AdaptiveWeightsStore(state_db_path)
+        )
         # One profile drives both halves of the persona. Without this,
         # StateService would call `PersonaProfile.load()` and build a *second*
         # profile from a different source, so the authored file could set a
@@ -125,6 +136,7 @@ class CognitiveService:
         # this work has been closing, reopened at the last wiring point.
         self.state = StateService(
             graph_store=graph_db,
+            db_path=state_db_path,
             publish_cb=self.publish,
             persona=self.identity.persona,
             writer_id="brain_agent",
@@ -132,6 +144,7 @@ class CognitiveService:
         self.decision = DecisionService(
             llm_service=llm_service,
             memory_store=memory_store,
+            weights_store=AdaptiveWeightsStore(state_db_path),
             identity_manager=self.identity,
         )
         # The agent's own name is seeded explicitly: a biography written in the

@@ -72,6 +72,7 @@ Every workstream has a spec in this directory: `W1.md`..`W11.md`, `SW.md`,
 | F-014.3 | W8 | `last_search_error` is not a durable outage signal |
 | F-014.5 | W11 | `LearningGovernor._proposals` never pruned |
 | F-015 | W8 | M-10 measured on a real model |
+| F-016 | P6 | learned state written to the image layer in production; `StateService` ignores `REDIS_URL`; broke BrainBench cell isolation |
 
 F-008 and F-014 item 4 are fixed (`167db41b`, `e2b73f89`).
 
@@ -149,4 +150,5 @@ F-008 and F-014 item 4 are fixed (`167db41b`, `e2b73f89`).
 | SW-4 | W1 | `05-research-plan.md` sweep | `TemporalMemoryStore` defaults to `:memory:` |
 | SW-5 | W4 | plan, Phase 7 sweep list | Rust contracts crate missing topic constants |
 | SW-6 | SW | plan, Phase 7 sweep list | `.agents/CONTEXT.md` numeric drift |
+| SW-8 | SW | F-016 investigation | `WorkingMemoryStore` writes global Redis keys (`working:turns`, `working:state`) with no session in the key, and its readers (`get_recent_turns`, `load_session_state`) have no production caller: namespace the keys, or delete the dead read path |
 | SW-7 | SW | Phase 6 | `MockDeterministicLLM.generate_stream` returns a coroutine, not an async generator (`tests/integration/harness/mock_cognitive_engines.py`) |

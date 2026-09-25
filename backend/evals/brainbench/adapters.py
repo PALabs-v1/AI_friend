@@ -100,6 +100,22 @@ def _architecture_only_intent_backend():
         yield
 
 
+@contextmanager
+def isolated_runtime():
+    """No Redis for a BrainBench service: every cell keeps its state in its own
+    `run_dir` SQLite files.
+
+    With Redis reachable (home-gpu runs the infra stack), every cell in every
+    worker shared one Redis and, before F-016's fix, one `state_cache.db`. That
+    was write-only on a BrainBench turn, so no number leaked between cells,
+    but cells serialised on SQLite locks and ran 30-60x slower. Both Redis
+    clients connect at construction (`runtime_paths.redis_endpoint`), so the
+    override only needs to cover construction.
+    """
+    with patch.object(Config, "REDIS_URL", ""):
+        yield
+
+
 def build_memory_store(base_path: Path) -> MemoryStore:
     """A real `MemoryStore` against a per-run SQLite database -- the same
     fallback machinery production uses when Postgres is unavailable (see
@@ -148,7 +164,7 @@ def build_cognitive_service(
                 "got one explicitly"
             )
         service = NullLLM()
-        with _architecture_only_intent_backend():
+        with _architecture_only_intent_backend(), isolated_runtime():
             cognitive = CognitiveService(
                 llm_service=service,
                 memory_store=store,
@@ -161,12 +177,13 @@ def build_cognitive_service(
                 "llm_augmented requires a real llm_service (app.llm.build_llm_client())"
             )
         service = llm_service
-        cognitive = CognitiveService(
-            llm_service=service,
-            memory_store=store,
-            graph_db=graph,
-            base_path=str(run_dir),
-        )
+        with isolated_runtime():
+            cognitive = CognitiveService(
+                llm_service=service,
+                memory_store=store,
+                graph_db=graph,
+                base_path=str(run_dir),
+            )
     else:
         raise ValueError(f"unknown BrainBench mode: {mode!r}")
 
