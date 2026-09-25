@@ -53,7 +53,7 @@ for p in $EXCLUDES; do grep -qxF \"\$p\" .git/info/exclude || echo \"\$p\" >> .g
 before=\$(git rev-parse HEAD); git fetch -q origin; \
 git checkout -q $branch; git merge -q --ff-only origin/$branch; after=\$(git rev-parse HEAD); \
 if ! git diff --quiet \$before \$after -- backend/crates/cognitive-rust; then \
-  (cd backend/crates/cognitive-rust && ../../.venv/bin/maturin develop --release -q); fi; \
+  (cd backend/crates/cognitive-rust && VIRTUAL_ENV=$DIR/backend/.venv ../../.venv/bin/maturin develop --release -q); fi; \
 git log --oneline -1"
     ;;
 run)
