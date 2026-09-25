@@ -126,6 +126,70 @@ def test_agent_state_hormone_decay_does_not_advance_with_real_wall_time():
     assert abs(state.cortisol_phasic_at - __import__("time").time()) < 5.0
 
 
+def test_manual_clock_monotonic_tracks_simulated_time():
+    c = clock.ManualClock(datetime(2030, 1, 1))
+    first = c.monotonic()
+    c.advance(90)
+    assert c.monotonic() - first == pytest.approx(90)
+
+
+def test_default_monotonic_is_real_monotonic():
+    before = __import__("time").monotonic()
+    value = clock.monotonic()
+    assert value >= before
+
+
+@pytest.mark.asyncio
+async def test_reflection_throttle_counts_simulated_seconds(monkeypatch):
+    """A benchmark replays months of turns in real minutes. With the throttle
+    on the real monotonic clock, every turn after the first inside the real
+    window was silently skipped. On the seam, it counts simulated seconds:
+    turns 10 simulated seconds apart are still throttled, turns an hour apart
+    are not -- the same judgment production makes about real time.
+    """
+    from app.cognitive.learning import ReflectionService
+    from app.config import Config
+
+    monkeypatch.setattr(Config, "REFLECTION_MIN_INTERVAL_SECONDS", 300.0, raising=False)
+    monkeypatch.setattr(Config, "REFLECTION_ENABLED", True, raising=False)
+
+    consolidated = []
+
+    async def fake_consolidate(self, episodes):
+        consolidated.append(len(episodes))
+
+    monkeypatch.setattr(ReflectionService, "_consolidate", fake_consolidate)
+    service = ReflectionService()
+    episode = [{"event": "x", "emotion_vector": {}}]
+
+    sim = clock.ManualClock(datetime(2031, 1, 1, 9, 0, 0))
+    with clock.use_clock(sim):
+        first = await service.trigger_reflection(episode)
+        await first
+        sim.advance(10)
+        second = await service.trigger_reflection(episode)
+        await second
+        sim.advance(3600)
+        third = await service.trigger_reflection(episode)
+        await third
+
+    assert consolidated == [1, 1], "10 simulated seconds throttled; one hour did not"
+
+
+def test_real_work_deadlines_stay_on_the_real_monotonic_clock():
+    """The seam is for cognitive cadence only. LLM stream deadlines must never
+    read simulated time, or a real model call would time out instantly (or
+    never) whenever a benchmark jumps the calendar forward.
+    """
+    import inspect
+
+    from app.cognitive import action
+
+    source = inspect.getsource(action)
+    assert "clock.monotonic()" not in source
+    assert "deadline = time.monotonic() + stream_budget" in source
+
+
 def test_no_bare_wall_clock_calls_remain_in_seamed_modules():
     """Regression guard for the specific files this migration touched: a
     future edit that reintroduces `time.time()`/`datetime.now()` there

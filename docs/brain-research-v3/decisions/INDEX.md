@@ -38,5 +38,6 @@
 | [DR-034](DR-034-long-horizon-emotional-decay.md) | 10 | Long-horizon emotion | Even emotionally-protected memories eventually fade, just very slowly — no permanent floor. |
 | [DR-035](DR-035-no-intent-detection.md) | 10 | Intent detection | Don't distinguish deliberate testing from genuine forgetfulness — not reliably detectable, and a wrong detector is worse than none. |
 | [DR-036](DR-036-lifesim-guardrail.md) | 10 | Lifesim guardrail | Master prompt's default guardrail is sufficient; no additional restriction on synthetic grief/loss scenarios. |
+| [DR-037](DR-037-reflection-stays-llm.md) | post (Phase 6) | Reflection in BrainBench | Consolidation is variable, judgment-shaped work; never faked with a deterministic passthrough. Memory + personality suites run `llm_augmented` only; `architecture_only` keeps zero-LLM for suites that don't depend on memory content. |
 
 **Interview complete — all 10 rounds, 36 decisions recorded.** Next: Phase 3 (Brain V2 Local Baseline) and Phase 4 (real infrastructure + GPU experiments) can now proceed with full architectural clarity; Phase 5-7 (lifesim, BrainBench, workstreams W1-W11) are unblocked to begin implementation, each already annotated above with its specific consequences from these decisions.

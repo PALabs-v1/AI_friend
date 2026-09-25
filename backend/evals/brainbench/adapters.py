@@ -12,7 +12,11 @@ Two modes (`06-benchmark-plan.md`), never merged in results:
   to measure. It deliberately does *not* attempt to feed oracle appraisal
   signals into `AppraisalEngine` -- inventing that pathway is W2's job
   (Phase 7), against this baseline, not something to bake into the baseline
-  itself.
+  itself. It also cannot form episodic memory: production's consolidation
+  (`learning.py`'s `_consolidate_episodic_memory`) asks the model to write
+  the summary that gets stored, so with no model there is nothing real to
+  store. Per DR-037 that is not papered over with a deterministic
+  passthrough -- suites that depend on memory content run `llm_augmented`.
 - `llm_augmented`: a real `llm_service` (`app.llm.build_llm_client()`,
   pointed at the Ollama models on home-gpu), for a small reference run.
   Stored and reported separately from `architecture_only`, always labeled.
@@ -47,6 +51,10 @@ class NullLLM:
     Intent classification never reaches `generate()`: with
     `INTENT_CLASSIFIER_BACKEND = "heuristic"`, `HeuristicIntentClassifier`
     answers it deterministically before any LLM call is made.
+
+    Only valid for suites whose scored signal needs no generated text.
+    Reflection still runs and will store `"{}"` as a memory summary; that is
+    why the memory and personality suites never use this mode (DR-037).
     """
 
     def __init__(self) -> None:

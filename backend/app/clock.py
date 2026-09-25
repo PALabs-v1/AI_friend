@@ -29,6 +29,8 @@ from typing import Protocol
 class Clock(Protocol):
     def time(self) -> float: ...
 
+    def monotonic(self) -> float: ...
+
     def now(self, tz: tzinfo | None = None) -> datetime: ...
 
 
@@ -37,6 +39,9 @@ class SystemClock:
 
     def time(self) -> float:
         return _time.time()
+
+    def monotonic(self) -> float:
+        return _time.monotonic()
 
     def now(self, tz: tzinfo | None = None) -> datetime:
         return datetime.now(tz)
@@ -55,6 +60,10 @@ class ManualClock:
         self._now = start if start is not None else datetime.now()
 
     def time(self) -> float:
+        return self._now.timestamp()
+
+    def monotonic(self) -> float:
+        # Already monotonic: `set`/`advance` refuse to move backwards.
         return self._now.timestamp()
 
     def now(self, tz: tzinfo | None = None) -> datetime:
@@ -87,6 +96,16 @@ _current: ContextVar[Clock] = ContextVar("app_clock", default=_DEFAULT)
 def time() -> float:
     """Drop-in replacement for `time.time()`."""
     return _current.get().time()
+
+
+def monotonic() -> float:
+    """Drop-in replacement for `time.monotonic()`, for *cognitive cadence*
+    only (e.g. the reflection throttle). Timeouts that bound real work -- an
+    LLM stream deadline, a rate limiter, a shutdown wait -- must keep calling
+    `time.monotonic()` directly: a simulated clock must never make a real
+    model call time out early or wait forever.
+    """
+    return _current.get().monotonic()
 
 
 def now(tz: tzinfo | None = None) -> datetime:

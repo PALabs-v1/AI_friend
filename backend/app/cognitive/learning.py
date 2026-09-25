@@ -3,6 +3,7 @@ import logging
 import time
 from typing import Any
 
+from .. import clock
 from ..config import Config
 from ..measure_trace import trace as _measure_trace
 from ..state.graph_db import GraphDB
@@ -92,7 +93,9 @@ class ReflectionService:
         min_interval = max(
             0.0, float(getattr(Config, "REFLECTION_MIN_INTERVAL_SECONDS", 0.0))
         )
-        now = time.monotonic()
+        # Cognitive cadence, not a bound on real work: through the clock seam
+        # so a simulated calendar throttles by simulated seconds.
+        now = clock.monotonic()
         if (
             min_interval > 0.0
             and (now - self.last_reflection_started_at) < min_interval

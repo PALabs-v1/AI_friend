@@ -56,3 +56,12 @@ Running record of pre-existing problems found during the Brain V3 cycle (Objecti
 - **Root cause (plausible, not confirmed with a captured raw transcript)**: Qwen3's default thinking mode prefixes its output with a `<think>...</think>` block; `extract_first_json_value` has no code path to skip past it, so it either finds no JSON or finds a malformed fragment inside the reasoning trace.
 - **Fix**: not attempted (qwen3:4b isn't used anywhere in production today; this only matters if it or a similar thinking-mode model is adopted later). If it is, either disable thinking mode in the Ollama request options or add think-block stripping to `json_extract.py` before the JSON search.
 - **Status**: open, low priority, informational for future model choices.
+
+## F-007: Throttled or concurrent reflection drops episodes instead of deferring them
+
+- **Severity**: high for memory formation. Most turns in a conversation burst never become episodic memory.
+- **Where**: `ReflectionService.trigger_reflection` (`backend/app/cognitive/learning.py`, the `is_reflecting` and `REFLECTION_MIN_INTERVAL_SECONDS` early returns). Both paths return an already-completed future and discard `recent_episodes`. Nothing queues them for the next reflection.
+- **Evidence**: read from the code, and consistent with a live two-turn `llm_augmented` run (Phase 6 smoke test, local `llama3.2:3b`). There, each turn was spaced 3 simulated hours apart, so both consolidated. The effective interval from `.env` is 300 s (`Config` default is 30 s). Every `CHAT`/`REMEMBER` turn within 300 s of the last started reflection is silently lost to long-term memory, as is any turn that arrives while a reflection (about 8 s on the Mac) is still running.
+- **Impact**: in a normal back-and-forth, only about the first turn of each 5-minute window is consolidated. What the user says in the other turns can only be recalled while it is still in working memory. This is invisible in production: no log line, no metric.
+- **Fix**: not attempted in Phase 6. BrainBench measures V2 as it ships, and this is W1/W7 territory (Phase 7). An obvious candidate is buffering throttled episodes and folding them into the next reflection, which is what `_build_episode_summary` already supports for a batch. BrainBench's memory suite will quantify how much it costs recall before and after.
+- **Status**: open. Found during Phase 6 (BrainBench) while tracing why `architecture_only` could not form memory (DR-037).
