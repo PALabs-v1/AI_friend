@@ -34,7 +34,9 @@ def repetition_novelty_delta(outcomes: list[SuiteOutcome]) -> dict[str, float]:
         if _REPEATED_TAG not in outcome.categories and "novelty" in outcome.metrics
     ]
     if not repeated or not fresh:
-        raise ValueError("repetition comparison requires repeated and fresh novelty scores")
+        raise ValueError(
+            "repetition comparison requires repeated and fresh novelty scores"
+        )
 
     return {
         "repeated_mean": sum(repeated) / len(repeated),
@@ -119,7 +121,9 @@ async def run_attention_suite(
     """Replay every lifesim turn and record its real appraisal novelty."""
     sim, turns, annotations, _probes, _answers = simulation
     if service.mode != "architecture_only":
-        raise ValueError("the attention suite requires an architecture_only BrainBenchService")
+        raise ValueError(
+            "the attention suite requires an architecture_only BrainBenchService"
+        )
     if progress_every <= 0:
         raise ValueError("progress_every must be positive")
     if len(turns) != len(annotations):
@@ -146,8 +150,7 @@ async def run_attention_suite(
                 "metadata": {},
             }
             outputs = [
-                output
-                async for output in service.cognitive.process_event(raw_event)
+                output async for output in service.cognitive.process_event(raw_event)
             ]
             errors = [output for output in outputs if output.get("type") == "error"]
             if errors:

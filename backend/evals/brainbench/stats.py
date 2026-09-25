@@ -42,7 +42,9 @@ class SuiteOutcome:
     error: str | None = None
 
 
-def aggregate(results: list[SuiteOutcome], categories: tuple[str, ...] | None = None) -> dict:
+def aggregate(
+    results: list[SuiteOutcome], categories: tuple[str, ...] | None = None
+) -> dict:
     """Per-category mean and 95% cluster-bootstrap interval for every metric,
     clustered by `persona_seed`: probes drawn from one simulated persona
     share a world and a conversation history, so they are not independent
@@ -79,14 +81,22 @@ def aggregate(results: list[SuiteOutcome], categories: tuple[str, ...] | None = 
 
 
 def paired_delta(
-    a: list[SuiteOutcome], b: list[SuiteOutcome], metric: str, seed: int = 99, n: int = 2000
+    a: list[SuiteOutcome],
+    b: list[SuiteOutcome],
+    metric: str,
+    seed: int = 99,
+    n: int = 2000,
 ) -> dict:
     """Paired cluster bootstrap of mean(b - a) over probes present in both
     runs (e.g. `baseline` vs `+temporal`), resampling persona seeds, plus
     Cliff's delta and Cohen's d so a significant delta can still be judged
     for practical size, not just direction.
     """
-    index_a = {(r.persona_seed, r.probe_key): r.metrics[metric] for r in a if metric in r.metrics}
+    index_a = {
+        (r.persona_seed, r.probe_key): r.metrics[metric]
+        for r in a
+        if metric in r.metrics
+    }
     pairs = [
         (r.persona_seed, index_a[(r.persona_seed, r.probe_key)], r.metrics[metric])
         for r in b
@@ -137,7 +147,9 @@ def _resample_cluster_means(
     return sums[idx].sum(axis=1) / counts[idx].sum(axis=1)
 
 
-def bootstrap_p_value(values: list[float], clusters: list, seed: int = 99, n: int = 2000) -> float:
+def bootstrap_p_value(
+    values: list[float], clusters: list, seed: int = 99, n: int = 2000
+) -> float:
     """Two-sided percentile-bootstrap p-value for H0: mean(values) == 0.
 
     `p = 2 * min(P(resampled mean <= 0), P(resampled mean >= 0))`, capped at
@@ -209,5 +221,9 @@ def holm_correction(p_values: dict[str, float], alpha: float = 0.05) -> dict[str
         significant = still_significant and p <= threshold
         if not significant:
             still_significant = False
-        result[name] = {"p": p, "threshold": round(threshold, 6), "significant": significant}
+        result[name] = {
+            "p": p,
+            "threshold": round(threshold, 6),
+            "significant": significant,
+        }
     return result

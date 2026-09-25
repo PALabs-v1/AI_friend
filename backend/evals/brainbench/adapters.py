@@ -61,7 +61,9 @@ class NullLLM:
         self.generate_call_count = 0
         self.stream_call_count = 0
 
-    async def generate(self, prompt: str, system: str | None = None, **kwargs: Any) -> str:
+    async def generate(
+        self, prompt: str, system: str | None = None, **kwargs: Any
+    ) -> str:
         self.generate_call_count += 1
         # Whatever non-intent caller reaches here (reflection summarization,
         # a JSON-expecting prompt) gets a harmless empty object rather than
@@ -156,8 +158,7 @@ def build_cognitive_service(
     elif mode == "llm_augmented":
         if llm_service is None:
             raise ValueError(
-                "llm_augmented requires a real llm_service "
-                "(app.llm.build_llm_client())"
+                "llm_augmented requires a real llm_service (app.llm.build_llm_client())"
             )
         service = llm_service
         cognitive = CognitiveService(
@@ -169,4 +170,6 @@ def build_cognitive_service(
     else:
         raise ValueError(f"unknown BrainBench mode: {mode!r}")
 
-    return BrainBenchService(mode=mode, cognitive=cognitive, llm_service=service, memory_store=store)
+    return BrainBenchService(
+        mode=mode, cognitive=cognitive, llm_service=service, memory_store=store
+    )

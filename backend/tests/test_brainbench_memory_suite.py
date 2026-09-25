@@ -53,7 +53,10 @@ def test_single_value_hit_miss_rank_and_word_boundaries():
 )
 def test_multi_hop_requires_both_values_anywhere(contents, expected):
     answer = _answer("multi_hop", "answer", ["Noor", "Glasshouse Games"])
-    assert score_probe([_memory(content) for content in contents], answer)["hit@5"] == expected
+    assert (
+        score_probe([_memory(content) for content in contents], answer)["hit@5"]
+        == expected
+    )
 
 
 def test_forgettable_reports_retained_vs_forgotten():
@@ -64,12 +67,18 @@ def test_forgettable_reports_retained_vs_forgotten():
 
 def test_abstain_uses_strict_relevance_threshold():
     answer = _answer("unanswerable", "abstain", [])
-    assert score_probe([_memory("low noise", ABSTAIN_RELEVANCE_THRESHOLD)], answer)[
-        "abstained"
-    ] == 1.0
-    assert score_probe([_memory("something surfaced", ABSTAIN_RELEVANCE_THRESHOLD + 0.01)], answer)[
-        "abstained"
-    ] == 0.0
+    assert (
+        score_probe([_memory("low noise", ABSTAIN_RELEVANCE_THRESHOLD)], answer)[
+            "abstained"
+        ]
+        == 1.0
+    )
+    assert (
+        score_probe(
+            [_memory("something surfaced", ABSTAIN_RELEVANCE_THRESHOLD + 0.01)], answer
+        )["abstained"]
+        == 0.0
+    )
 
 
 def test_commitment_due_reports_partial_coverage():
@@ -80,7 +89,9 @@ def test_commitment_due_reports_partial_coverage():
 
 
 def test_contradiction_scores_only_canonical_correct_value():
-    answer = _answer("contradiction_surface", "surface_conflict", ["Seattle", "Hyderabad"])
+    answer = _answer(
+        "contradiction_surface", "surface_conflict", ["Seattle", "Hyderabad"]
+    )
     metrics = score_probe([_memory("The city is Hyderabad")], answer)
     assert metrics["hit@5"] == 1.0
     assert metrics["mrr"] == 1.0
@@ -95,10 +106,14 @@ def test_n_retrieved_reports_actual_count_even_when_scoring_only_top_five():
 
 
 @pytest.mark.asyncio
-async def test_abstain_threshold_separates_dev_seed_hit_from_noise(tmp_path, monkeypatch):
+async def test_abstain_threshold_separates_dev_seed_hit_from_noise(
+    tmp_path, monkeypatch
+):
     _sim, turns, _annotations, probes, answers = build(1000, "chatty_student", "1w")
     probe_index = next(
-        i for i, answer in enumerate(answers) if answer.category == "current" and answer.support_turn_ids
+        i
+        for i, answer in enumerate(answers)
+        if answer.category == "current" and answer.support_turn_ids
     )
     probe, answer = probes[probe_index], answers[probe_index]
     by_id = {turn.turn_id: turn for turn in turns}
@@ -106,7 +121,8 @@ async def test_abstain_threshold_separates_dev_seed_hit_from_noise(tmp_path, mon
     noise = next(
         turn
         for turn in turns
-        if turn.turn_id not in answer.support_turn_ids and turn.session_id != supported.session_id
+        if turn.turn_id not in answer.support_turn_ids
+        and turn.session_id != supported.session_id
     )
     store = build_memory_store(tmp_path)
 
@@ -115,8 +131,12 @@ async def test_abstain_threshold_separates_dev_seed_hit_from_noise(tmp_path, mon
 
     monkeypatch.setattr(store, "get_embedding", query_embedding)
     try:
-        assert await store.add_memory(supported.text, embedding=[1.0, 0.0], current_time=probe.t)
-        assert await store.add_memory(noise.text, embedding=[0.0, 1.0], current_time=probe.t)
+        assert await store.add_memory(
+            supported.text, embedding=[1.0, 0.0], current_time=probe.t
+        )
+        assert await store.add_memory(
+            noise.text, embedding=[0.0, 1.0], current_time=probe.t
+        )
         retrieved = await store.search_memories(
             probe.text, limit=5, current_time=probe.t
         )
@@ -140,14 +160,22 @@ def ollama_tags() -> dict:
     """Skip unless BRAINBENCH_LLM_URL (home-gpu by default) is reachable."""
     try:
         response = subprocess.run(
-            ["curl", "-s", "--max-time", "2", BRAINBENCH_LLM_URL.rstrip("/") + "/api/tags"],
+            [
+                "curl",
+                "-s",
+                "--max-time",
+                "2",
+                BRAINBENCH_LLM_URL.rstrip("/") + "/api/tags",
+            ],
             check=False,
             capture_output=True,
             text=True,
             timeout=3,
         )
     except (OSError, subprocess.TimeoutExpired) as exc:
-        pytest.skip(f"BrainBench LLM endpoint {BRAINBENCH_LLM_URL} is unreachable: {exc}")
+        pytest.skip(
+            f"BrainBench LLM endpoint {BRAINBENCH_LLM_URL} is unreachable: {exc}"
+        )
     if response.returncode != 0:
         pytest.skip(f"BrainBench LLM endpoint {BRAINBENCH_LLM_URL} is unreachable")
     try:

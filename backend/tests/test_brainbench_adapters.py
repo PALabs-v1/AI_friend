@@ -20,11 +20,15 @@ from evals.brainbench.adapters import (
 )
 
 
-def test_architecture_only_uses_heuristic_intent_backend_only_during_construction(tmp_path):
+def test_architecture_only_uses_heuristic_intent_backend_only_during_construction(
+    tmp_path,
+):
     original = Config.INTENT_CLASSIFIER_BACKEND
     service = build_cognitive_service("architecture_only", tmp_path)
     try:
-        assert Config.INTENT_CLASSIFIER_BACKEND == original  # restored after construction
+        assert (
+            Config.INTENT_CLASSIFIER_BACKEND == original
+        )  # restored after construction
         assert service.cognitive.decision.intent_classifier.__class__.__name__ == (
             "HeuristicIntentClassifier"
         )
@@ -73,7 +77,9 @@ def test_build_memory_store_is_real_sqlite_not_a_mock(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_architecture_only_drives_one_real_turn_under_the_simulated_clock(tmp_path):
+async def test_architecture_only_drives_one_real_turn_under_the_simulated_clock(
+    tmp_path,
+):
     """The end-to-end smoke test: a real CognitiveService, a real turn, real
     memory/state/decision code, zero LLM text, and every timestamp the turn
     produces resolving against a ManualClock instead of wall time.

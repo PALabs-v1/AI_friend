@@ -37,7 +37,10 @@ class _System2FailureWatcher(logging.Handler):
 
     def emit(self, record: logging.LogRecord) -> None:
         message = record.getMessage()
-        if _SYSTEM2_FAILURE_MESSAGE in message or _SEMANTIC_DRIFT_FAILURE_MESSAGE in message:
+        if (
+            _SYSTEM2_FAILURE_MESSAGE in message
+            or _SEMANTIC_DRIFT_FAILURE_MESSAGE in message
+        ):
             self.saw_failure = True
 
 
