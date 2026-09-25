@@ -600,7 +600,19 @@ async def _run_scenario(
             await lifecycle(turn_id, "STARTED", 0, 0)
         await lifecycle(turn_id, "PLAYING", offset, words)
 
-    async def settle() -> None:
+    async def complete(turn_id: str) -> None:
+        text = scenario.reply_texts[turn_id]
+        words = len(text.split())
+        progress_offsets[turn_id] = len(text)
+        progress_prefixes[turn_id] = text
+        await start_lifecycle(turn_id, len(text), words)
+        await lifecycle(turn_id, "COMPLETED", len(text), words)
+
+    async def settle(final: bool = False) -> None:
+        # An idle lets generation finish; it does not mean the audio has
+        # played. Mid-scenario, a reply completes only when a progress event
+        # reaches its end. Once the scenario is over, a reply nobody stopped
+        # plays out, so it completes then.
         for turn_id in tuple(started):
             await release(turn_id, len(scenario.reply_texts[turn_id].split()) + 2)
         tasks = list(user_tasks.values())
@@ -613,6 +625,8 @@ async def _run_scenario(
             await asyncio.wait_for(
                 asyncio.gather(*pending, return_exceptions=True), timeout
             )
+        if not final:
+            return
         for turn_id in started:
             task = user_tasks.get(turn_id)
             if (
@@ -622,12 +636,7 @@ async def _run_scenario(
                 and not task.cancelled()
                 and task.exception() is None
             ):
-                text = scenario.reply_texts[turn_id]
-                words = len(text.split())
-                progress_offsets[turn_id] = len(text)
-                progress_prefixes[turn_id] = text
-                await start_lifecycle(turn_id, len(text), words)
-                await lifecycle(turn_id, "COMPLETED", len(text), words)
+                await complete(turn_id)
 
     try:
         for event in scenario.events:
@@ -674,6 +683,15 @@ async def _run_scenario(
                     progress_prefixes[target_id] = actual[:offset].strip()
                     progress_offsets[target_id] = offset
                     await start_lifecycle(target_id, offset, word_offset)
+                    task = user_tasks.get(target_id)
+                    if (
+                        word_offset >= len(actual.split())
+                        and target_id not in lifecycle_terminal
+                        and task is not None
+                        and task.done()
+                        and not task.cancelled()
+                    ):
+                        await complete(target_id)
             elif event.type == "stop":
                 target_id = _target_id(event.target, playing, superseded, older)
                 before = _signature(agent, history)
@@ -782,7 +800,7 @@ async def _run_scenario(
     # Drain any tasks after the final event, within the same scenario budget.
     if not hung:
         try:
-            await asyncio.wait_for(settle(), timeout)
+            await asyncio.wait_for(settle(final=True), timeout)
         except TimeoutError:
             hung = True
             for task in user_tasks.values():

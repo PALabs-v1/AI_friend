@@ -405,17 +405,39 @@ async def test_progress_cannot_report_words_that_were_never_streamed():
     assert outcome.metrics["terminal_outcomes_per_reply_claimed_violation"] == 0.0
 
 
-def test_ordinary_barge_in_history_matches_the_heard_prefix(
+def test_ordinary_barge_in_history_gap_is_measured_as_unclaimed(
     real_seed_1000_outcomes,
 ):
+    # ADR-003 Known: ordinary confirmed speech flushes playback but keeps the
+    # full reply row. The lifecycle (W4) now gives the reply its terminal
+    # outcome; cutting the row to the heard prefix is W5's (R8), so the gap is
+    # still measured, and still unclaimed.
     outcome = next(
         row
         for row in real_seed_1000_outcomes
         if row.categories == ("confirmed_barge_in",)
     )
-    assert outcome.metrics["history_matches_heard_violation"] == 0.0
+    assert outcome.metrics["history_matches_heard_violation"] == 1.0
     assert outcome.metrics["history_matches_heard_claimed_violation"] == 0.0
-    assert outcome.metrics["history_matches_heard_unclaimed_violation"] == 0.0
+    assert outcome.metrics["history_matches_heard_unclaimed_violation"] == 1.0
+    assert outcome.metrics["replies_with_zero_terminal_outcomes"] == 0
+
+
+def test_an_idle_finishes_generation_not_playback(real_seed_1000_outcomes):
+    # Every family opens with utterance, idle, progress(2 words): the reply is
+    # generated but still playing. Completing it at that idle made the
+    # barge-in land on a finished reply, so the family stopped testing
+    # barge-in (0 eligible replies, the interrupted reply COMPLETED).
+    outcome = next(
+        row
+        for row in real_seed_1000_outcomes
+        if row.categories == ("confirmed_barge_in",)
+    )
+    assert outcome.metrics["terminal_outcome_replies_eligible"] == 1
+    # Only the follow-up reply plays out; the interrupted one does not.
+    assert outcome.metrics["completed_outcome_count"] == 1
+    clean = next(r for r in real_seed_1000_outcomes if r.categories == ("clean",))
+    assert clean.metrics["completed_outcome_count"] == 1
 
 
 def test_scoring_functions_report_rates_and_reply_accounting():
