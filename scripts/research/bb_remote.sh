@@ -10,7 +10,7 @@
 #   bb_remote.sh fetch NAME REMOTE_PATH LOCAL_DIR   copy results back (REMOTE_PATH relative to backend/)
 #
 # Env: GPU_HOST (default home-gpu), BB_REMOTE_DIR (default /data/aif-v3),
-# BB_LOGS_DIR (default /data/aif-v3-runs/logs, outside the clone),
+# BB_LOGS_DIR (default $BB_REMOTE_DIR/run-logs),
 # BB_DRY_RUN=1 prints the commands instead of running them.
 #
 # A run writes <log>.exit with the command's exit code when it ends, so a
@@ -21,8 +21,11 @@ set -euo pipefail
 
 HOST="${GPU_HOST:-home-gpu}"
 DIR="${BB_REMOTE_DIR:-/data/aif-v3}"
-# Outside the clone, so a run never makes the tree it is measuring dirty.
-LOGS="${BB_LOGS_DIR:-/data/aif-v3-runs/logs}"
+# Run outputs live in the clone but are listed in its .git/info/exclude
+# (machine-local, never committed; `sync` maintains it), so a run never
+# makes the tree it is measuring read dirty. /data itself is root-owned.
+LOGS="${BB_LOGS_DIR:-$DIR/run-logs}"
+EXCLUDES="runs/ run-logs/ baseline-results/ gpu-results/ hf-cache/ gpu_sweep.sh homegpu_baseline.sh memory_consistency.json"
 
 remote() {
     if [ "${BB_DRY_RUN:-0}" = "1" ]; then
@@ -45,7 +48,9 @@ sync)
     # Fast-forward only: the remote clone never carries local commits, so a
     # non-ff means someone edited it by hand, which must stop the run.
     # The native extension is rebuilt only when its crate changed.
-    remote "set -e; cd $DIR; before=\$(git rev-parse HEAD); git fetch -q origin; \
+    remote "set -e; cd $DIR; \
+for p in $EXCLUDES; do grep -qxF \"\$p\" .git/info/exclude || echo \"\$p\" >> .git/info/exclude; done; \
+before=\$(git rev-parse HEAD); git fetch -q origin; \
 git checkout -q $branch; git merge -q --ff-only origin/$branch; after=\$(git rev-parse HEAD); \
 if ! git diff --quiet \$before \$after -- backend/crates/cognitive-rust; then \
   (cd backend/crates/cognitive-rust && ../../.venv/bin/maturin develop --release -q); fi; \
