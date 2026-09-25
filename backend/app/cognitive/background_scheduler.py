@@ -26,6 +26,8 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from .. import clock
+
 
 class BackgroundJobKind(str, Enum):
     DUE_GOAL_REVIEW = "DUE_GOAL_REVIEW"
@@ -126,7 +128,7 @@ class BackgroundScheduler:
                 "job_id": job.job_id,
                 "kind": job.kind,
                 "error": error,
-                "at": time.time(),
+                "at": clock.time(),
             }
         )
 
@@ -160,6 +162,6 @@ class BackgroundScheduler:
             self._current_task = None
             self._current_job = None
 
-        job.watermark = time.time()
+        job.watermark = clock.time()
         self.last_watermark_by_kind[job.kind] = job.watermark
         return (True, result)

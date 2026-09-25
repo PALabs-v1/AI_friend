@@ -5,6 +5,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 
+from app import clock
 from app.agents.base import BaseAgent, install_shutdown_signal_handlers
 from app.cognitive.subconscious import SubconsciousEngine
 from app.config import Config
@@ -287,7 +288,7 @@ class SubconsciousAgent(BaseAgent):
             "trust": data.get("trust", 0.5),
             "attachment": data.get("attachment", 0.1),
             "fatigue": data.get("fatigue", 0.0),
-            "last_user_interaction": data.get("last_user_interaction", time.time()),
+            "last_user_interaction": data.get("last_user_interaction", clock.time()),
             "interaction_count": data.get("interaction_count", 0),
             "inferred_valence": data.get("inferred_valence", 0.0),
             "inferred_arousal": data.get("inferred_arousal", 0.5),
@@ -368,7 +369,7 @@ class SubconsciousAgent(BaseAgent):
         a decision.
         """
         last_bench = getattr(self, "_last_benchmark_time", 0.0)
-        if time.time() - last_bench < 300:
+        if clock.time() - last_bench < 300:
             logger.info(
                 "[Subconscious] Suppressing proactive system tick thought: Benchmark is active."
             )
@@ -406,7 +407,7 @@ class SubconsciousAgent(BaseAgent):
         # Subconscious Memory Consolidation (ACT-R & Fact Triplet Crystallization)
         # Enforce 5-minute silence check: user must be inactive for at least 300 seconds (unless bypassed)
         last_interact = self.state_service.current_state.last_user_interaction
-        silence_duration = time.time() - last_interact
+        silence_duration = clock.time() - last_interact
         bypass = getattr(Config, "TESTING_CONSOLIDATION_BYPASS_SILENCE", False)
 
         if silence_duration < 300 and not bypass:
@@ -538,7 +539,7 @@ class SubconsciousAgent(BaseAgent):
 
         # Suppress proactive background tasks when benchmark is running
         if isinstance(metadata, dict) and metadata.get("benchmark_id") == "bench_pulse":
-            self._last_benchmark_time = time.time()
+            self._last_benchmark_time = clock.time()
             logger.info(
                 "[Subconscious] Benchmark pulse detected. Suppressing proactive monologue/dreaming loops."
             )
@@ -621,12 +622,12 @@ class SubconsciousAgent(BaseAgent):
 
                 # Suppress monologue and dream sequences if benchmark is active
                 last_bench = getattr(self, "_last_benchmark_time", 0.0)
-                if time.time() - last_bench < 300:
+                if clock.time() - last_bench < 300:
                     continue
 
                 # Check for silence duration
                 last_interact = self.state_service.current_state.last_user_interaction
-                silence_duration = time.time() - last_interact
+                silence_duration = clock.time() - last_interact
 
                 # Check current fatigue
                 state_snap = self.state_service.get_context_snapshot()
@@ -646,7 +647,7 @@ class SubconsciousAgent(BaseAgent):
                         )
                 else:
                     # Normal monologue (requires 30s user inactivity)
-                    now = time.time()
+                    now = clock.time()
                     if (
                         silence_duration >= 30
                         and (now - self._last_monologue_time) >= 30
@@ -666,7 +667,7 @@ class SubconsciousAgent(BaseAgent):
                 # -- both a dream and a rest-phase replay can legitimately
                 # run the same tick, so this is a separate check rather than
                 # a third branch of the if/else above.
-                now = time.time()
+                now = clock.time()
                 replay_due = (
                     now - self._last_replay_time
                 ) >= Config.REST_PHASE_REPLAY_INTERVAL_SECONDS
@@ -710,7 +711,7 @@ class SubconsciousAgent(BaseAgent):
                 logger.info(f"[Monologue] Thought generated: '{thought}'")
                 await self.publish(
                     Topics.STATE_SUBCONSCIOUS,
-                    {"thought": thought, "timestamp": time.time()},
+                    {"thought": thought, "timestamp": clock.time()},
                 )
         except asyncio.CancelledError:
             logger.info(

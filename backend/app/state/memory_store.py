@@ -28,6 +28,7 @@ from typing import Any
 import httpx
 import orjson
 
+from .. import clock
 from ..config import Config
 from ..utils.background_tasks import spawn_background
 from .memory_ranking import hybrid_rank
@@ -1238,7 +1239,7 @@ class MemoryStore:
         qdrant_ts = (
             str(current_time.timestamp())
             if current_time is not None
-            else str(time.time())
+            else str(clock.time())
         )
         metadata_qdrant = {
             "wing": wing,
@@ -1803,7 +1804,7 @@ class MemoryStore:
             parsed = MemoryStore._as_aware_utc(created_val)
             if parsed is not None:
                 return parsed
-        return current_time if current_time is not None else datetime.now(UTC)
+        return current_time if current_time is not None else clock.now(UTC)
 
     def _score_one_qdrant_candidate(
         self,
@@ -2047,7 +2048,7 @@ class MemoryStore:
         # a module-level import would break importing MemoryStore entirely.
         import cognitive_rust
 
-        now = current_time if current_time is not None else datetime.now(UTC)
+        now = current_time if current_time is not None else clock.now(UTC)
         now_ts = now.timestamp()
 
         # Preprocess timestamps for Rust. `_created_ts` (Bucket 9, voice
@@ -2280,7 +2281,7 @@ class MemoryStore:
         now = (
             self._as_aware_utc(current_time)
             if current_time is not None
-            else datetime.now(UTC)
+            else clock.now(UTC)
         )
         for row in rows:
             if row["content"] in excluded:
@@ -2853,7 +2854,7 @@ class MemoryStore:
         now = (
             self._as_aware_utc(current_time)
             if current_time is not None
-            else datetime.now(UTC)
+            else clock.now(UTC)
         )
         # `or now`: an unparseable stored timestamp must not raise here and
         # discard otherwise valid archive candidates.
@@ -3591,7 +3592,7 @@ class MemoryStore:
             now = (
                 self._as_aware_utc(current_time)
                 if current_time is not None
-                else datetime.now(UTC)
+                else clock.now(UTC)
             )
             if self.is_sqlite:
                 # In-process vector index over the wing's most recent
@@ -3611,7 +3612,7 @@ class MemoryStore:
                             "no stored embedding matches the query dimension "
                             f"({len(query_vector)})"
                         )
-                        self.last_search_error_at = time.time()
+                        self.last_search_error_at = clock.time()
                     return [], "sqlite"
                 similarity_by_id = dict(hits)
                 where, args = self._in_predicate("id", list(similarity_by_id))
@@ -3800,7 +3801,7 @@ class MemoryStore:
             is_self_reflection,
             current_time,
         ) + ("hybrid",)
-        now_ts = current_time.timestamp() if current_time is not None else time.time()
+        now_ts = current_time.timestamp() if current_time is not None else clock.time()
         cache_hit = await self._l1_cache_hit(
             cache_key,
             now_ts,
@@ -3816,7 +3817,7 @@ class MemoryStore:
             query_vector = await self.get_embedding(query_text)
             if not query_vector:
                 self.last_search_error = "embedding service returned no vector"
-                self.last_search_error_at = time.time()
+                self.last_search_error_at = clock.time()
                 return []
 
             excluded = {content for content in (exclude_contents or []) if content}
@@ -3844,7 +3845,7 @@ class MemoryStore:
             now = (
                 self._as_aware_utc(current_time)
                 if current_time is not None
-                else datetime.now(UTC)
+                else clock.now(UTC)
             )
             ranked = hybrid_rank(
                 candidates + archived,
@@ -3898,7 +3899,7 @@ class MemoryStore:
         except Exception as e:
             logger.exception("Memory search failed")
             self.last_search_error = str(e)
-            self.last_search_error_at = time.time()
+            self.last_search_error_at = clock.time()
             return []
 
     async def search_memories(
@@ -3977,7 +3978,7 @@ class MemoryStore:
             is_self_reflection,
             current_time,
         )
-        now_ts = current_time.timestamp() if current_time is not None else time.time()
+        now_ts = current_time.timestamp() if current_time is not None else clock.time()
         cache_hit = await self._l1_cache_hit(
             cache_key,
             now_ts,
@@ -3994,7 +3995,7 @@ class MemoryStore:
             query_vector = await self.get_embedding(query_text)
             if not query_vector:
                 self.last_search_error = "embedding service returned no vector"
-                self.last_search_error_at = time.time()
+                self.last_search_error_at = clock.time()
                 return []
 
             mrl_dim, candidate_limit = self._compute_mrl_gating(
@@ -4131,7 +4132,7 @@ class MemoryStore:
             # genuine "nothing relevant" result on its own -- record the
             # failure so a caller that cares can tell the difference.
             self.last_search_error = str(e)
-            self.last_search_error_at = time.time()
+            self.last_search_error_at = clock.time()
             return []
 
     async def _refresh_memories(
@@ -4508,7 +4509,7 @@ class MemoryStore:
         """Best-effort parse of a stored `created_at` into a datetime,
         falling back to `current_time`/now for anything unparseable."""
         if not created_at:
-            return current_time if current_time is not None else datetime.now()
+            return current_time if current_time is not None else clock.now()
 
         if not isinstance(created_at, str):
             return created_at
@@ -4523,7 +4524,7 @@ class MemoryStore:
                 return datetime.strptime(created_at.split("+")[0], fmt)
             except ValueError:
                 continue
-        return current_time if current_time is not None else datetime.now()
+        return current_time if current_time is not None else clock.now()
 
     @staticmethod
     def _extract_actr_decay_rate(metadata, default_rate: float) -> float:
@@ -4567,7 +4568,7 @@ class MemoryStore:
             now = (
                 self._as_aware_utc(current_time)
                 if current_time is not None
-                else datetime.now(UTC)
+                else clock.now(UTC)
             )
             delta = now - (self._as_aware_utc(dt) or now)
             hours_since = max(0.0, delta.total_seconds() / 3600.0)
@@ -4733,7 +4734,7 @@ class MemoryStore:
 
     async def _cleanup_expired_archived_memories(self, conn, current_time=None) -> None:
         """Permanent cleanup on archived_memories based on biological timelines."""
-        now_cleanup = current_time if current_time is not None else datetime.now(UTC)
+        now_cleanup = current_time if current_time is not None else clock.now(UTC)
         cutoff_distractors = now_cleanup - timedelta(days=30)
         cutoff_anecdotes = now_cleanup - timedelta(days=180)
         cutoff_milestones = now_cleanup - timedelta(days=720)
@@ -4882,7 +4883,7 @@ class MemoryStore:
         now = (
             self._as_aware_utc(current_time)
             if current_time is not None
-            else datetime.now(UTC)
+            else clock.now(UTC)
         )
         cutoff = now - timedelta(hours=ttl)
         try:

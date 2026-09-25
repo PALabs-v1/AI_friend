@@ -14,6 +14,7 @@ from collections.abc import AsyncGenerator
 from pathlib import Path
 from typing import Any
 
+from .. import clock
 from ..config import Config
 from ..llm.adapter_gate import (
     OfflineAdapterGate,
@@ -406,7 +407,7 @@ class CognitiveService:
                 "keywords": data.get("keywords", []),
                 "confidence": data.get("confidence", 0.0),
                 "text": data.get("text", ""),
-                "timestamp": data.get("timestamp", time.time()),
+                "timestamp": data.get("timestamp", clock.time()),
             }
         await self.state.apply_sensory_perception(perception_meta)
 
@@ -675,7 +676,7 @@ class CognitiveService:
 
         if full_response:
             episode = {
-                "id": f"proactive-{time.time()}",
+                "id": f"proactive-{clock.time()}",
                 "event": "[Agent initiated contact]",
                 "context": state_directive,
                 "emotion_vector": {

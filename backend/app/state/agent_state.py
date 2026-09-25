@@ -24,6 +24,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 import redis
 
+from .. import clock
 from ..config import Config
 from ..errors import StateConflictError
 from ..persona import PersonaProfile
@@ -251,7 +252,7 @@ class AgentState:
         if peak <= 0.0:
             return 0.0
         half_life = max(1e-6, float(half_life))
-        elapsed = max(0.0, time.time() - released_at)
+        elapsed = max(0.0, clock.time() - released_at)
         return peak * math.exp(-math.log(2.0) * elapsed / half_life)
 
     @staticmethod
@@ -334,7 +335,7 @@ class AgentState:
         # Relative to the tonic floor, so that floor stays free to drift with
         # affect underneath a decaying burst instead of being double-counted.
         self.cortisol_phasic_peak = max(0.0, target_total - self.cortisol_tonic)
-        self.cortisol_phasic_at = time.time()
+        self.cortisol_phasic_at = clock.time()
         return self.cortisol
 
     @property
@@ -393,7 +394,7 @@ class AgentState:
 
         target_total = min(1.0, self.dopamine + amount)
         self.dopamine_phasic_peak = max(0.0, target_total - self.dopamine_tonic)
-        self.dopamine_phasic_at = time.time()
+        self.dopamine_phasic_at = clock.time()
         return self.dopamine
 
     @property
@@ -450,7 +451,7 @@ class AgentState:
 
         target_total = min(1.0, self.adrenaline + amount)
         self.adrenaline_phasic_peak = max(0.0, target_total - self.adrenaline_tonic)
-        self.adrenaline_phasic_at = time.time()
+        self.adrenaline_phasic_at = clock.time()
         return self.adrenaline
 
 
@@ -740,7 +741,7 @@ class StateService:
                     self.current_state.attachment = float(data.get("attachment", 0.1))
                     self.current_state.fatigue = float(data.get("fatigue", 0.0))
                     self.current_state.last_user_interaction = float(
-                        data.get("last_user_interaction", time.time())
+                        data.get("last_user_interaction", clock.time())
                     )
                     self.current_state.last_proactive_attempt = float(
                         data.get("last_proactive_attempt", 0.0)
@@ -848,7 +849,7 @@ class StateService:
                             agent_node.get("fatigue", 0.0)
                         )
                         self.current_state.last_user_interaction = float(
-                            agent_node.get("last_user_interaction", time.time())
+                            agent_node.get("last_user_interaction", clock.time())
                         )
                         self.current_state.last_proactive_attempt = float(
                             agent_node.get("last_proactive_attempt", 0.0)
@@ -1154,7 +1155,7 @@ class StateService:
                 **snapshot,
                 "implied_goals": self.current_state.user_mental_model.implied_goals,
                 "known_concepts": self.current_state.user_mental_model.known_concepts,
-                "timestamp": time.time(),
+                "timestamp": clock.time(),
             }
             try:
                 # Fire and forget publishing. P4-8: spawn_background retains
@@ -1227,7 +1228,7 @@ class StateService:
 
     def record_user_interaction(self):
         """Mark that the user just interacted. Called by BrainAgent on every chat.input."""
-        self.current_state.last_user_interaction = time.time()
+        self.current_state.last_user_interaction = clock.time()
 
     async def apply_semantic_appraisal(self, new_pad: dict[str, float]):
         """Apply System-2 background semantic-drift results to short-term affect.
@@ -1364,7 +1365,7 @@ class StateService:
                 ),
             )
 
-            self.current_state.last_update = datetime.now()
+            self.current_state.last_update = clock.now()
             self._enforce_bounds()
             self._refresh_global_controls_locked(
                 urgency=R, prediction_error=N
@@ -1388,8 +1389,8 @@ class StateService:
         Wraps the new appraisal-driven update for code that still uses valence floats.
         """
         async with self._state_lock:
-            now = datetime.now()
-            self.current_state.last_user_interaction = time.time()
+            now = clock.now()
+            self.current_state.last_user_interaction = clock.time()
 
             # Apply Cognitive Weight (0.7)
             self.current_state.mood = (self.current_state.mood * 0.3) + (
@@ -1708,7 +1709,7 @@ class StateService:
         makes this safe. `_enforce_bounds` and `_update_fatigue_python` are
         synchronous and take no lock.
         """
-        now = tick_metadata.get("timestamp", time.time())
+        now = tick_metadata.get("timestamp", clock.time())
         dt_hours = tick_metadata.get("interval", 60) / 3600.0
 
         async with self._state_lock:
@@ -1780,7 +1781,7 @@ class StateService:
         if not getattr(Config, "PROACTIVE_ENABLED", False):
             return False
 
-        now = time.time()
+        now = clock.time()
 
         debug_override = getattr(Config, "PROACTIVE_DEBUG_THRESHOLD_OVERRIDE", None)
         if debug_override is not None:
@@ -1856,7 +1857,7 @@ class StateService:
         field already rides -- previously a plain instance attribute that
         neither survived a restart nor ever crossed the process boundary.
         """
-        self.current_state.last_proactive_attempt = time.time()
+        self.current_state.last_proactive_attempt = clock.time()
 
     def _enforce_bounds(self):
         self.current_state.mood = max(-1.0, min(1.0, self.current_state.mood))
@@ -2016,7 +2017,7 @@ class StateService:
         return "neutral"
 
     async def _persist_sensory_state_if_due(self):
-        now = time.time()
+        now = clock.time()
         if now - self._last_sensory_persist < self.sensory_persist_interval:
             return
         self._last_sensory_persist = now

@@ -8,6 +8,8 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from .. import clock
+
 
 class PersonModel(BaseModel):
     """The active agent's bounded model of one distinct person.
@@ -73,7 +75,7 @@ class PersonModel(BaseModel):
                 "kind": kind,
                 "magnitude": magnitude,
                 "notes": notes,
-                "timestamp": time.time(),
+                "timestamp": clock.time(),
             }
         )
 
@@ -95,7 +97,7 @@ class PersonModel(BaseModel):
         self.disclosures.append(
             {
                 "fact_id": fact_id,
-                "timestamp": time.time(),
+                "timestamp": clock.time(),
                 "context": context,
             }
         )
