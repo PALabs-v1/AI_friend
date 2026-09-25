@@ -48,7 +48,7 @@ Running record of pre-existing problems found during the Brain V3 cycle (Objecti
 - **Fix**: not attempted this session (root-causing a specific model's structured-output reliability is outside Phase 4's scope). Recommended next step: capture raw LLM responses (not just the parsed result) for a handful of the failing calls, either by re-running this experiment with response logging added, or by adding temporary logging to `_classify_intent_and_goal` in a real running session, to see what `llama3.2:3b` is actually emitting before deciding whether this is a prompt problem, a parsing-regex problem, or a genuine model capability gap.
 - **Status**: open. Worth a follow-up before recommending `llama3.2:3b` for this role in any deployment, but it is not a production defect today — no deployment path in this research cycle depends on that specific model for this call.
 
-## F-006: `qwen3:4b`'s thinking-mode output is completely unparseable by the current JSON extractor
+## F-006: `qwen3:4b`'s thinking-mode output is completely unparsable by the current JSON extractor
 
 - **Severity**: low (qwen3:4b is not a configured production model; this is a forward-looking gap)
 - **Where**: `backend/app/cognitive/json_extract.py` (no handling for `<think>...</think>` reasoning blocks); surfaced via the same ToM experiment as F-005
@@ -159,5 +159,30 @@ Running record of pre-existing problems found during the Brain V3 cycle (Objecti
 - `workspace_transitions` (`backend/app/state/workspace_store.py` ~354) gains one row per turn and has no DELETE, prune or trim path anywhere in production. Measured by the resources suite: 10 -> 223 rows over a 6-month replay, slope 1.0 row per turn.
 - `backend/app/agents/surfacing_agent.py:111` and `:187`: the chat and sweep throttles read `time.time()`, not `app.clock`, so the clock seam (Phase 6) does not cover them and a simulated replay cannot pace them. The metacognition suite bypasses them and records their simulated effect instead.
 - `MemoryStore.last_search_error` (`memory_store.py` ~3899-3942) is one shared field that the next successful search clears, so it is not a durable outage signal for M-8 (see the metacognition suite's outage injection).
-- Formatting is not enforced: the pre-commit hook is not installed in this clone, and CI runs `ruff check` but never `ruff format --check`. Seven BrainBench files had drifted; fixed in `eb10425b`.
-- **Status**: open (first three), fixed (formatting drift; enforcement left to Aniket).
+- Formatting was not enforced: the pre-commit hook was never installed in this clone, and CI ran `ruff check` but never `ruff format --check`. Seven BrainBench files had drifted (fixed in `eb10425b`).
+- `LearningGovernor`'s proposal registry (`learning_governance.py`, `self._proposals`) is in-memory and never pruned. In the real one-month resources run it grew 1 -> 19 and was still rising at the end (one entry per confident persona proposal). Same shape as `workspace_transitions`, in RAM rather than on disk.
+- **Status**: open (items 1, 2, 3, 5). Item 4 fixed in `e2b73f89`: hook installed, its ruff pinned to CI's 0.16.1 (it was 0.14.1), and a changed-files `ruff format --check` ratchet added to CI.
+
+## F-015: M-10 measured on a real model -- once surfacing is running, per-turn retrieval almost never runs and 80% of the memories in context are stale carry-overs
+
+- **Severity**: medium (M-10, `docs/brain-research/01-problems.md`, confirmed with numbers).
+- **Where**: `backend/app/cognitive/core.py` keeps `surfaced_memories` across turns (trimmed to 5, never cleared), and `backend/app/cognitive/action.py` (~1460) runs its fallback retrieval only when that list is empty.
+- **Evidence** (BrainBench metacognition suite, `llm_augmented`, home-gpu `llama3.2:3b`, seed 1000 `chatty_student` `1w`, 62 turns, real `SurfacingAgent` driven in-process vs no surfacing):
+
+  | | with surfacing (production shape) | control (no surfacing agent) |
+  |---|---:|---:|
+  | turns where per-turn retrieval ran | 1.6% (1/62) | 98.4% |
+  | turns that skipped retrieval because surfaced memories were present | 98.4% | 0% |
+  | surfaced items that came from an earlier turn's sweep | 80.3% (237/295) | n/a |
+  | answerability AUROC (top retrieval score, answerable vs unanswerable probes, n=19) | 0.79 | 0.61 |
+  | correctness AUROC (n=14 answerable) | 0.90 | 0.80 |
+
+  After the first surfacing event the per-turn synchronous retrieval stops running, and most of what the model sees as "relevant memories" was retrieved for an earlier utterance. The AUROCs say the top retrieval score is a usable confidence signal (useful for W8's abstention floor). With n=19 the gap between arms is within noise.
+- **M-8 in the same run** (control arm, where search runs): 7 injected search failures in production's own failure shape; 0 turns errored and 0 left any failure marker in the brain's outputs or decision metadata. In the surfacing arm no outage was ever exercised, because retrieval never ran.
+- **Not measured**: contradiction recording. This seed and horizon had no contradiction- or correction-tagged turns (`tagged_n = 0`), so it waits for the persona-panel baseline.
+- **Fix**: W8 (Phase 7). The metacognition suite's surfacing arm is the instrument.
+- **Status**: open.
+
+## Real-model resource baseline (not a finding, recorded for Phase 8)
+
+BrainBench resources suite, `llm_augmented`, home-gpu `llama3.2:3b` (RTX 2060 SUPER), seed 1015 `private_minimalist` `1m`, 33 turns: turn latency P50 2.47 s, P95 3.22 s, P99 4.17 s, max 4.37 s (model time dominates; architecture-only overhead is about 3 ms per turn). Memory rows and vectors grew 5 -> 32 (about one per turn, linear), vocabulary 248 -> 422, run directory 0.56 -> 1.55 MB, peak RSS 164 -> 173 MiB.
