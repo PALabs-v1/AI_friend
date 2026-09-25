@@ -87,6 +87,38 @@ The dylib (vendored by the `sherpa-onnx` crate's build script, used for the Sens
 
 - **home-gpu**: no test run yet — Rust toolchain resolved (`~/.cargo/bin`, version-matched at 1.98.0) and the wheel builds and imports cleanly, but full `cargo test --workspace` / `pytest` there is deferred to Phase 3's formal baseline (this machine's role is infra + Python GPU work per the split decision, not day-to-day Rust test iteration).
 
+## Detached remote execution (home-gpu, Phase 6)
+
+`/data/aif-v3` is kept fast-forwarded to `origin/brain-v3` (currently at
+`c3314ea`) with its own `.venv` verified importable and test-clean (141/143
+BrainBench+lifesim tests, 2 real-LLM tests excluded from that count since
+they need a model call). This exists so a long `llm_augmented` verification
+run doesn't have to live on the Mac's process tree at all: a MacBook forces
+system sleep on lid-close regardless of `caffeinate` unless it's in
+clamshell mode (external display + power) — this Mac has neither connected
+— so any Mac-side process driving a real LLM replay dies or stalls the
+moment the lid closes, even though the actual inference already happens on
+home-gpu over the network. Running the driver process itself on home-gpu
+removes the Mac from the loop entirely.
+
+Pattern, proven working (launched, confirmed running detached from the SSH
+session that started it, via a second `ssh ... pgrep` from a different
+session, then cleanly stopped):
+
+```bash
+ssh home-gpu "cd /data/aif-v3/backend && \
+  nohup env CI=1 .venv/bin/python -m pytest <target> -q \
+  > /data/aif-v3/run-logs/<name>.log 2>&1 < /dev/null & disown; \
+  echo LAUNCHED pid=\$!"
+```
+
+Before each use: `ssh home-gpu "cd /data/aif-v3 && git fetch -q origin && git merge --ff-only origin/brain-v3"`
+to bring it current (has been a clean fast-forward every time so far — no
+local tracked-file changes live there, only ignored build artifacts and a
+few untracked prior-phase result directories left alone). Codex builds
+still cannot move here: Codex CLI is not installed on home-gpu, so Codex's
+own work (as opposed to verifying it) still requires the Mac to stay awake.
+
 ## Known gaps carried into Phase 1+ (from the original exploration pass, not yet re-verified against code)
 
 - `.env` / `.env.example` disagree on `LLM_FAST_MODEL` (`qwen2.5:3b` vs `llama3.2:3b`).
