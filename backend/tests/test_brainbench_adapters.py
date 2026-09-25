@@ -8,7 +8,6 @@ import here is expected and accepted.
 """
 
 from datetime import datetime
-from pathlib import Path
 
 import pytest
 

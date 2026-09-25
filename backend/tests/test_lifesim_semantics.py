@@ -47,7 +47,8 @@ def _spoken_forms(value: str) -> list[str]:
 
 def _contains(text: str, value: str) -> bool:
     return any(
-        re.search(rf"(?<!\w){re.escape(f)}(?!\w)", text, re.I) for f in _spoken_forms(value)
+        re.search(rf"(?<!\w){re.escape(f)}(?!\w)", text, re.IGNORECASE)
+        for f in _spoken_forms(value)
     )
 
 
@@ -120,9 +121,13 @@ def test_event_probes_identify_exactly_one_told_event(lives):
                 continue
             target = sim.events_by_id[a.derivation["event_id"]]
             if a.category == "relationship_defining":
-                same = lambda ev: ev.t.strftime("%Y-%m") == target.t.strftime("%Y-%m")  # noqa: E731
+
+                def same(ev, target=target):
+                    return ev.t.strftime("%Y-%m") == target.t.strftime("%Y-%m")
             else:
-                same = lambda ev: ev.t.date() == target.t.date()  # noqa: E731
+
+                def same(ev, target=target):
+                    return ev.t.date() == target.t.date()
             matches = [
                 ev
                 for ev in sim.events

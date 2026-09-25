@@ -8,7 +8,7 @@ including inside code the caller doesn't own (agent_state.py's hormone
 decay, memory_store.py's search calls, etc.) via the ContextVar seam.
 """
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 
 import pytest
 
@@ -213,15 +213,21 @@ def test_no_bare_wall_clock_calls_remain_in_seamed_modules():
         for node in ast.walk(tree):
             if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)):
                 continue
-            if node.func.attr == "time" and isinstance(node.func.value, ast.Name):
-                if node.func.value.id == "time":
-                    raise AssertionError(
-                        f"{modname}:{node.lineno} calls time.time() directly, "
-                        "bypassing app.clock"
-                    )
-            if node.func.attr == "now" and isinstance(node.func.value, ast.Name):
-                if node.func.value.id == "datetime":
-                    raise AssertionError(
-                        f"{modname}:{node.lineno} calls datetime.now() directly, "
-                        "bypassing app.clock"
-                    )
+            if (
+                node.func.attr == "time"
+                and isinstance(node.func.value, ast.Name)
+                and node.func.value.id == "time"
+            ):
+                raise AssertionError(
+                    f"{modname}:{node.lineno} calls time.time() directly, "
+                    "bypassing app.clock"
+                )
+            if (
+                node.func.attr == "now"
+                and isinstance(node.func.value, ast.Name)
+                and node.func.value.id == "datetime"
+            ):
+                raise AssertionError(
+                    f"{modname}:{node.lineno} calls datetime.now() directly, "
+                    "bypassing app.clock"
+                )

@@ -19,7 +19,6 @@ from __future__ import annotations
 
 import asyncio
 import inspect
-import time
 from collections.abc import Callable
 from enum import Enum
 from typing import Any
