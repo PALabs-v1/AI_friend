@@ -119,6 +119,21 @@ def test_each_family_has_its_defining_event_shape(family, predicate):
     assert predicate(scenario.events)
 
 
+def test_unresolved_count_covers_every_started_reply_not_only_eligible_ones():
+    # B played to the end and never got COMPLETED (V2 has no producer, F-002):
+    # not eligible, so the eligible-only count cannot see it.
+    evidence = replace(
+        _clean_evidence(),
+        started_replies=("A", "B", "B"),
+        terminal_counts={"A": 1},
+        terminal_eligible=("A",),
+    )
+    metrics = check_invariants(evidence)
+    assert metrics["replies_with_zero_terminal_outcomes"] == 0
+    assert metrics["started_reply_count"] == 2
+    assert metrics["started_replies_without_terminal"] == 1
+
+
 def test_only_playing_or_superseded_stops_carry_the_voice_command_reason():
     # ADR-003: Stage 2 addresses its confirmed command to the playing or the
     # superseded reply; stops for older or unknown turns come from the reflex.

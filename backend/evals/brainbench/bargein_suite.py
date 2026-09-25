@@ -323,6 +323,13 @@ def check_invariants(evidence: ScenarioEvidence) -> dict[str, float | int | None
         "replies_with_zero_terminal_outcomes": missing,
         "replies_with_multiple_terminal_outcomes": duplicate,
         "terminal_outcome_replies_eligible": len(eligible),
+        # Over every started reply, eligible or not: a reply that played to
+        # the end and never got COMPLETED is unresolved too (F-002).
+        "started_reply_count": len(set(evidence.started_replies)),
+        "started_replies_without_terminal": sum(
+            evidence.terminal_counts.get(reply, 0) == 0
+            for reply in set(evidence.started_replies)
+        ),
         "replies_unresolved_without_completion": sum(
             reply not in eligible and evidence.terminal_counts.get(reply, 0) == 0
             for reply in evidence.started_replies

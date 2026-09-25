@@ -176,6 +176,11 @@ GATE_METRICS: tuple[GateMetric, ...] = (
         "replies that never reached a terminal outcome",
     ),
     GateMetric(
+        "bargein.unresolved_reply_rate",
+        "lower",
+        "started replies, played out or not, that never got a terminal outcome",
+    ),
+    GateMetric(
         "resources.background_task_timeouts",
         "lower",
         "background work that did not finish within its budget",
@@ -371,6 +376,10 @@ async def _bargein() -> dict[str, float | None]:
     replies = sum(_values(pooled, "terminal_outcome_replies_eligible"))
     zero = sum(_values(pooled, "replies_with_zero_terminal_outcomes"))
     result["bargein.zero_terminal_reply_rate"] = zero / replies if replies else None
+    # Numerator and denominator over the same set: every started reply.
+    started = sum(_values(pooled, "started_reply_count"))
+    unresolved = sum(_values(pooled, "started_replies_without_terminal"))
+    result["bargein.unresolved_reply_rate"] = unresolved / started if started else None
     return result
 
 
