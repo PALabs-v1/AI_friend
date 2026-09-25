@@ -7,7 +7,6 @@ import inspect
 import json
 import math
 import os
-import subprocess
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -515,35 +514,6 @@ async def test_suppressed_reflection_future_is_not_counted_as_started(
         service.cognitive.learning.is_reflecting = False
         service.cognitive.close()
         await service.memory_store.close()
-
-
-@pytest.fixture(scope="module")
-def ollama_tags() -> dict:
-    """Skip unless BRAINBENCH_LLM_URL (home-gpu by default) is reachable."""
-    try:
-        response = subprocess.run(
-            [
-                "curl",
-                "-s",
-                "--max-time",
-                "2",
-                BRAINBENCH_LLM_URL.rstrip("/") + "/api/tags",
-            ],
-            check=False,
-            capture_output=True,
-            text=True,
-            timeout=3,
-        )
-    except (OSError, subprocess.TimeoutExpired) as exc:
-        pytest.skip(
-            f"BrainBench LLM endpoint {BRAINBENCH_LLM_URL} is unreachable: {exc}"
-        )
-    if response.returncode != 0:
-        pytest.skip(f"BrainBench LLM endpoint {BRAINBENCH_LLM_URL} is unreachable")
-    try:
-        return json.loads(response.stdout)
-    except json.JSONDecodeError as exc:
-        pytest.fail(f"Ollama responded but /api/tags was not valid JSON: {exc}")
 
 
 @pytest.mark.asyncio

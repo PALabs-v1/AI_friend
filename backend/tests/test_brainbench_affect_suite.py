@@ -3,11 +3,9 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 import math
 import os
-import subprocess
 from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
@@ -176,7 +174,7 @@ async def test_run_affect_suite_catches_the_inner_semantic_drift_failure_too():
     wrapper never sees an exception and never logs its own failure message.
     A watcher scoped to only app.cognitive.pipeline is blind to this, the
     far more common failure mode (an LLM call that fails or returns
-    unparseable JSON), and would report false 100% completion. This is the
+    unparsable JSON), and would report false 100% completion. This is the
     regression test for a real bug this suite's own first draft had -- found
     by a real home-gpu replay reporting 100% completion with an exact 0.0
     mood delta on every one of 80 turns."""
@@ -207,7 +205,7 @@ async def test_run_affect_suite_catches_the_inner_semantic_drift_failure_too():
 async def test_run_affect_suite_records_child_failure_and_continues():
     async def process_event(_event):
         async def failed_appraisal():
-            raise RuntimeError("unparseable appraisal")
+            raise RuntimeError("unparsable appraisal")
 
         pipeline._system2_task = asyncio.create_task(failed_appraisal())
         yield {"type": "appraisal"}
@@ -247,35 +245,6 @@ async def test_run_affect_suite_propagates_caller_cancellation():
 # Ollama only by explicit override, never by default, so this test can never
 # silently burn Mac CPU/battery just because port 11434 answers.
 BRAINBENCH_LLM_URL = os.environ.get("BRAINBENCH_LLM_URL", "http://100.88.246.46:11434")
-
-
-@pytest.fixture(scope="module")
-def ollama_tags() -> dict:
-    """Skip unless BRAINBENCH_LLM_URL (home-gpu by default) is reachable."""
-    try:
-        response = subprocess.run(
-            [
-                "curl",
-                "-s",
-                "--max-time",
-                "2",
-                BRAINBENCH_LLM_URL.rstrip("/") + "/api/tags",
-            ],
-            check=False,
-            capture_output=True,
-            text=True,
-            timeout=3,
-        )
-    except (OSError, subprocess.TimeoutExpired) as exc:
-        pytest.skip(
-            f"BrainBench LLM endpoint {BRAINBENCH_LLM_URL} is unreachable: {exc}"
-        )
-    if response.returncode != 0:
-        pytest.skip(f"BrainBench LLM endpoint {BRAINBENCH_LLM_URL} is unreachable")
-    try:
-        return json.loads(response.stdout)
-    except json.JSONDecodeError as exc:
-        pytest.fail(f"Ollama responded but /api/tags was not valid JSON: {exc}")
 
 
 @pytest.mark.asyncio
