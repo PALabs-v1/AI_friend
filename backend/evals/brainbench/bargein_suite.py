@@ -101,6 +101,20 @@ def _utterance(turn_id: str) -> Event:
     return Event("user_utterance", turn_id=turn_id)
 
 
+def _stop_reason(target: str | None) -> str:
+    """The reason a real stop for `target` would carry.
+
+    Stage 2 sends its confirmed voice command only to the playing or the
+    superseded reply (ADR-003); a stop for an older or unknown turn comes from
+    the reflex path. Giving a "stale" stop the command reason lets it land on
+    the superseded id, which BrainAgent rightly accepts, and the suite then
+    scored a correct stop as a stale one that applied.
+    """
+    if target in ("stale", "unknown"):
+        return "facial_reflex_startle"
+    return "confirmed_command"
+
+
 def _scenario(
     family: str,
     index: int,
@@ -205,10 +219,14 @@ def generate_scenarios(
                 _utterance(b),
                 Event("idle"),
                 _utterance(c),
-                Event("stop", target="stale"),
+                Event("stop", target="stale", reason=_stop_reason("stale")),
                 Event("idle"),
             ],
-            "unknown_stop": first + [Event("stop", target="unknown"), Event("idle")],
+            "unknown_stop": first
+            + [
+                Event("stop", target="unknown", reason=_stop_reason("unknown")),
+                Event("idle"),
+            ],
             "rapid_fire": [_utterance(a), _utterance(b), _utterance(c), Event("idle")],
         }
         for family in FAMILIES[:-1]:
@@ -233,6 +251,11 @@ def generate_scenarios(
                         kind,
                         target=target,
                         word_offset=rng.randint(0, 8),
+                        reason=(
+                            _stop_reason(target)
+                            if kind == "stop"
+                            else "confirmed_command"
+                        ),
                     )
                 )
             elif kind == "stream_chunk_delay":

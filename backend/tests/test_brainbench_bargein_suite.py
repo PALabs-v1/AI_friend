@@ -6,6 +6,7 @@ from dataclasses import replace
 
 import pytest
 
+from app.config import Config
 from evals.brainbench.bargein_suite import (
     FAMILIES,
     Event,
@@ -116,6 +117,51 @@ def test_generator_is_reproducible_and_weighted_mix_is_seeded():
 def test_each_family_has_its_defining_event_shape(family, predicate):
     scenario = _family(generate_scenarios(1000), family)
     assert predicate(scenario.events)
+
+
+def test_only_playing_or_superseded_stops_carry_the_voice_command_reason():
+    # ADR-003: Stage 2 addresses its confirmed command to the playing or the
+    # superseded reply; stops for older or unknown turns come from the reflex.
+    stops = [
+        event
+        for scenario in generate_scenarios(1000, n_scenarios_per_family=20)
+        for event in scenario.events
+        if event.type == "stop"
+    ]
+    assert {e.target for e in stops} >= {"playing", "superseded", "stale", "unknown"}
+    for event in stops:
+        if event.target in ("stale", "unknown"):
+            assert event.reason == "facial_reflex_startle", event
+        elif event.reason != "confirmed_user_speech":
+            assert event.reason == "confirmed_command", event
+
+
+@pytest.mark.asyncio
+async def test_a_stale_stop_that_lands_on_the_superseded_reply_is_not_applied(
+    monkeypatch,
+):
+    # Seed 1000 random scenario 29: "stale" resolves to the first reply, which
+    # is also the superseded one. As a voice command BrainAgent would rightly
+    # accept it (ADR-003), and the suite used to score that as a stale stop
+    # that applied; a reflex stop for a superseded turn must be ignored.
+    monkeypatch.setattr(Config, "BARGE_IN_ONSET_GRACE_S", 0.0)  # as the suite runs
+    scenario = next(
+        s
+        for s in generate_scenarios(1000, n_scenarios_per_family=50)
+        if s.family == "random" and s.index == 29
+    )
+    assert any(e.type == "stop" and e.target == "stale" for e in scenario.events)
+    reflex = await _run_scenario(scenario, 1000, scenario.index, 1.0)
+    assert reflex.metrics["stale_stop_applied_violation"] == 0
+    as_command = replace(
+        scenario,
+        events=tuple(
+            replace(e, reason="confirmed_command") if e.type == "stop" else e
+            for e in scenario.events
+        ),
+    )
+    command = await _run_scenario(as_command, 1000, scenario.index, 1.0)
+    assert command.metrics["stale_stop_applied_violation"] == 1
 
 
 @pytest.mark.parametrize(
