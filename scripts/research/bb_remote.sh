@@ -7,6 +7,7 @@
 #   bb_remote.sh run NAME -- CMD...         run CMD detached in backend/, log to $BB_LOGS_DIR/NAME.log
 #   bb_remote.sh status NAME                running or finished (+exit code), and the log tail
 #   bb_remote.sh wait NAME [poll_seconds]   block until NAME finishes; exit with its exit code
+#   bb_remote.sh stop NAME                  TERM (then KILL after 30 s) NAME and every process under it
 #   bb_remote.sh fetch NAME REMOTE_PATH LOCAL_DIR   copy results back (REMOTE_PATH relative to backend/)
 #
 # Env: GPU_HOST (default home-gpu), BB_REMOTE_DIR (default /data/aif-v3),
@@ -71,8 +72,27 @@ echo \$? > $LOGS/$name.log.exit"
         remote "mkdir -p $LOGS; if [ -f $LOGS/$name.pid ] && kill -0 \$(cat $LOGS/$name.pid) 2>/dev/null; \
 then echo 'already running: $name' >&2; exit 3; fi; cat > $LOGS/$name.sh" <<<"$script"
     fi
-    remote "rm -f $LOGS/$name.log.exit; nohup bash $LOGS/$name.sh > $LOGS/$name.log 2>&1 < /dev/null & \
+    # setsid puts the job in its own process group (pgid = the pid recorded
+    # here), so `stop` can take down the pool workers too; killing only the
+    # parent re-parents them to init and they run on.
+    remote "rm -f $LOGS/$name.log.exit; setsid nohup bash $LOGS/$name.sh > $LOGS/$name.log 2>&1 < /dev/null & \
 echo \$! > $LOGS/$name.pid; disown; echo started $name pid \$(cat $LOGS/$name.pid)"
+    ;;
+stop)
+    name="${1:-}"; valid_name "$name"
+    # The whole descendant tree is collected before anything is signalled,
+    # because children lose their parent link the moment it dies. The group
+    # kill covers jobs started with setsid; the tree covers older ones.
+    remote "p=\$(cat $LOGS/$name.pid 2>/dev/null) || { echo 'no pid file: $name' >&2; exit 1; }; \
+kill -0 \$p 2>/dev/null || { echo 'not running: $name'; exit 0; }; \
+tree=\$p; next=\$p; while [ -n \"\$next\" ]; do \
+next=\$(pgrep -d , -P \"\$next\" || true); [ -n \"\$next\" ] && tree=\"\$tree,\$next\"; done; \
+tree=\$(echo \$tree | tr , ' '); \
+kill -TERM -- -\$p 2>/dev/null || true; kill -TERM \$tree 2>/dev/null || true; \
+for i in \$(seq 30); do alive=\$(ps -o pid= -p \$(echo \$tree | tr ' ' ,) | wc -l); [ \$alive -eq 0 ] && break; sleep 1; done; \
+[ \$alive -eq 0 ] || kill -KILL \$tree 2>/dev/null || true; \
+[ -f $LOGS/$name.log.exit ] || echo 143 > $LOGS/$name.log.exit; \
+echo \"stopped $name (\$(echo \$tree | wc -w) processes)\""
     ;;
 status)
     name="${1:-}"; valid_name "$name"
@@ -97,7 +117,7 @@ fetch)
     fi
     ;;
 *)
-    sed -n '2,19p' "$0"
+    sed -n '2,20p' "$0"
     exit 2
     ;;
 esac
