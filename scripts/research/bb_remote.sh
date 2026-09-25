@@ -4,12 +4,13 @@
 # hand a dozen times (Phases 4-6).
 #
 #   bb_remote.sh sync [branch]              fast-forward the remote clone to origin/<branch>
-#   bb_remote.sh run NAME -- CMD...         run CMD detached in backend/, log to run-logs/NAME.log
+#   bb_remote.sh run NAME -- CMD...         run CMD detached in backend/, log to $BB_LOGS_DIR/NAME.log
 #   bb_remote.sh status NAME                running or finished (+exit code), and the log tail
 #   bb_remote.sh wait NAME [poll_seconds]   block until NAME finishes; exit with its exit code
 #   bb_remote.sh fetch NAME REMOTE_PATH LOCAL_DIR   copy results back (REMOTE_PATH relative to backend/)
 #
 # Env: GPU_HOST (default home-gpu), BB_REMOTE_DIR (default /data/aif-v3),
+# BB_LOGS_DIR (default /data/aif-v3-runs/logs, outside the clone),
 # BB_DRY_RUN=1 prints the commands instead of running them.
 #
 # A run writes <log>.exit with the command's exit code when it ends, so a
@@ -20,7 +21,8 @@ set -euo pipefail
 
 HOST="${GPU_HOST:-home-gpu}"
 DIR="${BB_REMOTE_DIR:-/data/aif-v3}"
-LOGS="$DIR/run-logs"
+# Outside the clone, so a run never makes the tree it is measuring dirty.
+LOGS="${BB_LOGS_DIR:-/data/aif-v3-runs/logs}"
 
 remote() {
     if [ "${BB_DRY_RUN:-0}" = "1" ]; then

@@ -37,7 +37,7 @@ def test_job_arguments_survive_quoting_exactly_once():
 def test_script_records_the_exit_code_and_runs_in_backend():
     out = _run("run", "job1", "--", "true").stdout
     assert "cd /data/aif-v3/backend" in out
-    assert "echo $? > /data/aif-v3/run-logs/job1.log.exit" in out
+    assert "echo $? > /data/aif-v3-runs/logs/job1.log.exit" in out
 
 
 def test_unsafe_run_names_are_refused():
