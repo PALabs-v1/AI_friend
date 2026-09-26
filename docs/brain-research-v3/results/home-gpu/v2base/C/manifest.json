@@ -1,0 +1,52 @@
+{
+  "argv": [
+    "/data/aif-v3/backend/evals/brainbench/__main__.py",
+    "run",
+    "--mode",
+    "llm_augmented",
+    "--suites",
+    "memory,affect,personality,metacognition,resources",
+    "--archetypes",
+    "steady_professional",
+    "--seeds",
+    "1000",
+    "--horizons",
+    "1m",
+    "--llm-url",
+    "http://127.0.0.1:11434",
+    "--workers",
+    "1",
+    "--cell-root",
+    "/dev/shm/v2base-C",
+    "--out",
+    "/data/aif-v3/runs/v2base-C"
+  ],
+  "arm": "baseline",
+  "cell_root": "/dev/shm/v2base-C",
+  "dirty": false,
+  "embeddings": "model",
+  "ended_at": "2026-09-25T15:41:21.172470+00:00",
+  "git_sha": "84d9e0cd9ee9d7ed136804b997a35b10b850e312",
+  "git_sha_history": [
+    "84d9e0cd9ee9d7ed136804b997a35b10b850e312"
+  ],
+  "llm_url": "http://127.0.0.1:11434",
+  "mode": "llm_augmented",
+  "models": {
+    "LLM_CHAT_MODEL": "llama3.2:3b",
+    "LLM_FAST_MODEL": "qwen2.5:3b",
+    "LLM_REFLECTION_MODEL": "llama3.2:3b"
+  },
+  "overrides": {},
+  "platform": "Linux-7.0.0-34-generic-x86_64-with-glibc2.39",
+  "python": "3.12.3 (main, Aug 31 2026, 10:18:26) [GCC 13.3.0]",
+  "started_at": "2026-09-25T15:02:07.919332+00:00",
+  "variants": [
+    "default",
+    "direct_apply",
+    "no_surfacing",
+    "review_queue",
+    "surfacing"
+  ],
+  "workers": 1
+}

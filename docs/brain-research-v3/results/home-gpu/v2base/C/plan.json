@@ -1,0 +1,108 @@
+{
+  "cells": [
+    {
+      "archetype": "steady_professional",
+      "arm": "baseline",
+      "cell_id": "memory--llm_augmented--baseline--default--steady_professional--1000--1m--6d77cd4b93",
+      "horizon": "1m",
+      "kwargs": {
+        "progress_every": 100
+      },
+      "mode": "llm_augmented",
+      "seed": 1000,
+      "suite": "memory",
+      "variant": "default"
+    },
+    {
+      "archetype": "steady_professional",
+      "arm": "baseline",
+      "cell_id": "affect--llm_augmented--baseline--default--steady_professional--1000--1m--372b334331",
+      "horizon": "1m",
+      "kwargs": {
+        "progress_every": 25,
+        "system2_timeout": 30.0
+      },
+      "mode": "llm_augmented",
+      "seed": 1000,
+      "suite": "affect",
+      "variant": "default"
+    },
+    {
+      "archetype": "steady_professional",
+      "arm": "baseline",
+      "cell_id": "personality--llm_augmented--baseline--review_queue--steady_professional--1000--1m--ac84124354",
+      "horizon": "1m",
+      "kwargs": {
+        "background_timeout": 180.0,
+        "progress_every": 25,
+        "review_required": true
+      },
+      "mode": "llm_augmented",
+      "seed": 1000,
+      "suite": "personality",
+      "variant": "review_queue"
+    },
+    {
+      "archetype": "steady_professional",
+      "arm": "baseline",
+      "cell_id": "personality--llm_augmented--baseline--direct_apply--steady_professional--1000--1m--3b34809016",
+      "horizon": "1m",
+      "kwargs": {
+        "background_timeout": 180.0,
+        "progress_every": 25,
+        "review_required": false
+      },
+      "mode": "llm_augmented",
+      "seed": 1000,
+      "suite": "personality",
+      "variant": "direct_apply"
+    },
+    {
+      "archetype": "steady_professional",
+      "arm": "baseline",
+      "cell_id": "metacognition--llm_augmented--baseline--surfacing--steady_professional--1000--1m--64a69f6680",
+      "horizon": "1m",
+      "kwargs": {
+        "background_timeout": 10.0,
+        "outage_every": 5,
+        "progress_every": 100,
+        "surfacing": true
+      },
+      "mode": "llm_augmented",
+      "seed": 1000,
+      "suite": "metacognition",
+      "variant": "surfacing"
+    },
+    {
+      "archetype": "steady_professional",
+      "arm": "baseline",
+      "cell_id": "metacognition--llm_augmented--baseline--no_surfacing--steady_professional--1000--1m--9786c6c045",
+      "horizon": "1m",
+      "kwargs": {
+        "background_timeout": 10.0,
+        "outage_every": 5,
+        "progress_every": 100,
+        "surfacing": false
+      },
+      "mode": "llm_augmented",
+      "seed": 1000,
+      "suite": "metacognition",
+      "variant": "no_surfacing"
+    },
+    {
+      "archetype": "steady_professional",
+      "arm": "baseline",
+      "cell_id": "resources--llm_augmented--baseline--default--steady_professional--1000--1m--eff5d5998c",
+      "horizon": "1m",
+      "kwargs": {
+        "background_timeout": 10.0,
+        "sample_every_turns": 10
+      },
+      "mode": "llm_augmented",
+      "seed": 1000,
+      "suite": "resources",
+      "variant": "default"
+    }
+  ],
+  "embeddings": "model"
+}

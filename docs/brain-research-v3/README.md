@@ -19,19 +19,20 @@ This directory is the working record for the next research/engineering cycle, pe
 | [08-live-infra-validation.md](08-live-infra-validation.md) | Live Postgres+Qdrant+Neo4j cross-store consistency validation (Phase 4b) | done |
 | [09-gpu-experiment-results.md](09-gpu-experiment-results.md) | Real-embedding (8 models) and real-LLM ToM results, H-R1/H-R2/H-R3/ToM rules applied | done |
 | [10-lifesim.md](10-lifesim.md) | Synthetic longitudinal life simulator: pipeline, leakage boundary, the builder tournament, every defect the harsh-critic pass found and fixed | done |
+| [11-v2-lifesim-baseline.md](11-v2-lifesim-baseline.md) | Phase 6: the Brain V2 lifesim baseline every V3 workstream is compared against (BrainBench, 463 cells, both modes) | done |
 | [findings.md](findings.md) | Pre-existing problem ledger (Objective 9) | ongoing, F-001..F-015 |
-| [codex-log.md](codex-log.md) | One line per Codex task: verdict, disagreement, resolution | ongoing (C0-C12) |
+| [codex-log.md](codex-log.md) | One line per Codex task: verdict, disagreement, resolution | ongoing (C0-C14, P8, W4, W9, W10a) |
 | `interview/round-1..10.md` | Interview briefs | done, all 10 rounds |
-| `decisions/DR-001..036-*.md` | Recorded architecture decisions from Aniket | done, all 36 |
+| `decisions/DR-001..038-*.md` | Recorded architecture decisions from Aniket | done, all 38 |
 | [baseline/manifest.json](baseline/manifest.json), [baseline/RESULTS.md](baseline/RESULTS.md) | Brain V2 Local Baseline: env facts, headline numbers, both machines | done |
-| `results/{mac,home-gpu}/` | Raw JSON/logs backing the baseline (Phase 3) and the GPU experiments (Phase 4a); scale tests land here in later phases | Phase 3-4 done |
+| `results/{mac,home-gpu}/` | Raw JSON/logs backing the baseline (Phase 3), the GPU experiments (Phase 4a) and the V2 lifesim baseline reports (`home-gpu/v2base/`, Phase 6); raw outcomes live in the research-data archive (`scripts/research/collect_research_data.sh`) | Phase 3-4, 6 done |
 | `backend/evals/lifesim/` | The lifesim generator itself (code, not docs) | Phase 5 done |
 
 ## Process
 
 Codex CLI runs as an independent second engineer throughout (see root `CLAUDE.md`'s fan-out rules and the plan's Codex protocol). For every audit, Codex runs cold — without my conclusions — and I commit my own audit before reading its output, so the independence is provable from commit timestamps, not just asserted.
 
-## Status (2026-09-25)
+## Status (2026-09-26)
 
 Phases 0-5 are complete: setup, reconstruction + dual audit, the 10-round/36-decision interview, the Brain V2 Local Baseline (both machines), real infrastructure + GPU validation, and the synthetic longitudinal life simulator. Two decisions carry the most weight for everything downstream: DR-002 (an autonomous humanoid mind, not a companion/assistant mode) and DR-020 (personality evolution is entirely self-authored, no external approval).
 
@@ -46,4 +47,6 @@ Both machines agree on every deterministic result (Rust: 179/179 on both; barge-
 
 **Phase 5 (lifesim)**: a builder tournament (Codex C3 vs. an independent Claude sub-agent) collapsed to one surviving builder — the sub-agent stalled and was stopped; Codex crashed near completion from an unrelated network timeout but had already written complete, working code. Its output passed its own tests and this project's 24 independent gate tests, but reading the generated text at scale (not just running the schema-shaped tests) surfaced 10 real defects — including one that crashed the generator outright under enough scale — all fixed. See `10-lifesim.md` for the full defect table. Final state: 80/80 tests, 0 crashes across a 150-seed/10-year stress sweep, 0 remaining text artifacts across a 565,880-row quality sweep.
 
-Next: Phase 6 (BrainBench), then Phase 7 (workstreams W1-W11, informed by everything measured in Phases 3-5).
+**Phase 6 (BrainBench)**: nine suites over two modes, the ablation switchboard, clustered statistics and the CI gate slice are merged; the full V2 lifesim baseline ran on home-gpu (463 cells, 0 errors) and is written up in `11-v2-lifesim-baseline.md`. It measures V-4 at about 1,214 cooldown violations per simulated day under production's broadcast sync, one barge-in scenario in seven losing a reply's outcome, trust pinned at its ceiling (so hostility is unmeasurable), and user words moving mood by exactly 0.
+
+**Phase 7, wave A**: W4 (playback lifecycle), W9 (importance-weighted proactive initiation) and W10a (security part 1) are reviewed and merged, and P8's scale runner is in; every review is a row in `codex-log.md`. Next: rerun the W9 panel at the merged commit on home-gpu, then W5 and W10b, then wave B (W1, W2, W3, SW).

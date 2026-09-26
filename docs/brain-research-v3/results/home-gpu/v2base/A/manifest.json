@@ -1,0 +1,42 @@
+{
+  "argv": [
+    "/data/aif-v3/backend/evals/brainbench/__main__.py",
+    "run",
+    "--mode",
+    "architecture_only",
+    "--suites",
+    "attention,trust,resources",
+    "--archetypes",
+    "all",
+    "--seeds",
+    "1000-1011",
+    "--horizons",
+    "1w,1m,6m,1y,3y,10y",
+    "--workers",
+    "6",
+    "--cell-root",
+    "/dev/shm/v2base-A",
+    "--out",
+    "/data/aif-v3/runs/v2base-A"
+  ],
+  "arm": "baseline",
+  "cell_root": "/dev/shm/v2base-A",
+  "dirty": false,
+  "embeddings": "deterministic",
+  "ended_at": "2026-09-25T15:49:16.858135+00:00",
+  "git_sha": "84d9e0cd9ee9d7ed136804b997a35b10b850e312",
+  "git_sha_history": [
+    "84d9e0cd9ee9d7ed136804b997a35b10b850e312"
+  ],
+  "llm_url": null,
+  "mode": "architecture_only",
+  "models": {},
+  "overrides": {},
+  "platform": "Linux-7.0.0-34-generic-x86_64-with-glibc2.39",
+  "python": "3.12.3 (main, Aug 31 2026, 10:18:26) [GCC 13.3.0]",
+  "started_at": "2026-09-25T15:02:00.273892+00:00",
+  "variants": [
+    "default"
+  ],
+  "workers": 6
+}

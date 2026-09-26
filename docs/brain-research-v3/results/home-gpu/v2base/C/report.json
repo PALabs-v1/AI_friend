@@ -1,0 +1,4205 @@
+{
+  "errors": [],
+  "groups": {
+    "affect/default/1m": {
+      "metrics": {
+        "oracle_user_valence": {
+          "ci95": [
+            0.0211,
+            0.0689
+          ],
+          "mean": 0.0457,
+          "missing": 0,
+          "n": 115,
+          "n_clusters": 1
+        },
+        "system2_completed": {
+          "ci95": [
+            1.0,
+            1.0
+          ],
+          "mean": 1.0,
+          "missing": 0,
+          "n": 115,
+          "n_clusters": 1
+        },
+        "valence_delta": {
+          "ci95": [
+            0.0,
+            0.0
+          ],
+          "mean": 0.0,
+          "missing": 0,
+          "n": 115,
+          "n_clusters": 1
+        }
+      },
+      "n_outcomes": 115
+    },
+    "memory/default/1m": {
+      "metrics": {
+        "abstained": {
+          "ci95": [
+            0.0,
+            0.0
+          ],
+          "mean": 0.0,
+          "missing": 0,
+          "n": 5,
+          "n_clusters": 1
+        },
+        "coverage": {
+          "ci95": [
+            0.0,
+            0.0
+          ],
+          "mean": 0.0,
+          "missing": 0,
+          "n": 1,
+          "n_clusters": 1
+        },
+        "hit@5": {
+          "ci95": [
+            0.1875,
+            0.625
+          ],
+          "mean": 0.4375,
+          "missing": 0,
+          "n": 16,
+          "n_clusters": 1
+        },
+        "mrr": {
+          "ci95": [
+            0.146,
+            0.6077
+          ],
+          "mean": 0.3615,
+          "missing": 0,
+          "n": 13,
+          "n_clusters": 1
+        },
+        "n_retrieved": {
+          "ci95": [
+            5.0,
+            5.0
+          ],
+          "mean": 5.0,
+          "missing": 0,
+          "n": 22,
+          "n_clusters": 1
+        }
+      },
+      "n_outcomes": 22
+    },
+    "metacognition/no_surfacing/1m": {
+      "metrics": {
+        "answerable": {
+          "ci95": [
+            0.5909,
+            0.9545
+          ],
+          "mean": 0.7727,
+          "missing": 0,
+          "n": 22,
+          "n_clusters": 1
+        },
+        "correct_at_1": {
+          "ci95": [
+            0.1176,
+            0.5294
+          ],
+          "mean": 0.2941,
+          "missing": 0,
+          "n": 17,
+          "n_clusters": 1
+        },
+        "failure_visible": {
+          "ci95": [
+            0.0,
+            0.0
+          ],
+          "mean": 0.0,
+          "missing": 0,
+          "n": 115,
+          "n_clusters": 1
+        },
+        "memory_refresh_timed_out": {
+          "ci95": [
+            0.0,
+            0.0
+          ],
+          "mean": 0.0,
+          "missing": 0,
+          "n": 137,
+          "n_clusters": 1
+        },
+        "outage_injected": {
+          "ci95": [
+            0.1217,
+            0.2783
+          ],
+          "mean": 0.2,
+          "missing": 0,
+          "n": 115,
+          "n_clusters": 1
+        },
+        "outage_scheduled": {
+          "ci95": [
+            0.1217,
+            0.2783
+          ],
+          "mean": 0.2,
+          "missing": 0,
+          "n": 115,
+          "n_clusters": 1
+        },
+        "per_turn_retrieval_ran": {
+          "ci95": [
+            0.9739,
+            1.0
+          ],
+          "mean": 0.9913,
+          "missing": 0,
+          "n": 115,
+          "n_clusters": 1
+        },
+        "reflection_timed_out": {
+          "ci95": [
+            0.0,
+            0.0
+          ],
+          "mean": 0.0,
+          "missing": 0,
+          "n": 115,
+          "n_clusters": 1
+        },
+        "surfaced_carried_over": {
+          "ci95": [
+            0.0,
+            0.0
+          ],
+          "mean": 0.0,
+          "missing": 0,
+          "n": 115,
+          "n_clusters": 1
+        },
+        "surfaced_changed": {
+          "ci95": [
+            0.0,
+            0.0
+          ],
+          "mean": 0.0,
+          "missing": 0,
+          "n": 115,
+          "n_clusters": 1
+        },
+        "surfaced_count": {
+          "ci95": [
+            0.0,
+            0.0
+          ],
+          "mean": 0.0,
+          "missing": 0,
+          "n": 115,
+          "n_clusters": 1
+        },
+        "surfaced_this_turn": {
+          "ci95": [
+            0.0,
+            0.0
+          ],
+          "mean": 0.0,
+          "missing": 0,
+          "n": 115,
+          "n_clusters": 1
+        },
+        "surfacing_ignored_publish_count": {
+          "ci95": [
+            0.0,
+            0.0
+          ],
+          "mean": 0.0,
+          "missing": 0,
+          "n": 115,
+          "n_clusters": 1
+        },
+        "surfacing_sweep_would_have_been_throttled": {
+          "ci95": [
+            0.0,
+            0.0
+          ],
+          "mean": 0.0,
+          "missing": 0,
+          "n": 115,
+          "n_clusters": 1
+        },
+        "system2_timed_out": {
+          "ci95": [
+            0.0,
+            0.0
+          ],
+          "mean": 0.0,
+          "missing": 0,
+          "n": 115,
+          "n_clusters": 1
+        },
+        "top_score": {
+          "ci95": [
+            3.7656,
+            4.985
+          ],
+          "mean": 4.3679,
+          "missing": 0,
+          "n": 22,
+          "n_clusters": 1
+        },
+        "turn_errored": {
+          "ci95": [
+            0.0,
+            0.0
+          ],
+          "mean": 0.0,
+          "missing": 0,
+          "n": 115,
+          "n_clusters": 1
+        }
+      },
+      "n_outcomes": 137
+    },
+    "metacognition/surfacing/1m": {
+      "metrics": {
+        "answerable": {
+          "ci95": [
+            0.5909,
+            0.9545
+          ],
+          "mean": 0.7727,
+          "missing": 0,
+          "n": 22,
+          "n_clusters": 1
+        },
+        "correct_at_1": {
+          "ci95": [
+            0.1176,
+            0.5882
+          ],
+          "mean": 0.3529,
+          "missing": 0,
+          "n": 17,
+          "n_clusters": 1
+        },
+        "failure_visible": {
+          "ci95": [
+            0.0,
+            0.0
+          ],
+          "mean": 0.0,
+          "missing": 0,
+          "n": 115,
+          "n_clusters": 1
+        },
+        "memory_refresh_timed_out": {
+          "ci95": [
+            0.0,
+            0.0
+          ],
+          "mean": 0.0,
+          "missing": 0,
+          "n": 137,
+          "n_clusters": 1
+        },
+        "outage_injected": {
+          "ci95": [
+            0.0,
+            0.0
+          ],
+          "mean": 0.0,
+          "missing": 0,
+          "n": 115,
+          "n_clusters": 1
+        },
+        "outage_scheduled": {
+          "ci95": [
+            0.1217,
+            0.2783
+          ],
+          "mean": 0.2,
+          "missing": 0,
+          "n": 115,
+          "n_clusters": 1
+        },
+        "per_turn_retrieval_ran": {
+          "ci95": [
+            0.0,
+            0.0348
+          ],
+          "mean": 0.0087,
+          "missing": 0,
+          "n": 115,
+          "n_clusters": 1
+        },
+        "reflection_timed_out": {
+          "ci95": [
+            0.0,
+            0.0
+          ],
+          "mean": 0.0,
+          "missing": 0,
+          "n": 115,
+          "n_clusters": 1
+        },
+        "surfaced_carried_over": {
+          "ci95": [
+            4.0433,
+            4.4261
+          ],
+          "mean": 4.2435,
+          "missing": 0,
+          "n": 115,
+          "n_clusters": 1
+        },
+        "surfaced_changed": {
+          "ci95": [
+            0.365,
+            0.5478
+          ],
+          "mean": 0.4522,
+          "missing": 0,
+          "n": 115,
+          "n_clusters": 1
+        },
+        "surfaced_count": {
+          "ci95": [
+            4.5043,
+            4.8609
+          ],
+          "mean": 4.6957,
+          "missing": 0,
+          "n": 115,
+          "n_clusters": 1
+        },
+        "surfaced_this_turn": {
+          "ci95": [
+            0.365,
+            0.5478
+          ],
+          "mean": 0.4522,
+          "missing": 0,
+          "n": 115,
+          "n_clusters": 1
+        },
+        "surfacing_ignored_publish_count": {
+          "ci95": [
+            0.0,
+            0.0
+          ],
+          "mean": 0.0,
+          "missing": 0,
+          "n": 115,
+          "n_clusters": 1
+        },
+        "surfacing_sweep_would_have_been_throttled": {
+          "ci95": [
+            0.0,
+            0.0
+          ],
+          "mean": 0.0,
+          "missing": 0,
+          "n": 115,
+          "n_clusters": 1
+        },
+        "system2_timed_out": {
+          "ci95": [
+            0.0,
+            0.0
+          ],
+          "mean": 0.0,
+          "missing": 0,
+          "n": 115,
+          "n_clusters": 1
+        },
+        "top_score": {
+          "ci95": [
+            3.9111,
+            5.1468
+          ],
+          "mean": 4.5372,
+          "missing": 0,
+          "n": 22,
+          "n_clusters": 1
+        },
+        "turn_errored": {
+          "ci95": [
+            0.0,
+            0.0
+          ],
+          "mean": 0.0,
+          "missing": 0,
+          "n": 115,
+          "n_clusters": 1
+        }
+      },
+      "n_outcomes": 137
+    },
+    "personality/direct_apply/1m": {
+      "metrics": {
+        "applied": {
+          "ci95": [
+            0.1913,
+            0.3478
+          ],
+          "mean": 0.2696,
+          "missing": 0,
+          "n": 115,
+          "n_clusters": 1
+        },
+        "constitutional_changed": {
+          "ci95": [
+            0.0,
+            0.0
+          ],
+          "mean": 0.0,
+          "missing": 0,
+          "n": 115,
+          "n_clusters": 1
+        },
+        "high_confidence": {
+          "ci95": [
+            0.1913,
+            0.3478
+          ],
+          "mean": 0.2696,
+          "missing": 0,
+          "n": 115,
+          "n_clusters": 1
+        },
+        "history_memories": {
+          "ci95": [
+            0.0,
+            0.0
+          ],
+          "mean": 0.0,
+          "missing": 0,
+          "n": 115,
+          "n_clusters": 1
+        },
+        "immutable_changed": {
+          "ci95": [
+            0.0,
+            0.0
+          ],
+          "mean": 0.0,
+          "missing": 0,
+          "n": 115,
+          "n_clusters": 1
+        },
+        "max_confidence": {
+          "ci95": [
+            0.5039,
+            0.7409
+          ],
+          "mean": 0.6289,
+          "missing": 0,
+          "n": 46,
+          "n_clusters": 1
+        },
+        "persona_calls": {
+          "ci95": [
+            0.3217,
+            0.487
+          ],
+          "mean": 0.4,
+          "missing": 0,
+          "n": 115,
+          "n_clusters": 1
+        },
+        "persona_parsed": {
+          "ci95": [
+            0.3217,
+            0.487
+          ],
+          "mean": 0.4,
+          "missing": 0,
+          "n": 115,
+          "n_clusters": 1
+        },
+        "persona_prompt_chars": {
+          "ci95": [
+            1483.1998,
+            1488.8002
+          ],
+          "mean": 1485.8957,
+          "missing": 0,
+          "n": 115,
+          "n_clusters": 1
+        },
+        "queued": {
+          "ci95": [
+            0.0,
+            0.0
+          ],
+          "mean": 0.0,
+          "missing": 0,
+          "n": 115,
+          "n_clusters": 1
+        },
+        "reflection_completed": {
+          "ci95": [
+            0.3217,
+            0.487
+          ],
+          "mean": 0.4,
+          "missing": 0,
+          "n": 115,
+          "n_clusters": 1
+        },
+        "reflection_started": {
+          "ci95": [
+            0.3217,
+            0.487
+          ],
+          "mean": 0.4,
+          "missing": 0,
+          "n": 115,
+          "n_clusters": 1
+        },
+        "relationship_changed": {
+          "ci95": [
+            0.0957,
+            0.2435
+          ],
+          "mean": 0.1652,
+          "missing": 0,
+          "n": 115,
+          "n_clusters": 1
+        },
+        "style_changed": {
+          "ci95": [
+            0.0,
+            0.0
+          ],
+          "mean": 0.0,
+          "missing": 0,
+          "n": 115,
+          "n_clusters": 1
+        },
+        "trait_distance_from_seed": {
+          "ci95": [
+            0.92,
+            0.9664
+          ],
+          "mean": 0.9441,
+          "missing": 0,
+          "n": 115,
+          "n_clusters": 1
+        },
+        "traits_added": {
+          "ci95": [
+            0.2696,
+            0.5565
+          ],
+          "mean": 0.4,
+          "missing": 0,
+          "n": 115,
+          "n_clusters": 1
+        },
+        "traits_dropped": {
+          "ci95": [
+            0.2348,
+            0.5133
+          ],
+          "mean": 0.3652,
+          "missing": 0,
+          "n": 115,
+          "n_clusters": 1
+        },
+        "value_conflicts": {
+          "ci95": [
+            0.0,
+            0.0
+          ],
+          "mean": 0.0,
+          "missing": 0,
+          "n": 115,
+          "n_clusters": 1
+        }
+      },
+      "n_outcomes": 115
+    },
+    "personality/review_queue/1m": {
+      "metrics": {
+        "applied": {
+          "ci95": [
+            0.0,
+            0.0
+          ],
+          "mean": 0.0,
+          "missing": 0,
+          "n": 115,
+          "n_clusters": 1
+        },
+        "constitutional_changed": {
+          "ci95": [
+            0.0,
+            0.0
+          ],
+          "mean": 0.0,
+          "missing": 0,
+          "n": 115,
+          "n_clusters": 1
+        },
+        "high_confidence": {
+          "ci95": [
+            0.2696,
+            0.4348
+          ],
+          "mean": 0.3478,
+          "missing": 0,
+          "n": 115,
+          "n_clusters": 1
+        },
+        "history_memories": {
+          "ci95": [
+            0.0,
+            0.0
+          ],
+          "mean": 0.0,
+          "missing": 0,
+          "n": 115,
+          "n_clusters": 1
+        },
+        "immutable_changed": {
+          "ci95": [
+            0.0,
+            0.0
+          ],
+          "mean": 0.0,
+          "missing": 0,
+          "n": 115,
+          "n_clusters": 1
+        },
+        "max_confidence": {
+          "ci95": [
+            0.7417,
+            0.8672
+          ],
+          "mean": 0.8111,
+          "missing": 0,
+          "n": 46,
+          "n_clusters": 1
+        },
+        "persona_calls": {
+          "ci95": [
+            0.3217,
+            0.487
+          ],
+          "mean": 0.4,
+          "missing": 0,
+          "n": 115,
+          "n_clusters": 1
+        },
+        "persona_parsed": {
+          "ci95": [
+            0.3217,
+            0.487
+          ],
+          "mean": 0.4,
+          "missing": 0,
+          "n": 115,
+          "n_clusters": 1
+        },
+        "persona_prompt_chars": {
+          "ci95": [
+            1425.0,
+            1425.0
+          ],
+          "mean": 1425.0,
+          "missing": 0,
+          "n": 115,
+          "n_clusters": 1
+        },
+        "queued": {
+          "ci95": [
+            0.2696,
+            0.4348
+          ],
+          "mean": 0.3478,
+          "missing": 0,
+          "n": 115,
+          "n_clusters": 1
+        },
+        "reflection_completed": {
+          "ci95": [
+            0.3217,
+            0.487
+          ],
+          "mean": 0.4,
+          "missing": 0,
+          "n": 115,
+          "n_clusters": 1
+        },
+        "reflection_started": {
+          "ci95": [
+            0.3217,
+            0.487
+          ],
+          "mean": 0.4,
+          "missing": 0,
+          "n": 115,
+          "n_clusters": 1
+        },
+        "relationship_changed": {
+          "ci95": [
+            0.0,
+            0.0
+          ],
+          "mean": 0.0,
+          "missing": 0,
+          "n": 115,
+          "n_clusters": 1
+        },
+        "style_changed": {
+          "ci95": [
+            0.0,
+            0.0
+          ],
+          "mean": 0.0,
+          "missing": 0,
+          "n": 115,
+          "n_clusters": 1
+        },
+        "trait_distance_from_seed": {
+          "ci95": [
+            0.0,
+            0.0
+          ],
+          "mean": 0.0,
+          "missing": 0,
+          "n": 115,
+          "n_clusters": 1
+        },
+        "traits_added": {
+          "ci95": [
+            0.0,
+            0.0
+          ],
+          "mean": 0.0,
+          "missing": 0,
+          "n": 115,
+          "n_clusters": 1
+        },
+        "traits_dropped": {
+          "ci95": [
+            0.0,
+            0.0
+          ],
+          "mean": 0.0,
+          "missing": 0,
+          "n": 115,
+          "n_clusters": 1
+        },
+        "value_conflicts": {
+          "ci95": [
+            0.0,
+            0.0
+          ],
+          "mean": 0.0,
+          "missing": 0,
+          "n": 115,
+          "n_clusters": 1
+        }
+      },
+      "n_outcomes": 115
+    },
+    "resources/default/1m": {
+      "metrics": {
+        "background_task_timeouts": {
+          "ci95": [
+            0.0,
+            0.0
+          ],
+          "mean": 0.0,
+          "missing": 0,
+          "n": 115,
+          "n_clusters": 1
+        },
+        "cpu_system_seconds": {
+          "ci95": [
+            9.1158,
+            9.6054
+          ],
+          "mean": 9.3548,
+          "missing": 0,
+          "n": 12,
+          "n_clusters": 1
+        },
+        "cpu_total_seconds": {
+          "ci95": [
+            64.3415,
+            67.7756
+          ],
+          "mean": 66.0214,
+          "missing": 0,
+          "n": 12,
+          "n_clusters": 1
+        },
+        "cpu_user_seconds": {
+          "ci95": [
+            55.2257,
+            58.1702
+          ],
+          "mean": 56.6666,
+          "missing": 0,
+          "n": 12,
+          "n_clusters": 1
+        },
+        "db_bytes:identity_core.db": {
+          "ci95": [
+            8192.0,
+            8192.0
+          ],
+          "mean": 8192.0,
+          "missing": 0,
+          "n": 12,
+          "n_clusters": 1
+        },
+        "db_bytes:memory.db": {
+          "ci95": [
+            511573.3333,
+            827400.5333
+          ],
+          "mean": 667989.3333,
+          "missing": 0,
+          "n": 12,
+          "n_clusters": 1
+        },
+        "db_bytes:state_cache.db": {
+          "ci95": [
+            20480.0,
+            20480.0
+          ],
+          "mean": 20480.0,
+          "missing": 0,
+          "n": 12,
+          "n_clusters": 1
+        },
+        "db_bytes:temporal_memory.db": {
+          "ci95": [
+            4096.0,
+            4096.0
+          ],
+          "mean": 4096.0,
+          "missing": 0,
+          "n": 12,
+          "n_clusters": 1
+        },
+        "db_bytes:working_memory.db": {
+          "ci95": [
+            20480.0,
+            20480.0
+          ],
+          "mean": 20480.0,
+          "missing": 0,
+          "n": 12,
+          "n_clusters": 1
+        },
+        "db_bytes:workspace.db": {
+          "ci95": [
+            4096.0,
+            4096.0
+          ],
+          "mean": 4096.0,
+          "missing": 0,
+          "n": 12,
+          "n_clusters": 1
+        },
+        "elapsed_days": {
+          "ci95": [
+            14.8899,
+            17.5166
+          ],
+          "mean": 16.1814,
+          "missing": 0,
+          "n": 127,
+          "n_clusters": 1
+        },
+        "foreground_latency_ms": {
+          "ci95": [
+            1294.1544,
+            1466.1411
+          ],
+          "mean": 1378.9982,
+          "missing": 0,
+          "n": 115,
+          "n_clusters": 1
+        },
+        "graph_db_counts_applicable": {
+          "ci95": [
+            0.0,
+            0.0
+          ],
+          "mean": 0.0,
+          "missing": 0,
+          "n": 12,
+          "n_clusters": 1
+        },
+        "rows:identity_core.db:identity_core": {
+          "ci95": [
+            1.0,
+            1.0
+          ],
+          "mean": 1.0,
+          "missing": 0,
+          "n": 12,
+          "n_clusters": 1
+        },
+        "rows:memory.db:agent_configs": {
+          "ci95": [
+            0.0,
+            0.0
+          ],
+          "mean": 0.0,
+          "missing": 0,
+          "n": 12,
+          "n_clusters": 1
+        },
+        "rows:memory.db:archived_memories": {
+          "ci95": [
+            0.0,
+            0.0
+          ],
+          "mean": 0.0,
+          "missing": 0,
+          "n": 12,
+          "n_clusters": 1
+        },
+        "rows:memory.db:lexical_associations": {
+          "ci95": [
+            1455.4708,
+            2382.6063
+          ],
+          "mean": 1911.5833,
+          "missing": 0,
+          "n": 12,
+          "n_clusters": 1
+        },
+        "rows:memory.db:memories": {
+          "ci95": [
+            17.6604,
+            33.9187
+          ],
+          "mean": 25.6667,
+          "missing": 0,
+          "n": 12,
+          "n_clusters": 1
+        },
+        "rows:memory.db:messages": {
+          "ci95": [
+            0.0,
+            0.0
+          ],
+          "mean": 0.0,
+          "missing": 0,
+          "n": 12,
+          "n_clusters": 1
+        },
+        "rows:memory.db:self_knowledge_gaps": {
+          "ci95": [
+            4.75,
+            8.0021
+          ],
+          "mean": 6.5,
+          "missing": 0,
+          "n": 12,
+          "n_clusters": 1
+        },
+        "rows:memory.db:sessions": {
+          "ci95": [
+            0.0,
+            0.0
+          ],
+          "mean": 0.0,
+          "missing": 0,
+          "n": 12,
+          "n_clusters": 1
+        },
+        "rows:memory.db:visual_screen_traces": {
+          "ci95": [
+            0.0,
+            0.0
+          ],
+          "mean": 0.0,
+          "missing": 0,
+          "n": 12,
+          "n_clusters": 1
+        },
+        "rows:memory.db:vocabulary": {
+          "ci95": [
+            322.6625,
+            409.8333
+          ],
+          "mean": 366.4167,
+          "missing": 0,
+          "n": 12,
+          "n_clusters": 1
+        },
+        "rows:state_cache.db:adaptive_weights": {
+          "ci95": [
+            1.0,
+            1.0
+          ],
+          "mean": 1.0,
+          "missing": 0,
+          "n": 12,
+          "n_clusters": 1
+        },
+        "rows:state_cache.db:agent_state": {
+          "ci95": [
+            1.0,
+            1.0
+          ],
+          "mean": 1.0,
+          "missing": 0,
+          "n": 12,
+          "n_clusters": 1
+        },
+        "rows:temporal_memory.db:belief_reinforcements": {
+          "ci95": [
+            0.0,
+            0.0
+          ],
+          "mean": 0.0,
+          "missing": 0,
+          "n": 12,
+          "n_clusters": 1
+        },
+        "rows:temporal_memory.db:beliefs": {
+          "ci95": [
+            0.0,
+            0.0
+          ],
+          "mean": 0.0,
+          "missing": 0,
+          "n": 12,
+          "n_clusters": 1
+        },
+        "rows:temporal_memory.db:experiences": {
+          "ci95": [
+            0.0,
+            0.0
+          ],
+          "mean": 0.0,
+          "missing": 0,
+          "n": 12,
+          "n_clusters": 1
+        },
+        "rows:temporal_memory.db:procedures": {
+          "ci95": [
+            0.0,
+            0.0
+          ],
+          "mean": 0.0,
+          "missing": 0,
+          "n": 12,
+          "n_clusters": 1
+        },
+        "rows:working_memory.db:working_state": {
+          "ci95": [
+            1.0,
+            1.0
+          ],
+          "mean": 1.0,
+          "missing": 0,
+          "n": 12,
+          "n_clusters": 1
+        },
+        "rows:working_memory.db:working_turns": {
+          "ci95": [
+            0.0,
+            0.0
+          ],
+          "mean": 0.0,
+          "missing": 0,
+          "n": 12,
+          "n_clusters": 1
+        },
+        "rows:workspace.db:workspace_epoch": {
+          "ci95": [
+            1.0,
+            1.0
+          ],
+          "mean": 1.0,
+          "missing": 0,
+          "n": 12,
+          "n_clusters": 1
+        },
+        "rows:workspace.db:workspace_state": {
+          "ci95": [
+            1.0,
+            1.0
+          ],
+          "mean": 1.0,
+          "missing": 0,
+          "n": 12,
+          "n_clusters": 1
+        },
+        "rows:workspace.db:workspace_transitions": {
+          "ci95": [
+            45.0,
+            84.1771
+          ],
+          "mean": 64.5833,
+          "missing": 0,
+          "n": 12,
+          "n_clusters": 1
+        },
+        "rss_peak_mib": {
+          "ci95": [
+            177.25,
+            177.25
+          ],
+          "mean": 177.25,
+          "missing": 0,
+          "n": 12,
+          "n_clusters": 1
+        },
+        "run_directory_bytes": {
+          "ci95": [
+            1517828.2333,
+            2489616.3
+          ],
+          "mean": 1999825.6667,
+          "missing": 0,
+          "n": 12,
+          "n_clusters": 1
+        },
+        "stage:pre_llm_total_ms": {
+          "ci95": [
+            3.5771,
+            4.2863
+          ],
+          "mean": 3.8577,
+          "missing": 0,
+          "n": 115,
+          "n_clusters": 1
+        },
+        "stage:stage_10_learning_ms": {
+          "ci95": [
+            0.0667,
+            0.0721
+          ],
+          "mean": 0.0693,
+          "missing": 0,
+          "n": 115,
+          "n_clusters": 1
+        },
+        "stage:stage_1_extraction_ms": {
+          "ci95": [
+            0.0271,
+            0.0591
+          ],
+          "mean": 0.0407,
+          "missing": 0,
+          "n": 115,
+          "n_clusters": 1
+        },
+        "stage:stage_2_conflict_resolution_ms": {
+          "ci95": [
+            0.0008,
+            0.0009
+          ],
+          "mean": 0.0008,
+          "missing": 0,
+          "n": 115,
+          "n_clusters": 1
+        },
+        "stage:stage_3_perception_ms": {
+          "ci95": [
+            0.008,
+            0.0085
+          ],
+          "mean": 0.0083,
+          "missing": 0,
+          "n": 115,
+          "n_clusters": 1
+        },
+        "stage:stage_4_appraisal_ms": {
+          "ci95": [
+            0.1457,
+            0.1556
+          ],
+          "mean": 0.1505,
+          "missing": 0,
+          "n": 115,
+          "n_clusters": 1
+        },
+        "stage:stage_5_state_update_ms": {
+          "ci95": [
+            1.3565,
+            1.5339
+          ],
+          "mean": 1.44,
+          "missing": 0,
+          "n": 115,
+          "n_clusters": 1
+        },
+        "stage:stage_6_decision_ms": {
+          "ci95": [
+            1.9361,
+            2.5775
+          ],
+          "mean": 2.1774,
+          "missing": 0,
+          "n": 115,
+          "n_clusters": 1
+        },
+        "stage:stage_7_action_prep_ms": {
+          "ci95": [
+            0.0365,
+            0.0465
+          ],
+          "mean": 0.04,
+          "missing": 0,
+          "n": 115,
+          "n_clusters": 1
+        },
+        "stage:stage_8_action_execution_ms": {
+          "ci95": [
+            1288.1758,
+            1460.3741
+          ],
+          "mean": 1373.099,
+          "missing": 0,
+          "n": 115,
+          "n_clusters": 1
+        },
+        "stage:stage_9_validation_ms": {
+          "ci95": [
+            0.1403,
+            0.1594
+          ],
+          "mean": 0.1491,
+          "missing": 0,
+          "n": 115,
+          "n_clusters": 1
+        },
+        "stored_vectors:memory.db:archived_memories": {
+          "ci95": [
+            0.0,
+            0.0
+          ],
+          "mean": 0.0,
+          "missing": 0,
+          "n": 12,
+          "n_clusters": 1
+        },
+        "stored_vectors:memory.db:memories": {
+          "ci95": [
+            17.6604,
+            33.9187
+          ],
+          "mean": 25.6667,
+          "missing": 0,
+          "n": 12,
+          "n_clusters": 1
+        },
+        "stored_vectors:memory.db:vocabulary": {
+          "ci95": [
+            0.0,
+            0.0
+          ],
+          "mean": 0.0,
+          "missing": 0,
+          "n": 12,
+          "n_clusters": 1
+        },
+        "structure:cognitive.surfaced_memories": {
+          "ci95": [
+            0.0,
+            0.0
+          ],
+          "mean": 0.0,
+          "missing": 0,
+          "n": 12,
+          "n_clusters": 1
+        },
+        "structure:identity.history": {
+          "ci95": [
+            2.0,
+            2.0
+          ],
+          "mean": 2.0,
+          "missing": 0,
+          "n": 12,
+          "n_clusters": 1
+        },
+        "structure:learning_governor.proposals": {
+          "ci95": [
+            15.9146,
+            30.25
+          ],
+          "mean": 22.9167,
+          "missing": 0,
+          "n": 12,
+          "n_clusters": 1
+        },
+        "structure:memory.goal_buffer.concepts": {
+          "ci95": [
+            0.0,
+            0.0
+          ],
+          "mean": 0.0,
+          "missing": 0,
+          "n": 12,
+          "n_clusters": 1
+        },
+        "structure:memory.l1_cache": {
+          "ci95": [
+            1.1667,
+            2.0833
+          ],
+          "mean": 1.5833,
+          "missing": 0,
+          "n": 12,
+          "n_clusters": 1
+        },
+        "structure:memory.vector_index.personal": {
+          "ci95": [
+            17.6604,
+            33.9187
+          ],
+          "mean": 25.6667,
+          "missing": 0,
+          "n": 12,
+          "n_clusters": 1
+        },
+        "structure:state.active_goals": {
+          "ci95": [
+            0.0,
+            0.0
+          ],
+          "mean": 0.0,
+          "missing": 0,
+          "n": 12,
+          "n_clusters": 1
+        },
+        "structure:state.user_mental_model.implied_goals": {
+          "ci95": [
+            0.0,
+            0.0
+          ],
+          "mean": 0.0,
+          "missing": 0,
+          "n": 12,
+          "n_clusters": 1
+        },
+        "structure:state.user_mental_model.known_concepts": {
+          "ci95": [
+            103.4125,
+            147.0875
+          ],
+          "mean": 126.0,
+          "missing": 0,
+          "n": 12,
+          "n_clusters": 1
+        },
+        "structure_cap:cognitive.surfaced_memories": {
+          "ci95": [
+            5.0,
+            5.0
+          ],
+          "mean": 5.0,
+          "missing": 0,
+          "n": 12,
+          "n_clusters": 1
+        },
+        "structure_cap:memory.goal_buffer.concepts": {
+          "ci95": [
+            5.0,
+            5.0
+          ],
+          "mean": 5.0,
+          "missing": 0,
+          "n": 12,
+          "n_clusters": 1
+        },
+        "structure_cap:memory.l1_cache": {
+          "ci95": [
+            256.0,
+            256.0
+          ],
+          "mean": 256.0,
+          "missing": 0,
+          "n": 12,
+          "n_clusters": 1
+        },
+        "structure_cap:memory.vector_index.personal": {
+          "ci95": [
+            5000.0,
+            5000.0
+          ],
+          "mean": 5000.0,
+          "missing": 0,
+          "n": 12,
+          "n_clusters": 1
+        },
+        "structure_cap:state.user_mental_model.known_concepts": {
+          "ci95": [
+            200.0,
+            200.0
+          ],
+          "mean": 200.0,
+          "missing": 0,
+          "n": 12,
+          "n_clusters": 1
+        },
+        "turn_index": {
+          "ci95": [
+            52.8644,
+            64.3258
+          ],
+          "mean": 58.622,
+          "missing": 0,
+          "n": 127,
+          "n_clusters": 1
+        },
+        "turn_latency_ms": {
+          "ci95": [
+            1294.1812,
+            1466.1648
+          ],
+          "mean": 1379.0237,
+          "missing": 0,
+          "n": 115,
+          "n_clusters": 1
+        },
+        "vector_index_vectors": {
+          "ci95": [
+            17.6604,
+            33.9187
+          ],
+          "mean": 25.6667,
+          "missing": 0,
+          "n": 12,
+          "n_clusters": 1
+        },
+        "vram_applicable": {
+          "ci95": [
+            0.0,
+            0.0
+          ],
+          "mean": 0.0,
+          "missing": 0,
+          "n": 12,
+          "n_clusters": 1
+        }
+      },
+      "n_outcomes": 127
+    }
+  },
+  "summaries": {
+    "affect/default/1m": {
+      "system2_completion_rate.completed": {
+        "max": 115.0,
+        "mean": 115.0,
+        "min": 115.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "system2_completion_rate.completion_rate": {
+        "max": 1.0,
+        "mean": 1.0,
+        "min": 1.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "system2_completion_rate.n_turns": {
+        "max": 115.0,
+        "mean": 115.0,
+        "min": 115.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "user_valence_reaches_mood.cliffs_delta": {
+        "max": 0.0,
+        "mean": 0.0,
+        "min": 0.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "user_valence_reaches_mood.n_negative": {
+        "max": 3.0,
+        "mean": 3.0,
+        "min": 3.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "user_valence_reaches_mood.n_positive": {
+        "max": 19.0,
+        "mean": 19.0,
+        "min": 19.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "user_valence_reaches_mood.negative_mean_delta": {
+        "max": 0.0,
+        "mean": 0.0,
+        "min": 0.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "user_valence_reaches_mood.positive_mean_delta": {
+        "max": 0.0,
+        "mean": 0.0,
+        "min": 0.0,
+        "n_cells": 1,
+        "n_none": 0
+      }
+    },
+    "memory/default/1m": {
+      "score_probe.abstained.mean": {
+        "max": 0.0,
+        "mean": 0.0,
+        "min": 0.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "score_probe.coverage.mean": {
+        "max": 0.0,
+        "mean": 0.0,
+        "min": 0.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "score_probe.hit@5.mean": {
+        "max": 0.4375,
+        "mean": 0.4375,
+        "min": 0.4375,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "score_probe.mrr.mean": {
+        "max": 0.36153846153846153,
+        "mean": 0.36153846153846153,
+        "min": 0.36153846153846153,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "score_probe.n_retrieved.mean": {
+        "max": 5.0,
+        "mean": 5.0,
+        "min": 5.0,
+        "n_cells": 1,
+        "n_none": 0
+      }
+    },
+    "metacognition/no_surfacing/1m": {
+      "contradiction_recording.control_n": {
+        "max": 0.0,
+        "mean": 0.0,
+        "min": 0.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "contradiction_recording.control_recorded_rate": {
+        "max": null,
+        "mean": null,
+        "min": null,
+        "n_cells": 0,
+        "n_none": 1
+      },
+      "contradiction_recording.tagged_n": {
+        "max": 0.0,
+        "mean": 0.0,
+        "min": 0.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "contradiction_recording.tagged_recorded_rate": {
+        "max": null,
+        "mean": null,
+        "min": null,
+        "n_cells": 0,
+        "n_none": 1
+      },
+      "outage_propagation.failure_visible_rate": {
+        "max": 0.0,
+        "mean": 0.0,
+        "min": 0.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "outage_propagation.outage_turn_n": {
+        "max": 23.0,
+        "mean": 23.0,
+        "min": 23.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "outage_propagation.turn_error_rate": {
+        "max": 0.0,
+        "mean": 0.0,
+        "min": 0.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "retrieval_freshness.retrieval_ran_fraction": {
+        "max": 0.991304347826087,
+        "mean": 0.991304347826087,
+        "min": 0.991304347826087,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "retrieval_freshness.retrieval_skipped_with_surface_fraction": {
+        "max": 0.0,
+        "mean": 0.0,
+        "min": 0.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "retrieval_freshness.surfaced_carried_over_fraction": {
+        "max": null,
+        "mean": null,
+        "min": null,
+        "n_cells": 0,
+        "n_none": 1
+      },
+      "retrieval_freshness.surfaced_carried_over_n": {
+        "max": 0.0,
+        "mean": 0.0,
+        "min": 0.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "retrieval_freshness.surfaced_item_n": {
+        "max": 0.0,
+        "mean": 0.0,
+        "min": 0.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "retrieval_freshness.surfaced_turn_n": {
+        "max": 0.0,
+        "mean": 0.0,
+        "min": 0.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "retrieval_freshness.turn_n": {
+        "max": 115.0,
+        "mean": 115.0,
+        "min": 115.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "uncertainty_calibration.answerability_auroc": {
+        "max": 0.8823529411764706,
+        "mean": 0.8823529411764706,
+        "min": 0.8823529411764706,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "uncertainty_calibration.correctness_auroc": {
+        "max": 0.7333333333333333,
+        "mean": 0.7333333333333333,
+        "min": 0.7333333333333333,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "uncertainty_calibration.n_answerability_scored": {
+        "max": 22.0,
+        "mean": 22.0,
+        "min": 22.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "uncertainty_calibration.n_answerable_scored": {
+        "max": 17.0,
+        "mean": 17.0,
+        "min": 17.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "uncertainty_calibration.n_retrieval_score_bearing": {
+        "max": 22.0,
+        "mean": 22.0,
+        "min": 22.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "uncertainty_calibration.reliability.0.accuracy": {
+        "max": 0.0,
+        "mean": 0.0,
+        "min": 0.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "uncertainty_calibration.reliability.0.bin": {
+        "max": 0.0,
+        "mean": 0.0,
+        "min": 0.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "uncertainty_calibration.reliability.0.high": {
+        "max": 3.201735022895405,
+        "mean": 3.201735022895405,
+        "min": 3.201735022895405,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "uncertainty_calibration.reliability.0.low": {
+        "max": 2.0270803749608874,
+        "mean": 2.0270803749608874,
+        "min": 2.0270803749608874,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "uncertainty_calibration.reliability.0.mean_top_score": {
+        "max": 2.6053575078450035,
+        "mean": 2.6053575078450035,
+        "min": 2.6053575078450035,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "uncertainty_calibration.reliability.0.n": {
+        "max": 2.0,
+        "mean": 2.0,
+        "min": 2.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "uncertainty_calibration.reliability.1.accuracy": {
+        "max": 0.14285714285714285,
+        "mean": 0.14285714285714285,
+        "min": 0.14285714285714285,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "uncertainty_calibration.reliability.1.bin": {
+        "max": 1.0,
+        "mean": 1.0,
+        "min": 1.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "uncertainty_calibration.reliability.1.high": {
+        "max": 4.376389670829923,
+        "mean": 4.376389670829923,
+        "min": 4.376389670829923,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "uncertainty_calibration.reliability.1.low": {
+        "max": 3.201735022895405,
+        "mean": 3.201735022895405,
+        "min": 3.201735022895405,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "uncertainty_calibration.reliability.1.mean_top_score": {
+        "max": 4.066624508736819,
+        "mean": 4.066624508736819,
+        "min": 4.066624508736819,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "uncertainty_calibration.reliability.1.n": {
+        "max": 7.0,
+        "mean": 7.0,
+        "min": 7.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "uncertainty_calibration.reliability.2.accuracy": {
+        "max": 0.4,
+        "mean": 0.4,
+        "min": 0.4,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "uncertainty_calibration.reliability.2.bin": {
+        "max": 2.0,
+        "mean": 2.0,
+        "min": 2.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "uncertainty_calibration.reliability.2.high": {
+        "max": 5.55104431876444,
+        "mean": 5.55104431876444,
+        "min": 5.55104431876444,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "uncertainty_calibration.reliability.2.low": {
+        "max": 4.376389670829923,
+        "mean": 4.376389670829923,
+        "min": 4.376389670829923,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "uncertainty_calibration.reliability.2.mean_top_score": {
+        "max": 4.990721132750862,
+        "mean": 4.990721132750862,
+        "min": 4.990721132750862,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "uncertainty_calibration.reliability.2.n": {
+        "max": 5.0,
+        "mean": 5.0,
+        "min": 5.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "uncertainty_calibration.reliability.3.accuracy": {
+        "max": null,
+        "mean": null,
+        "min": null,
+        "n_cells": 0,
+        "n_none": 1
+      },
+      "uncertainty_calibration.reliability.3.bin": {
+        "max": 3.0,
+        "mean": 3.0,
+        "min": 3.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "uncertainty_calibration.reliability.3.high": {
+        "max": 6.725698966698957,
+        "mean": 6.725698966698957,
+        "min": 6.725698966698957,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "uncertainty_calibration.reliability.3.low": {
+        "max": 5.55104431876444,
+        "mean": 5.55104431876444,
+        "min": 5.55104431876444,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "uncertainty_calibration.reliability.3.mean_top_score": {
+        "max": null,
+        "mean": null,
+        "min": null,
+        "n_cells": 0,
+        "n_none": 1
+      },
+      "uncertainty_calibration.reliability.3.n": {
+        "max": 0.0,
+        "mean": 0.0,
+        "min": 0.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "uncertainty_calibration.reliability.4.accuracy": {
+        "max": 0.6666666666666666,
+        "mean": 0.6666666666666666,
+        "min": 0.6666666666666666,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "uncertainty_calibration.reliability.4.bin": {
+        "max": 4.0,
+        "mean": 4.0,
+        "min": 4.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "uncertainty_calibration.reliability.4.high": {
+        "max": 7.900353614633474,
+        "mean": 7.900353614633474,
+        "min": 7.900353614633474,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "uncertainty_calibration.reliability.4.low": {
+        "max": 6.725698966698957,
+        "mean": 6.725698966698957,
+        "min": 6.725698966698957,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "uncertainty_calibration.reliability.4.mean_top_score": {
+        "max": 7.304602793313446,
+        "mean": 7.304602793313446,
+        "min": 7.304602793313446,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "uncertainty_calibration.reliability.4.n": {
+        "max": 3.0,
+        "mean": 3.0,
+        "min": 3.0,
+        "n_cells": 1,
+        "n_none": 0
+      }
+    },
+    "metacognition/surfacing/1m": {
+      "contradiction_recording.control_n": {
+        "max": 0.0,
+        "mean": 0.0,
+        "min": 0.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "contradiction_recording.control_recorded_rate": {
+        "max": null,
+        "mean": null,
+        "min": null,
+        "n_cells": 0,
+        "n_none": 1
+      },
+      "contradiction_recording.tagged_n": {
+        "max": 0.0,
+        "mean": 0.0,
+        "min": 0.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "contradiction_recording.tagged_recorded_rate": {
+        "max": null,
+        "mean": null,
+        "min": null,
+        "n_cells": 0,
+        "n_none": 1
+      },
+      "outage_propagation.failure_visible_rate": {
+        "max": null,
+        "mean": null,
+        "min": null,
+        "n_cells": 0,
+        "n_none": 1
+      },
+      "outage_propagation.outage_turn_n": {
+        "max": 0.0,
+        "mean": 0.0,
+        "min": 0.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "outage_propagation.turn_error_rate": {
+        "max": null,
+        "mean": null,
+        "min": null,
+        "n_cells": 0,
+        "n_none": 1
+      },
+      "retrieval_freshness.retrieval_ran_fraction": {
+        "max": 0.008695652173913044,
+        "mean": 0.008695652173913044,
+        "min": 0.008695652173913044,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "retrieval_freshness.retrieval_skipped_with_surface_fraction": {
+        "max": 0.991304347826087,
+        "mean": 0.991304347826087,
+        "min": 0.991304347826087,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "retrieval_freshness.surfaced_carried_over_fraction": {
+        "max": 0.9037037037037037,
+        "mean": 0.9037037037037037,
+        "min": 0.9037037037037037,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "retrieval_freshness.surfaced_carried_over_n": {
+        "max": 488.0,
+        "mean": 488.0,
+        "min": 488.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "retrieval_freshness.surfaced_item_n": {
+        "max": 540.0,
+        "mean": 540.0,
+        "min": 540.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "retrieval_freshness.surfaced_turn_n": {
+        "max": 114.0,
+        "mean": 114.0,
+        "min": 114.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "retrieval_freshness.turn_n": {
+        "max": 115.0,
+        "mean": 115.0,
+        "min": 115.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "uncertainty_calibration.answerability_auroc": {
+        "max": 0.8941176470588236,
+        "mean": 0.8941176470588236,
+        "min": 0.8941176470588236,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "uncertainty_calibration.correctness_auroc": {
+        "max": 0.696969696969697,
+        "mean": 0.696969696969697,
+        "min": 0.696969696969697,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "uncertainty_calibration.n_answerability_scored": {
+        "max": 22.0,
+        "mean": 22.0,
+        "min": 22.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "uncertainty_calibration.n_answerable_scored": {
+        "max": 17.0,
+        "mean": 17.0,
+        "min": 17.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "uncertainty_calibration.n_retrieval_score_bearing": {
+        "max": 22.0,
+        "mean": 22.0,
+        "min": 22.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "uncertainty_calibration.reliability.0.accuracy": {
+        "max": 0.16666666666666666,
+        "mean": 0.16666666666666666,
+        "min": 0.16666666666666666,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "uncertainty_calibration.reliability.0.bin": {
+        "max": 0.0,
+        "mean": 0.0,
+        "min": 0.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "uncertainty_calibration.reliability.0.high": {
+        "max": 3.8076972239581606,
+        "mean": 3.8076972239581606,
+        "min": 3.8076972239581606,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "uncertainty_calibration.reliability.0.low": {
+        "max": 2.90573849263991,
+        "mean": 2.90573849263991,
+        "min": 2.90573849263991,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "uncertainty_calibration.reliability.0.mean_top_score": {
+        "max": 3.3717827743033966,
+        "mean": 3.3717827743033966,
+        "min": 3.3717827743033966,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "uncertainty_calibration.reliability.0.n": {
+        "max": 6.0,
+        "mean": 6.0,
+        "min": 6.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "uncertainty_calibration.reliability.1.accuracy": {
+        "max": 0.5,
+        "mean": 0.5,
+        "min": 0.5,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "uncertainty_calibration.reliability.1.bin": {
+        "max": 1.0,
+        "mean": 1.0,
+        "min": 1.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "uncertainty_calibration.reliability.1.high": {
+        "max": 4.7096559552764115,
+        "mean": 4.7096559552764115,
+        "min": 4.7096559552764115,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "uncertainty_calibration.reliability.1.low": {
+        "max": 3.8076972239581606,
+        "mean": 3.8076972239581606,
+        "min": 3.8076972239581606,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "uncertainty_calibration.reliability.1.mean_top_score": {
+        "max": 4.6141452416204025,
+        "mean": 4.6141452416204025,
+        "min": 4.6141452416204025,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "uncertainty_calibration.reliability.1.n": {
+        "max": 2.0,
+        "mean": 2.0,
+        "min": 2.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "uncertainty_calibration.reliability.2.accuracy": {
+        "max": 0.3333333333333333,
+        "mean": 0.3333333333333333,
+        "min": 0.3333333333333333,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "uncertainty_calibration.reliability.2.bin": {
+        "max": 2.0,
+        "mean": 2.0,
+        "min": 2.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "uncertainty_calibration.reliability.2.high": {
+        "max": 5.6116146865946614,
+        "mean": 5.6116146865946614,
+        "min": 5.6116146865946614,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "uncertainty_calibration.reliability.2.low": {
+        "max": 4.7096559552764115,
+        "mean": 4.7096559552764115,
+        "min": 4.7096559552764115,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "uncertainty_calibration.reliability.2.mean_top_score": {
+        "max": 5.120557585205471,
+        "mean": 5.120557585205471,
+        "min": 5.120557585205471,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "uncertainty_calibration.reliability.2.n": {
+        "max": 3.0,
+        "mean": 3.0,
+        "min": 3.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "uncertainty_calibration.reliability.3.accuracy": {
+        "max": 0.3333333333333333,
+        "mean": 0.3333333333333333,
+        "min": 0.3333333333333333,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "uncertainty_calibration.reliability.3.bin": {
+        "max": 3.0,
+        "mean": 3.0,
+        "min": 3.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "uncertainty_calibration.reliability.3.high": {
+        "max": 6.513573417912912,
+        "mean": 6.513573417912912,
+        "min": 6.513573417912912,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "uncertainty_calibration.reliability.3.low": {
+        "max": 5.6116146865946614,
+        "mean": 5.6116146865946614,
+        "min": 5.6116146865946614,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "uncertainty_calibration.reliability.3.mean_top_score": {
+        "max": 5.968946196228721,
+        "mean": 5.968946196228721,
+        "min": 5.968946196228721,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "uncertainty_calibration.reliability.3.n": {
+        "max": 3.0,
+        "mean": 3.0,
+        "min": 3.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "uncertainty_calibration.reliability.4.accuracy": {
+        "max": 0.6666666666666666,
+        "mean": 0.6666666666666666,
+        "min": 0.6666666666666666,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "uncertainty_calibration.reliability.4.bin": {
+        "max": 4.0,
+        "mean": 4.0,
+        "min": 4.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "uncertainty_calibration.reliability.4.high": {
+        "max": 7.415532149231163,
+        "mean": 7.415532149231163,
+        "min": 7.415532149231163,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "uncertainty_calibration.reliability.4.low": {
+        "max": 6.513573417912912,
+        "mean": 6.513573417912912,
+        "min": 6.513573417912912,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "uncertainty_calibration.reliability.4.mean_top_score": {
+        "max": 7.190356318903139,
+        "mean": 7.190356318903139,
+        "min": 7.190356318903139,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "uncertainty_calibration.reliability.4.n": {
+        "max": 3.0,
+        "mean": 3.0,
+        "min": 3.0,
+        "n_cells": 1,
+        "n_none": 0
+      }
+    },
+    "personality/direct_apply/1m": {
+      "adaptive_drift.final_trait_distance": {
+        "max": 1.0,
+        "mean": 1.0,
+        "min": 1.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "adaptive_drift.history_memories_end": {
+        "max": 0.0,
+        "mean": 0.0,
+        "min": 0.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "adaptive_drift.prompt_chars_end": {
+        "max": 1485.0,
+        "mean": 1485.0,
+        "min": 1485.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "adaptive_drift.prompt_chars_max": {
+        "max": 1516.0,
+        "mean": 1516.0,
+        "min": 1516.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "adaptive_drift.prompt_chars_start": {
+        "max": 1446.0,
+        "mean": 1446.0,
+        "min": 1446.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "adaptive_drift.relationship_changes": {
+        "max": 19.0,
+        "mean": 19.0,
+        "min": 19.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "adaptive_drift.style_changes": {
+        "max": 0.0,
+        "mean": 0.0,
+        "min": 0.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "adaptive_drift.trait_turnover": {
+        "max": 88.0,
+        "mean": 88.0,
+        "min": 88.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "adaptive_drift.value_conflicts": {
+        "max": 0.0,
+        "mean": 0.0,
+        "min": 0.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "evolution_throughput.applied": {
+        "max": 31.0,
+        "mean": 31.0,
+        "min": 31.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "evolution_throughput.apply_rate": {
+        "max": 1.0,
+        "mean": 1.0,
+        "min": 1.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "evolution_throughput.governor_or_gate_dropped": {
+        "max": 0.0,
+        "mean": 0.0,
+        "min": 0.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "evolution_throughput.high_confidence_rate": {
+        "max": 0.6739130434782609,
+        "mean": 0.6739130434782609,
+        "min": 0.6739130434782609,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "evolution_throughput.parse_rate": {
+        "max": 1.0,
+        "mean": 1.0,
+        "min": 1.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "evolution_throughput.persona_calls": {
+        "max": 46.0,
+        "mean": 46.0,
+        "min": 46.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "evolution_throughput.queued": {
+        "max": 0.0,
+        "mean": 0.0,
+        "min": 0.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "evolution_throughput.reflections_completed": {
+        "max": 46.0,
+        "mean": 46.0,
+        "min": 46.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "evolution_throughput.reflections_started": {
+        "max": 46.0,
+        "mean": 46.0,
+        "min": 46.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "evolution_throughput.turns": {
+        "max": 115.0,
+        "mean": 115.0,
+        "min": 115.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "tier_integrity.constitutional_violations": {
+        "max": 0.0,
+        "mean": 0.0,
+        "min": 0.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "tier_integrity.immutable_violations": {
+        "max": 0.0,
+        "mean": 0.0,
+        "min": 0.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "tier_integrity.turns": {
+        "max": 115.0,
+        "mean": 115.0,
+        "min": 115.0,
+        "n_cells": 1,
+        "n_none": 0
+      }
+    },
+    "personality/review_queue/1m": {
+      "adaptive_drift.final_trait_distance": {
+        "max": 0.0,
+        "mean": 0.0,
+        "min": 0.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "adaptive_drift.history_memories_end": {
+        "max": 0.0,
+        "mean": 0.0,
+        "min": 0.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "adaptive_drift.prompt_chars_end": {
+        "max": 1425.0,
+        "mean": 1425.0,
+        "min": 1425.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "adaptive_drift.prompt_chars_max": {
+        "max": 1425.0,
+        "mean": 1425.0,
+        "min": 1425.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "adaptive_drift.prompt_chars_start": {
+        "max": 1425.0,
+        "mean": 1425.0,
+        "min": 1425.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "adaptive_drift.relationship_changes": {
+        "max": 0.0,
+        "mean": 0.0,
+        "min": 0.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "adaptive_drift.style_changes": {
+        "max": 0.0,
+        "mean": 0.0,
+        "min": 0.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "adaptive_drift.trait_turnover": {
+        "max": 0.0,
+        "mean": 0.0,
+        "min": 0.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "adaptive_drift.value_conflicts": {
+        "max": 0.0,
+        "mean": 0.0,
+        "min": 0.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "evolution_throughput.applied": {
+        "max": 0.0,
+        "mean": 0.0,
+        "min": 0.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "evolution_throughput.apply_rate": {
+        "max": 0.0,
+        "mean": 0.0,
+        "min": 0.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "evolution_throughput.governor_or_gate_dropped": {
+        "max": 0.0,
+        "mean": 0.0,
+        "min": 0.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "evolution_throughput.high_confidence_rate": {
+        "max": 0.8695652173913043,
+        "mean": 0.8695652173913043,
+        "min": 0.8695652173913043,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "evolution_throughput.parse_rate": {
+        "max": 1.0,
+        "mean": 1.0,
+        "min": 1.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "evolution_throughput.persona_calls": {
+        "max": 46.0,
+        "mean": 46.0,
+        "min": 46.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "evolution_throughput.queued": {
+        "max": 40.0,
+        "mean": 40.0,
+        "min": 40.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "evolution_throughput.reflections_completed": {
+        "max": 46.0,
+        "mean": 46.0,
+        "min": 46.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "evolution_throughput.reflections_started": {
+        "max": 46.0,
+        "mean": 46.0,
+        "min": 46.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "evolution_throughput.turns": {
+        "max": 115.0,
+        "mean": 115.0,
+        "min": 115.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "tier_integrity.constitutional_violations": {
+        "max": 0.0,
+        "mean": 0.0,
+        "min": 0.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "tier_integrity.immutable_violations": {
+        "max": 0.0,
+        "mean": 0.0,
+        "min": 0.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "tier_integrity.turns": {
+        "max": 115.0,
+        "mean": 115.0,
+        "min": 115.0,
+        "n_cells": 1,
+        "n_none": 0
+      }
+    },
+    "resources/default/1m": {
+      "growth_curves.cpu_system_seconds.first": {
+        "max": 8.667116,
+        "mean": 8.667116,
+        "min": 8.667116,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.cpu_system_seconds.last": {
+        "max": 9.999619,
+        "mean": 9.999619,
+        "min": 9.999619,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.cpu_system_seconds.n": {
+        "max": 12.0,
+        "mean": 12.0,
+        "min": 12.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.cpu_system_seconds.slope_per_simulated_day": {
+        "max": 0.05525980243930674,
+        "mean": 0.05525980243930674,
+        "min": 0.05525980243930674,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.cpu_total_seconds.first": {
+        "max": 61.239863,
+        "mean": 61.239863,
+        "min": 61.239863,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.cpu_total_seconds.last": {
+        "max": 70.57603399999999,
+        "mean": 70.57603399999999,
+        "min": 70.57603399999999,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.cpu_total_seconds.n": {
+        "max": 12.0,
+        "mean": 12.0,
+        "min": 12.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.cpu_total_seconds.slope_per_simulated_day": {
+        "max": 0.3857132475849305,
+        "mean": 0.3857132475849305,
+        "min": 0.3857132475849305,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.cpu_user_seconds.first": {
+        "max": 52.572747,
+        "mean": 52.572747,
+        "min": 52.572747,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.cpu_user_seconds.last": {
+        "max": 60.576415,
+        "mean": 60.576415,
+        "min": 60.576415,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.cpu_user_seconds.n": {
+        "max": 12.0,
+        "mean": 12.0,
+        "min": 12.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.cpu_user_seconds.slope_per_simulated_day": {
+        "max": 0.33045344514562386,
+        "mean": 0.33045344514562386,
+        "min": 0.33045344514562386,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.db_bytes:identity_core.db.first": {
+        "max": 8192.0,
+        "mean": 8192.0,
+        "min": 8192.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.db_bytes:identity_core.db.last": {
+        "max": 8192.0,
+        "mean": 8192.0,
+        "min": 8192.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.db_bytes:identity_core.db.n": {
+        "max": 12.0,
+        "mean": 12.0,
+        "min": 12.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.db_bytes:identity_core.db.slope_per_simulated_day": {
+        "max": 0.0,
+        "mean": 0.0,
+        "min": 0.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.db_bytes:memory.db.first": {
+        "max": 217088.0,
+        "mean": 217088.0,
+        "min": 217088.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.db_bytes:memory.db.last": {
+        "max": 1077248.0,
+        "mean": 1077248.0,
+        "min": 1077248.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.db_bytes:memory.db.n": {
+        "max": 12.0,
+        "mean": 12.0,
+        "min": 12.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.db_bytes:memory.db.slope_per_simulated_day": {
+        "max": 35701.97799440279,
+        "mean": 35701.97799440279,
+        "min": 35701.97799440279,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.db_bytes:state_cache.db.first": {
+        "max": 20480.0,
+        "mean": 20480.0,
+        "min": 20480.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.db_bytes:state_cache.db.last": {
+        "max": 20480.0,
+        "mean": 20480.0,
+        "min": 20480.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.db_bytes:state_cache.db.n": {
+        "max": 12.0,
+        "mean": 12.0,
+        "min": 12.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.db_bytes:state_cache.db.slope_per_simulated_day": {
+        "max": 0.0,
+        "mean": 0.0,
+        "min": 0.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.db_bytes:temporal_memory.db.first": {
+        "max": 4096.0,
+        "mean": 4096.0,
+        "min": 4096.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.db_bytes:temporal_memory.db.last": {
+        "max": 4096.0,
+        "mean": 4096.0,
+        "min": 4096.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.db_bytes:temporal_memory.db.n": {
+        "max": 12.0,
+        "mean": 12.0,
+        "min": 12.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.db_bytes:temporal_memory.db.slope_per_simulated_day": {
+        "max": 0.0,
+        "mean": 0.0,
+        "min": 0.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.db_bytes:working_memory.db.first": {
+        "max": 20480.0,
+        "mean": 20480.0,
+        "min": 20480.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.db_bytes:working_memory.db.last": {
+        "max": 20480.0,
+        "mean": 20480.0,
+        "min": 20480.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.db_bytes:working_memory.db.n": {
+        "max": 12.0,
+        "mean": 12.0,
+        "min": 12.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.db_bytes:working_memory.db.slope_per_simulated_day": {
+        "max": 0.0,
+        "mean": 0.0,
+        "min": 0.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.db_bytes:workspace.db.first": {
+        "max": 4096.0,
+        "mean": 4096.0,
+        "min": 4096.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.db_bytes:workspace.db.last": {
+        "max": 4096.0,
+        "mean": 4096.0,
+        "min": 4096.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.db_bytes:workspace.db.n": {
+        "max": 12.0,
+        "mean": 12.0,
+        "min": 12.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.db_bytes:workspace.db.slope_per_simulated_day": {
+        "max": 0.0,
+        "mean": 0.0,
+        "min": 0.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.graph_db_counts_applicable.first": {
+        "max": 0.0,
+        "mean": 0.0,
+        "min": 0.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.graph_db_counts_applicable.last": {
+        "max": 0.0,
+        "mean": 0.0,
+        "min": 0.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.graph_db_counts_applicable.n": {
+        "max": 12.0,
+        "mean": 12.0,
+        "min": 12.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.graph_db_counts_applicable.slope_per_simulated_day": {
+        "max": 0.0,
+        "mean": 0.0,
+        "min": 0.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.rows:identity_core.db:identity_core.first": {
+        "max": 1.0,
+        "mean": 1.0,
+        "min": 1.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.rows:identity_core.db:identity_core.last": {
+        "max": 1.0,
+        "mean": 1.0,
+        "min": 1.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.rows:identity_core.db:identity_core.n": {
+        "max": 12.0,
+        "mean": 12.0,
+        "min": 12.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.rows:identity_core.db:identity_core.slope_per_simulated_day": {
+        "max": 0.0,
+        "mean": 0.0,
+        "min": 0.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.rows:memory.db:agent_configs.first": {
+        "max": 0.0,
+        "mean": 0.0,
+        "min": 0.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.rows:memory.db:agent_configs.last": {
+        "max": 0.0,
+        "mean": 0.0,
+        "min": 0.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.rows:memory.db:agent_configs.n": {
+        "max": 12.0,
+        "mean": 12.0,
+        "min": 12.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.rows:memory.db:agent_configs.slope_per_simulated_day": {
+        "max": 0.0,
+        "mean": 0.0,
+        "min": 0.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.rows:memory.db:archived_memories.first": {
+        "max": 0.0,
+        "mean": 0.0,
+        "min": 0.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.rows:memory.db:archived_memories.last": {
+        "max": 0.0,
+        "mean": 0.0,
+        "min": 0.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.rows:memory.db:archived_memories.n": {
+        "max": 12.0,
+        "mean": 12.0,
+        "min": 12.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.rows:memory.db:archived_memories.slope_per_simulated_day": {
+        "max": 0.0,
+        "mean": 0.0,
+        "min": 0.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.rows:memory.db:lexical_associations.first": {
+        "max": 587.0,
+        "mean": 587.0,
+        "min": 587.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.rows:memory.db:lexical_associations.last": {
+        "max": 3116.0,
+        "mean": 3116.0,
+        "min": 3116.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.rows:memory.db:lexical_associations.n": {
+        "max": 12.0,
+        "mean": 12.0,
+        "min": 12.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.rows:memory.db:lexical_associations.slope_per_simulated_day": {
+        "max": 104.86579164740347,
+        "mean": 104.86579164740347,
+        "min": 104.86579164740347,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.rows:memory.db:memories.first": {
+        "max": 3.0,
+        "mean": 3.0,
+        "min": 3.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.rows:memory.db:memories.last": {
+        "max": 47.0,
+        "mean": 47.0,
+        "min": 47.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.rows:memory.db:memories.n": {
+        "max": 12.0,
+        "mean": 12.0,
+        "min": 12.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.rows:memory.db:memories.slope_per_simulated_day": {
+        "max": 1.842332191999322,
+        "mean": 1.842332191999322,
+        "min": 1.842332191999322,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.rows:memory.db:messages.first": {
+        "max": 0.0,
+        "mean": 0.0,
+        "min": 0.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.rows:memory.db:messages.last": {
+        "max": 0.0,
+        "mean": 0.0,
+        "min": 0.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.rows:memory.db:messages.n": {
+        "max": 12.0,
+        "mean": 12.0,
+        "min": 12.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.rows:memory.db:messages.slope_per_simulated_day": {
+        "max": 0.0,
+        "mean": 0.0,
+        "min": 0.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.rows:memory.db:self_knowledge_gaps.first": {
+        "max": 0.0,
+        "mean": 0.0,
+        "min": 0.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.rows:memory.db:self_knowledge_gaps.last": {
+        "max": 9.0,
+        "mean": 9.0,
+        "min": 9.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.rows:memory.db:self_knowledge_gaps.n": {
+        "max": 12.0,
+        "mean": 12.0,
+        "min": 12.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.rows:memory.db:self_knowledge_gaps.slope_per_simulated_day": {
+        "max": 0.3390878023291359,
+        "mean": 0.3390878023291359,
+        "min": 0.3390878023291359,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.rows:memory.db:sessions.first": {
+        "max": 0.0,
+        "mean": 0.0,
+        "min": 0.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.rows:memory.db:sessions.last": {
+        "max": 0.0,
+        "mean": 0.0,
+        "min": 0.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.rows:memory.db:sessions.n": {
+        "max": 12.0,
+        "mean": 12.0,
+        "min": 12.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.rows:memory.db:sessions.slope_per_simulated_day": {
+        "max": 0.0,
+        "mean": 0.0,
+        "min": 0.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.rows:memory.db:visual_screen_traces.first": {
+        "max": 0.0,
+        "mean": 0.0,
+        "min": 0.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.rows:memory.db:visual_screen_traces.last": {
+        "max": 0.0,
+        "mean": 0.0,
+        "min": 0.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.rows:memory.db:visual_screen_traces.n": {
+        "max": 12.0,
+        "mean": 12.0,
+        "min": 12.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.rows:memory.db:visual_screen_traces.slope_per_simulated_day": {
+        "max": 0.0,
+        "mean": 0.0,
+        "min": 0.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.rows:memory.db:vocabulary.first": {
+        "max": 229.0,
+        "mean": 229.0,
+        "min": 229.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.rows:memory.db:vocabulary.last": {
+        "max": 469.0,
+        "mean": 469.0,
+        "min": 469.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.rows:memory.db:vocabulary.n": {
+        "max": 12.0,
+        "mean": 12.0,
+        "min": 12.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.rows:memory.db:vocabulary.slope_per_simulated_day": {
+        "max": 9.718925387154686,
+        "mean": 9.718925387154686,
+        "min": 9.718925387154686,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.rows:state_cache.db:adaptive_weights.first": {
+        "max": 1.0,
+        "mean": 1.0,
+        "min": 1.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.rows:state_cache.db:adaptive_weights.last": {
+        "max": 1.0,
+        "mean": 1.0,
+        "min": 1.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.rows:state_cache.db:adaptive_weights.n": {
+        "max": 12.0,
+        "mean": 12.0,
+        "min": 12.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.rows:state_cache.db:adaptive_weights.slope_per_simulated_day": {
+        "max": 0.0,
+        "mean": 0.0,
+        "min": 0.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.rows:state_cache.db:agent_state.first": {
+        "max": 1.0,
+        "mean": 1.0,
+        "min": 1.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.rows:state_cache.db:agent_state.last": {
+        "max": 1.0,
+        "mean": 1.0,
+        "min": 1.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.rows:state_cache.db:agent_state.n": {
+        "max": 12.0,
+        "mean": 12.0,
+        "min": 12.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.rows:state_cache.db:agent_state.slope_per_simulated_day": {
+        "max": 0.0,
+        "mean": 0.0,
+        "min": 0.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.rows:temporal_memory.db:belief_reinforcements.first": {
+        "max": 0.0,
+        "mean": 0.0,
+        "min": 0.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.rows:temporal_memory.db:belief_reinforcements.last": {
+        "max": 0.0,
+        "mean": 0.0,
+        "min": 0.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.rows:temporal_memory.db:belief_reinforcements.n": {
+        "max": 12.0,
+        "mean": 12.0,
+        "min": 12.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.rows:temporal_memory.db:belief_reinforcements.slope_per_simulated_day": {
+        "max": 0.0,
+        "mean": 0.0,
+        "min": 0.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.rows:temporal_memory.db:beliefs.first": {
+        "max": 0.0,
+        "mean": 0.0,
+        "min": 0.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.rows:temporal_memory.db:beliefs.last": {
+        "max": 0.0,
+        "mean": 0.0,
+        "min": 0.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.rows:temporal_memory.db:beliefs.n": {
+        "max": 12.0,
+        "mean": 12.0,
+        "min": 12.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.rows:temporal_memory.db:beliefs.slope_per_simulated_day": {
+        "max": 0.0,
+        "mean": 0.0,
+        "min": 0.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.rows:temporal_memory.db:experiences.first": {
+        "max": 0.0,
+        "mean": 0.0,
+        "min": 0.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.rows:temporal_memory.db:experiences.last": {
+        "max": 0.0,
+        "mean": 0.0,
+        "min": 0.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.rows:temporal_memory.db:experiences.n": {
+        "max": 12.0,
+        "mean": 12.0,
+        "min": 12.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.rows:temporal_memory.db:experiences.slope_per_simulated_day": {
+        "max": 0.0,
+        "mean": 0.0,
+        "min": 0.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.rows:temporal_memory.db:procedures.first": {
+        "max": 0.0,
+        "mean": 0.0,
+        "min": 0.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.rows:temporal_memory.db:procedures.last": {
+        "max": 0.0,
+        "mean": 0.0,
+        "min": 0.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.rows:temporal_memory.db:procedures.n": {
+        "max": 12.0,
+        "mean": 12.0,
+        "min": 12.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.rows:temporal_memory.db:procedures.slope_per_simulated_day": {
+        "max": 0.0,
+        "mean": 0.0,
+        "min": 0.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.rows:working_memory.db:working_state.first": {
+        "max": 1.0,
+        "mean": 1.0,
+        "min": 1.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.rows:working_memory.db:working_state.last": {
+        "max": 1.0,
+        "mean": 1.0,
+        "min": 1.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.rows:working_memory.db:working_state.n": {
+        "max": 12.0,
+        "mean": 12.0,
+        "min": 12.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.rows:working_memory.db:working_state.slope_per_simulated_day": {
+        "max": 0.0,
+        "mean": 0.0,
+        "min": 0.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.rows:working_memory.db:working_turns.first": {
+        "max": 0.0,
+        "mean": 0.0,
+        "min": 0.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.rows:working_memory.db:working_turns.last": {
+        "max": 0.0,
+        "mean": 0.0,
+        "min": 0.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.rows:working_memory.db:working_turns.n": {
+        "max": 12.0,
+        "mean": 12.0,
+        "min": 12.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.rows:working_memory.db:working_turns.slope_per_simulated_day": {
+        "max": 0.0,
+        "mean": 0.0,
+        "min": 0.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.rows:workspace.db:workspace_epoch.first": {
+        "max": 1.0,
+        "mean": 1.0,
+        "min": 1.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.rows:workspace.db:workspace_epoch.last": {
+        "max": 1.0,
+        "mean": 1.0,
+        "min": 1.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.rows:workspace.db:workspace_epoch.n": {
+        "max": 12.0,
+        "mean": 12.0,
+        "min": 12.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.rows:workspace.db:workspace_epoch.slope_per_simulated_day": {
+        "max": 0.0,
+        "mean": 0.0,
+        "min": 0.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.rows:workspace.db:workspace_state.first": {
+        "max": 1.0,
+        "mean": 1.0,
+        "min": 1.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.rows:workspace.db:workspace_state.last": {
+        "max": 1.0,
+        "mean": 1.0,
+        "min": 1.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.rows:workspace.db:workspace_state.n": {
+        "max": 12.0,
+        "mean": 12.0,
+        "min": 12.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.rows:workspace.db:workspace_state.slope_per_simulated_day": {
+        "max": 0.0,
+        "mean": 0.0,
+        "min": 0.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.rows:workspace.db:workspace_transitions.first": {
+        "max": 10.0,
+        "mean": 10.0,
+        "min": 10.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.rows:workspace.db:workspace_transitions.last": {
+        "max": 115.0,
+        "mean": 115.0,
+        "min": 115.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.rows:workspace.db:workspace_transitions.n": {
+        "max": 12.0,
+        "mean": 12.0,
+        "min": 12.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.rows:workspace.db:workspace_transitions.slope_per_simulated_day": {
+        "max": 4.393595268582946,
+        "mean": 4.393595268582946,
+        "min": 4.393595268582946,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.rss_peak_mib.first": {
+        "max": 177.25,
+        "mean": 177.25,
+        "min": 177.25,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.rss_peak_mib.last": {
+        "max": 177.25,
+        "mean": 177.25,
+        "min": 177.25,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.rss_peak_mib.n": {
+        "max": 12.0,
+        "mean": 12.0,
+        "min": 12.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.rss_peak_mib.slope_per_simulated_day": {
+        "max": 0.0,
+        "mean": 0.0,
+        "min": 0.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.run_directory_bytes.first": {
+        "max": 637031.0,
+        "mean": 637031.0,
+        "min": 637031.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.run_directory_bytes.last": {
+        "max": 3260551.0,
+        "mean": 3260551.0,
+        "min": 3260551.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.run_directory_bytes.n": {
+        "max": 12.0,
+        "mean": 12.0,
+        "min": 12.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.run_directory_bytes.slope_per_simulated_day": {
+        "max": 109479.47294922825,
+        "mean": 109479.47294922825,
+        "min": 109479.47294922825,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.stored_vectors:memory.db:archived_memories.first": {
+        "max": 0.0,
+        "mean": 0.0,
+        "min": 0.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.stored_vectors:memory.db:archived_memories.last": {
+        "max": 0.0,
+        "mean": 0.0,
+        "min": 0.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.stored_vectors:memory.db:archived_memories.n": {
+        "max": 12.0,
+        "mean": 12.0,
+        "min": 12.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.stored_vectors:memory.db:archived_memories.slope_per_simulated_day": {
+        "max": 0.0,
+        "mean": 0.0,
+        "min": 0.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.stored_vectors:memory.db:memories.first": {
+        "max": 3.0,
+        "mean": 3.0,
+        "min": 3.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.stored_vectors:memory.db:memories.last": {
+        "max": 47.0,
+        "mean": 47.0,
+        "min": 47.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.stored_vectors:memory.db:memories.n": {
+        "max": 12.0,
+        "mean": 12.0,
+        "min": 12.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.stored_vectors:memory.db:memories.slope_per_simulated_day": {
+        "max": 1.842332191999322,
+        "mean": 1.842332191999322,
+        "min": 1.842332191999322,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.stored_vectors:memory.db:vocabulary.first": {
+        "max": 0.0,
+        "mean": 0.0,
+        "min": 0.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.stored_vectors:memory.db:vocabulary.last": {
+        "max": 0.0,
+        "mean": 0.0,
+        "min": 0.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.stored_vectors:memory.db:vocabulary.n": {
+        "max": 12.0,
+        "mean": 12.0,
+        "min": 12.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.stored_vectors:memory.db:vocabulary.slope_per_simulated_day": {
+        "max": 0.0,
+        "mean": 0.0,
+        "min": 0.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.structure:cognitive.surfaced_memories.first": {
+        "max": 0.0,
+        "mean": 0.0,
+        "min": 0.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.structure:cognitive.surfaced_memories.last": {
+        "max": 0.0,
+        "mean": 0.0,
+        "min": 0.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.structure:cognitive.surfaced_memories.n": {
+        "max": 12.0,
+        "mean": 12.0,
+        "min": 12.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.structure:cognitive.surfaced_memories.slope_per_simulated_day": {
+        "max": 0.0,
+        "mean": 0.0,
+        "min": 0.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.structure:identity.history.first": {
+        "max": 2.0,
+        "mean": 2.0,
+        "min": 2.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.structure:identity.history.last": {
+        "max": 2.0,
+        "mean": 2.0,
+        "min": 2.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.structure:identity.history.n": {
+        "max": 12.0,
+        "mean": 12.0,
+        "min": 12.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.structure:identity.history.slope_per_simulated_day": {
+        "max": 0.0,
+        "mean": 0.0,
+        "min": 0.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.structure:learning_governor.proposals.first": {
+        "max": 3.0,
+        "mean": 3.0,
+        "min": 3.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.structure:learning_governor.proposals.last": {
+        "max": 41.0,
+        "mean": 41.0,
+        "min": 41.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.structure:learning_governor.proposals.n": {
+        "max": 12.0,
+        "mean": 12.0,
+        "min": 12.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.structure:learning_governor.proposals.slope_per_simulated_day": {
+        "max": 1.5988648367031706,
+        "mean": 1.5988648367031706,
+        "min": 1.5988648367031706,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.structure:memory.goal_buffer.concepts.first": {
+        "max": 0.0,
+        "mean": 0.0,
+        "min": 0.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.structure:memory.goal_buffer.concepts.last": {
+        "max": 0.0,
+        "mean": 0.0,
+        "min": 0.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.structure:memory.goal_buffer.concepts.n": {
+        "max": 12.0,
+        "mean": 12.0,
+        "min": 12.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.structure:memory.goal_buffer.concepts.slope_per_simulated_day": {
+        "max": 0.0,
+        "mean": 0.0,
+        "min": 0.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.structure:memory.l1_cache.first": {
+        "max": 3.0,
+        "mean": 3.0,
+        "min": 3.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.structure:memory.l1_cache.last": {
+        "max": 2.0,
+        "mean": 2.0,
+        "min": 2.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.structure:memory.l1_cache.n": {
+        "max": 12.0,
+        "mean": 12.0,
+        "min": 12.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.structure:memory.l1_cache.slope_per_simulated_day": {
+        "max": -0.040564206750612355,
+        "mean": -0.040564206750612355,
+        "min": -0.040564206750612355,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.structure:memory.vector_index.personal.first": {
+        "max": 3.0,
+        "mean": 3.0,
+        "min": 3.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.structure:memory.vector_index.personal.last": {
+        "max": 47.0,
+        "mean": 47.0,
+        "min": 47.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.structure:memory.vector_index.personal.n": {
+        "max": 12.0,
+        "mean": 12.0,
+        "min": 12.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.structure:memory.vector_index.personal.slope_per_simulated_day": {
+        "max": 1.842332191999322,
+        "mean": 1.842332191999322,
+        "min": 1.842332191999322,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.structure:state.active_goals.first": {
+        "max": 0.0,
+        "mean": 0.0,
+        "min": 0.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.structure:state.active_goals.last": {
+        "max": 0.0,
+        "mean": 0.0,
+        "min": 0.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.structure:state.active_goals.n": {
+        "max": 12.0,
+        "mean": 12.0,
+        "min": 12.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.structure:state.active_goals.slope_per_simulated_day": {
+        "max": 0.0,
+        "mean": 0.0,
+        "min": 0.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.structure:state.user_mental_model.implied_goals.first": {
+        "max": 0.0,
+        "mean": 0.0,
+        "min": 0.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.structure:state.user_mental_model.implied_goals.last": {
+        "max": 0.0,
+        "mean": 0.0,
+        "min": 0.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.structure:state.user_mental_model.implied_goals.n": {
+        "max": 12.0,
+        "mean": 12.0,
+        "min": 12.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.structure:state.user_mental_model.implied_goals.slope_per_simulated_day": {
+        "max": 0.0,
+        "mean": 0.0,
+        "min": 0.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.structure:state.user_mental_model.known_concepts.first": {
+        "max": 43.0,
+        "mean": 43.0,
+        "min": 43.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.structure:state.user_mental_model.known_concepts.last": {
+        "max": 176.0,
+        "mean": 176.0,
+        "min": 176.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.structure:state.user_mental_model.known_concepts.n": {
+        "max": 12.0,
+        "mean": 12.0,
+        "min": 12.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.structure:state.user_mental_model.known_concepts.slope_per_simulated_day": {
+        "max": 4.816426204023914,
+        "mean": 4.816426204023914,
+        "min": 4.816426204023914,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.vector_index_vectors.first": {
+        "max": 3.0,
+        "mean": 3.0,
+        "min": 3.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.vector_index_vectors.last": {
+        "max": 47.0,
+        "mean": 47.0,
+        "min": 47.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.vector_index_vectors.n": {
+        "max": 12.0,
+        "mean": 12.0,
+        "min": 12.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.vector_index_vectors.slope_per_simulated_day": {
+        "max": 1.842332191999322,
+        "mean": 1.842332191999322,
+        "min": 1.842332191999322,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.vram_applicable.first": {
+        "max": 0.0,
+        "mean": 0.0,
+        "min": 0.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.vram_applicable.last": {
+        "max": 0.0,
+        "mean": 0.0,
+        "min": 0.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.vram_applicable.n": {
+        "max": 12.0,
+        "mean": 12.0,
+        "min": 12.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "growth_curves.vram_applicable.slope_per_simulated_day": {
+        "max": 0.0,
+        "mean": 0.0,
+        "min": 0.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "latency_percentiles.foreground_latency_ms.max": {
+        "max": 2858.4198399985326,
+        "mean": 2858.4198399985326,
+        "min": 2858.4198399985326,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "latency_percentiles.foreground_latency_ms.n": {
+        "max": 115.0,
+        "mean": 115.0,
+        "min": 115.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "latency_percentiles.foreground_latency_ms.p50": {
+        "max": 1202.8702460011118,
+        "mean": 1202.8702460011118,
+        "min": 1202.8702460011118,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "latency_percentiles.foreground_latency_ms.p95": {
+        "max": 2275.5860756995385,
+        "mean": 2275.5860756995385,
+        "min": 2275.5860756995385,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "latency_percentiles.foreground_latency_ms.p99": {
+        "max": 2769.3483354188356,
+        "mean": 2769.3483354188356,
+        "min": 2769.3483354188356,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "latency_percentiles.turn_latency_ms.max": {
+        "max": 2858.4503079982824,
+        "mean": 2858.4503079982824,
+        "min": 2858.4503079982824,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "latency_percentiles.turn_latency_ms.n": {
+        "max": 115.0,
+        "mean": 115.0,
+        "min": 115.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "latency_percentiles.turn_latency_ms.p50": {
+        "max": 1202.8825499983213,
+        "mean": 1202.8825499983213,
+        "min": 1202.8825499983213,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "latency_percentiles.turn_latency_ms.p95": {
+        "max": 2275.6240931994394,
+        "mean": 2275.6240931994394,
+        "min": 2275.6240931994394,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "latency_percentiles.turn_latency_ms.p99": {
+        "max": 2769.3851417182304,
+        "mean": 2769.3851417182304,
+        "min": 2769.3851417182304,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "unbounded_structures.bounded_by_cap.cognitive.surfaced_memories.cap": {
+        "max": 5.0,
+        "mean": 5.0,
+        "min": 5.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "unbounded_structures.bounded_by_cap.cognitive.surfaced_memories.first": {
+        "max": 0.0,
+        "mean": 0.0,
+        "min": 0.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "unbounded_structures.bounded_by_cap.cognitive.surfaced_memories.last": {
+        "max": 0.0,
+        "mean": 0.0,
+        "min": 0.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "unbounded_structures.bounded_by_cap.count": {
+        "max": 5.0,
+        "mean": 5.0,
+        "min": 5.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "unbounded_structures.bounded_by_cap.memory.goal_buffer.concepts.cap": {
+        "max": 5.0,
+        "mean": 5.0,
+        "min": 5.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "unbounded_structures.bounded_by_cap.memory.goal_buffer.concepts.first": {
+        "max": 0.0,
+        "mean": 0.0,
+        "min": 0.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "unbounded_structures.bounded_by_cap.memory.goal_buffer.concepts.last": {
+        "max": 0.0,
+        "mean": 0.0,
+        "min": 0.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "unbounded_structures.bounded_by_cap.memory.l1_cache.cap": {
+        "max": 256.0,
+        "mean": 256.0,
+        "min": 256.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "unbounded_structures.bounded_by_cap.memory.l1_cache.first": {
+        "max": 1.0,
+        "mean": 1.0,
+        "min": 1.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "unbounded_structures.bounded_by_cap.memory.l1_cache.last": {
+        "max": 2.0,
+        "mean": 2.0,
+        "min": 2.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "unbounded_structures.bounded_by_cap.memory.vector_index.personal.cap": {
+        "max": 5000.0,
+        "mean": 5000.0,
+        "min": 5000.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "unbounded_structures.bounded_by_cap.memory.vector_index.personal.first": {
+        "max": 36.0,
+        "mean": 36.0,
+        "min": 36.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "unbounded_structures.bounded_by_cap.memory.vector_index.personal.last": {
+        "max": 47.0,
+        "mean": 47.0,
+        "min": 47.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "unbounded_structures.bounded_by_cap.name.cognitive.surfaced_memories": {
+        "max": 1.0,
+        "mean": 1.0,
+        "min": 1.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "unbounded_structures.bounded_by_cap.name.memory.goal_buffer.concepts": {
+        "max": 1.0,
+        "mean": 1.0,
+        "min": 1.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "unbounded_structures.bounded_by_cap.name.memory.l1_cache": {
+        "max": 1.0,
+        "mean": 1.0,
+        "min": 1.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "unbounded_structures.bounded_by_cap.name.memory.vector_index.personal": {
+        "max": 1.0,
+        "mean": 1.0,
+        "min": 1.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "unbounded_structures.bounded_by_cap.name.state.user_mental_model.known_concepts": {
+        "max": 1.0,
+        "mean": 1.0,
+        "min": 1.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "unbounded_structures.bounded_by_cap.state.user_mental_model.known_concepts.cap": {
+        "max": 200.0,
+        "mean": 200.0,
+        "min": 200.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "unbounded_structures.bounded_by_cap.state.user_mental_model.known_concepts.first": {
+        "max": 151.0,
+        "mean": 151.0,
+        "min": 151.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "unbounded_structures.bounded_by_cap.state.user_mental_model.known_concepts.last": {
+        "max": 176.0,
+        "mean": 176.0,
+        "min": 176.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "unbounded_structures.still_increasing.count": {
+        "max": 1.0,
+        "mean": 1.0,
+        "min": 1.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "unbounded_structures.still_increasing.learning_governor.proposals.first": {
+        "max": 32.0,
+        "mean": 32.0,
+        "min": 32.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "unbounded_structures.still_increasing.learning_governor.proposals.last": {
+        "max": 41.0,
+        "mean": 41.0,
+        "min": 41.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "unbounded_structures.still_increasing.learning_governor.proposals.tail_slope": {
+        "max": 3.1,
+        "mean": 3.1,
+        "min": 3.1,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "unbounded_structures.still_increasing.name.learning_governor.proposals": {
+        "max": 1.0,
+        "mean": 1.0,
+        "min": 1.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "unbounded_structures.still_increasing_sqlite_tables.count": {
+        "max": 1.0,
+        "mean": 1.0,
+        "min": 1.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "unbounded_structures.still_increasing_sqlite_tables.name.workspace.db:workspace_transitions": {
+        "max": 1.0,
+        "mean": 1.0,
+        "min": 1.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "unbounded_structures.still_increasing_sqlite_tables.workspace.db:workspace_transitions.first": {
+        "max": 10.0,
+        "mean": 10.0,
+        "min": 10.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "unbounded_structures.still_increasing_sqlite_tables.workspace.db:workspace_transitions.last": {
+        "max": 115.0,
+        "mean": 115.0,
+        "min": 115.0,
+        "n_cells": 1,
+        "n_none": 0
+      },
+      "unbounded_structures.still_increasing_sqlite_tables.workspace.db:workspace_transitions.tail_slope_rows_per_turn": {
+        "max": 1.0,
+        "mean": 1.0,
+        "min": 1.0,
+        "n_cells": 1,
+        "n_none": 0
+      }
+    }
+  },
+  "summary_cells": 7
+}
