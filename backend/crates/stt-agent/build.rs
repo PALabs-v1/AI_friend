@@ -72,8 +72,7 @@ fn stage_windows_dlls() {
     };
     let deps_dir = profile_dir.join("deps");
     // sherpa-onnx-sys caches its extracted prebuilt archives under <target>/.
-    let Some(prebuilt_root) = profile_dir.parent().map(|t| t.join("sherpa-onnx-prebuilt"))
-    else {
+    let Some(prebuilt_root) = profile_dir.parent().map(|t| t.join("sherpa-onnx-prebuilt")) else {
         return;
     };
 
