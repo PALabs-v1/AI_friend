@@ -150,6 +150,7 @@ async def test_flush_stop_interrupts_wrong_take_and_next_frame_gets_new_utteranc
     assert [event.state for event in lifecycle] == ["INTERRUPTED"]
     assert lifecycle[0].utterance_id == "utterance-1"
     assert lifecycle[0].heard_offset == 8
+    assert lifecycle[0].flushed is True
     assert retry_frame[3] == "turn-1:1"
     assert retry_frame[4] == "turn-1"
 
@@ -161,7 +162,7 @@ async def test_scoped_stop_preserves_the_identity_of_the_frame_actually_playing(
     agent._active_utterance_id = "old-utterance"
     agent._active_utterance_turn_id = "old-turn"
     lifecycle_key = ("old-utterance", "old-turn")
-    agent._lifecycle_started.add(lifecycle_key)
+    agent._lifecycle_started[lifecycle_key] = None
     agent._lifecycle_seq[lifecycle_key] = 2
     agent._lifecycle_position[("old-utterance", "old-turn")] = (3, 12)
     agent._flush_downstream_audio = AsyncMock()
@@ -186,6 +187,12 @@ async def test_scoped_stop_preserves_the_identity_of_the_frame_actually_playing(
     assert lifecycle[0].turn_id == "old-turn"
     assert lifecycle[0].utterance_id == "old-utterance"
     assert lifecycle[0].heard_offset == 12
+    # The flush belongs to new-turn; cutting old-turn's audio is a real
+    # interruption of that reply, or the brain would never resolve it.
+    assert lifecycle[0].flushed is False
+    assert lifecycle_key not in agent._lifecycle_started
+    assert lifecycle_key not in agent._lifecycle_seq
+    assert lifecycle_key not in agent._lifecycle_position
 
 
 @pytest.mark.asyncio
@@ -226,3 +233,81 @@ async def test_first_frame_source_failure_emits_failed_without_claiming_heard_au
     assert event.heard_offset == 0
     assert event.streamed_offset == 20
     assert agent.lifecycle_protocol_errors == 0
+
+
+@pytest.mark.asyncio
+async def test_an_unscoped_confirmed_stop_is_never_marked_flushed():
+    agent = _make_agent()
+    agent._active_utterance_id = "utterance-1"
+    agent._active_utterance_turn_id = "turn-1"
+    agent._flush_downstream_audio = AsyncMock()
+    tasks = []
+    agent.spawn = MagicMock(side_effect=lambda c: tasks.append(asyncio.create_task(c)))
+
+    await agent._on_audio_stop({"turn_id": None, "reason": "confirmed_command"})
+    await asyncio.gather(*tasks)
+
+    (event,) = [
+        AudioPlaybackLifecycle.model_validate(call.args[1])
+        for call in agent.publish.await_args_list
+        if call.args[0] == Topics.AUDIO_PLAYBACK_LIFECYCLE
+    ]
+    assert event.state == "INTERRUPTED"
+    assert event.flushed is False
+
+
+@pytest.mark.asyncio
+async def test_a_frame_after_the_terminal_does_not_resurrect_progress_state():
+    agent = _make_agent()
+    agent.spawn = MagicMock(side_effect=lambda c: c.close())
+    key = ("utterance-1", "turn-1")
+
+    agent._emit_playing_lifecycle("utterance-1", "turn-1", 8, 2)
+    agent._emit_lifecycle(
+        utterance_id="utterance-1",
+        turn_id="turn-1",
+        state="INTERRUPTED",
+        words_played=2,
+        words_streamed=2,
+        heard_offset=8,
+        streamed_offset=8,
+    )
+    agent._emit_playing_lifecycle("utterance-1", "turn-1", 12, 3)
+
+    assert agent._lifecycle_terminal[key] == "INTERRUPTED"
+    assert key not in agent._lifecycle_position
+    assert key not in agent._lifecycle_started
+    assert key not in agent._lifecycle_seq
+    # STARTED + PLAYING + INTERRUPTED; the late frame emits nothing.
+    assert agent.spawn.call_count == 3
+
+
+@pytest.mark.asyncio
+async def test_lifecycle_state_stays_bounded_over_many_unfinished_replies():
+    from app.agents import transport_agent
+
+    agent = _make_agent()
+    agent.spawn = MagicMock(side_effect=lambda c: c.close())
+    n = transport_agent.LIFECYCLE_MAX_ENTRIES + 300
+    for i in range(n):
+        # Never terminated: a lost trailer on every reply.
+        agent._emit_playing_lifecycle(f"u{i}", f"t{i}", 4, 1)
+    for i in range(n):
+        agent._emit_lifecycle(
+            utterance_id=f"done{i}",
+            turn_id=f"done{i}",
+            state="COMPLETED",
+            words_played=1,
+            words_streamed=1,
+            heard_offset=4,
+            streamed_offset=4,
+        )
+
+    cap = transport_agent.LIFECYCLE_MAX_ENTRIES
+    assert len(agent._lifecycle_position) == cap
+    assert len(agent._lifecycle_started) == cap
+    assert len(agent._lifecycle_seq) == cap
+    assert len(agent._lifecycle_terminal) == cap
+    # Oldest go first: the newest unfinished reply is still tracked.
+    assert (f"u{n - 1}", f"t{n - 1}") in agent._lifecycle_position
+    assert ("u0", "t0") not in agent._lifecycle_position

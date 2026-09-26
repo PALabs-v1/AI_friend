@@ -28,6 +28,15 @@ logger = logging.getLogger("transport_agent")
 # consumer of this signal, so anything well under that is fresh enough.
 BACKLOG_TELEMETRY_INTERVAL_S = 0.2
 
+# Same bound as the brain's PlaybackLifecycleTracker (contracts.py).
+LIFECYCLE_MAX_ENTRIES = 1024
+
+
+def _cap(mapping: dict) -> None:
+    """Evict insertion-order-oldest entries until `mapping` fits the cap."""
+    while len(mapping) > LIFECYCLE_MAX_ENTRIES:
+        del mapping[next(iter(mapping))]
+
 
 class TransportAgent(BaseAgent):
     """
@@ -108,13 +117,18 @@ class TransportAgent(BaseAgent):
         self._last_progress_offset = -1
         self._active_utterance_id: str | None = None
         self._active_utterance_turn_id: str | None = None
+        # Every lifecycle map is keyed per turn or per (utterance, turn) and
+        # capped at LIFECYCLE_MAX_ENTRIES, oldest first: a reply that never
+        # reaches a terminal (lost trailer, dropped stop) must not grow this
+        # process forever. Per-key progress state is dropped at the terminal;
+        # the terminal itself is kept (bounded) so late events stay rejected.
         self._lifecycle_active_by_turn: dict[str, str] = {}
         self._lifecycle_attempts: dict[str, int] = {}
         self._lifecycle_seq: dict[tuple[str, str], int] = {}
         self._lifecycle_terminal: dict[tuple[str, str], str] = {}
-        self._lifecycle_started: set[tuple[str, str]] = set()
+        self._lifecycle_started: dict[tuple[str, str], None] = {}
         self._lifecycle_position: dict[tuple[str, str], tuple[int, int]] = {}
-        self._lifecycle_dropped: set[tuple[str, str]] = set()
+        self._lifecycle_dropped: dict[tuple[str, str], None] = {}
         self._lifecycle_publish_lock = asyncio.Lock()
         self.lifecycle_protocol_errors = 0
 
@@ -414,12 +428,14 @@ class TransportAgent(BaseAgent):
                         if active_utterance is None:
                             attempt = self._lifecycle_attempts.get(turn_id, 0)
                             self._lifecycle_attempts[turn_id] = attempt + 1
+                            _cap(self._lifecycle_attempts)
                             active_utterance = (
                                 utterance_id
                                 if attempt == 0
                                 else f"{utterance_id or turn_id}:{attempt}"
                             )
                             self._lifecycle_active_by_turn[turn_id] = active_utterance
+                            _cap(self._lifecycle_active_by_turn)
                         utterance_id = active_utterance
                     queued_frame = (
                         pcm_data,
@@ -459,7 +475,8 @@ class TransportAgent(BaseAgent):
                         # not the common case.
                         self.dropped_audio_frames += 1
                         if utterance_id and turn_id:
-                            self._lifecycle_dropped.add((utterance_id, turn_id))
+                            self._lifecycle_dropped[(utterance_id, turn_id)] = None
+                            _cap(self._lifecycle_dropped)
                         if self.dropped_audio_frames % 50 == 1:
                             logger.warning(
                                 "Transport audio queue overloaded; dropped %s frames.",
@@ -504,7 +521,7 @@ class TransportAgent(BaseAgent):
                             and lifecycle_key in self._lifecycle_dropped
                         ):
                             terminal_state = "FAILED"
-                        self._lifecycle_dropped.discard(lifecycle_key)
+                        self._lifecycle_dropped.pop(lifecycle_key, None)
                         if terminal_state == "COMPLETED":
                             source = self.audio_source
                             try:
@@ -677,9 +694,15 @@ class TransportAgent(BaseAgent):
         offset = max(0, int(character_offset or 0))
         words = max(0, int(word_index or 0))
         key = (utterance_id, turn_id)
+        if key in self._lifecycle_terminal:
+            # A frame of a reply that already ended (queued before its stop)
+            # must not recreate the progress state the terminal dropped.
+            return
         self._lifecycle_position[key] = (words, offset)
+        _cap(self._lifecycle_position)
         if key not in self._lifecycle_started:
-            self._lifecycle_started.add(key)
+            self._lifecycle_started[key] = None
+            _cap(self._lifecycle_started)
             self._emit_lifecycle(
                 utterance_id=utterance_id,
                 turn_id=turn_id,
@@ -709,6 +732,7 @@ class TransportAgent(BaseAgent):
         words_streamed: int,
         heard_offset: int,
         streamed_offset: int,
+        flushed: bool = False,
     ) -> None:
         key = (utterance_id, turn_id)
         terminal_states = {"COMPLETED", "INTERRUPTED", "FAILED"}
@@ -725,10 +749,19 @@ class TransportAgent(BaseAgent):
                     self.lifecycle_protocol_errors,
                 )
             return
+        seq = self._lifecycle_seq.get(key, 0)
         if state in terminal_states:
             self._lifecycle_terminal[key] = state
-        seq = self._lifecycle_seq.get(key, 0)
-        self._lifecycle_seq[key] = seq + 1
+            _cap(self._lifecycle_terminal)
+            # Nothing is emitted for this key after its terminal, so its
+            # progress state is dead weight from here on.
+            self._lifecycle_seq.pop(key, None)
+            self._lifecycle_started.pop(key, None)
+            self._lifecycle_position.pop(key, None)
+            self._lifecycle_dropped.pop(key, None)
+        else:
+            self._lifecycle_seq[key] = seq + 1
+            _cap(self._lifecycle_seq)
         event = AudioPlaybackLifecycle(
             utterance_id=utterance_id,
             turn_id=turn_id,
@@ -738,6 +771,7 @@ class TransportAgent(BaseAgent):
             words_streamed=max(words_played, words_streamed),
             heard_offset=heard_offset,
             streamed_offset=max(heard_offset, streamed_offset),
+            flushed=flushed,
         )
         self.spawn(self._publish_lifecycle(event))
 
@@ -812,6 +846,10 @@ class TransportAgent(BaseAgent):
             words, offset = self._lifecycle_position.get(
                 (utterance_id, active_turn), (0, 0)
             )
+            # `flushed` marks the rejected take of the flush's own turn, which
+            # the brain must not record as the reply's outcome (DR-029). A
+            # flush for one turn that cuts audio still playing for another
+            # turn is a real interruption of that other reply.
             self._emit_lifecycle(
                 utterance_id=utterance_id,
                 turn_id=active_turn,
@@ -820,6 +858,7 @@ class TransportAgent(BaseAgent):
                 words_streamed=words,
                 heard_offset=offset,
                 streamed_offset=offset,
+                flushed=bool(data.get("flush")) and active_turn == stop_turn_id,
             )
             if self._lifecycle_active_by_turn.get(active_turn) == utterance_id:
                 self._lifecycle_active_by_turn.pop(active_turn, None)

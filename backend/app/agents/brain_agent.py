@@ -210,7 +210,6 @@ class BrainAgent(BaseAgent):
         # ledger, queryable via `get_outcome_history`.
         self._outcome_history: list[OutcomeRecord] = []
         self._reply_contexts: dict[str, tuple[str, ActionIntent | None]] = {}
-        self._flush_retry_turns: set[str] = set()
         # Bucket 1 (VOICE_REMEDIATION_PLAN.md): stamped on the first playback
         # progress frame of each turn (see _on_audio_playback_progress) and
         # read by _on_chat_input's barge-in grace period below.
@@ -1208,15 +1207,15 @@ class BrainAgent(BaseAgent):
                 if prior or context is None:
                     return
                 delivered, intent = context
-                if (
-                    event.state == "INTERRUPTED"
-                    and event.turn_id in self._flush_retry_turns
-                ):
+                # A flushed INTERRUPTED is the rejected take of a
+                # self-correction (DR-029): the same turn's retry is still
+                # coming, under its own utterance id, and its terminal is the
+                # reply's outcome. Any other INTERRUPTED, the retry's included,
+                # is a real cut.
+                if event.state == "INTERRUPTED" and event.flushed:
                     return
                 offset = min(event.heard_offset, len(delivered))
                 self._reply_contexts.pop(event.turn_id, None)
-                if event.state in {"COMPLETED", "FAILED"}:
-                    self._flush_retry_turns.discard(event.turn_id)
                 if event.state in {"COMPLETED", "FAILED"} and event.turn_id == getattr(
                     self, "_reply_turn_id", None
                 ):
@@ -1266,12 +1265,12 @@ class BrainAgent(BaseAgent):
             stop_msg = AudioStop.model_validate(data)
 
             # A flush stop silences the rejected take while its same-turn
-            # self-correction continues generating (DR-029).
+            # self-correction continues generating (DR-029). The transport
+            # marks that take's INTERRUPTED `flushed`, which is what the
+            # lifecycle handler keys on; nothing here is cancelled or cut.
             if stop_msg.flush:
                 if not stop_msg.turn_id:
                     logger.error("Ignoring self-correction flush without turn scope")
-                else:
-                    self._flush_retry_turns.add(stop_msg.turn_id)
                 return
 
             # Truncation, and cancelling the turn that was cut off, only
