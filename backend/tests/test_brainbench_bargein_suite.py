@@ -67,6 +67,19 @@ def test_generator_is_reproducible_and_weighted_mix_is_seeded():
         assert all(text.startswith("[reply:") for text in scenario_replies)
 
 
+def test_stale_stop_events_do_not_claim_confirmed_command_authority():
+    scenarios = generate_scenarios(1000, n_scenarios_per_family=50)
+    stale_stops = [
+        event
+        for scenario in scenarios
+        for event in scenario.events
+        if event.type == "stop" and event.target == "stale"
+    ]
+
+    assert stale_stops
+    assert all(event.reason == "facial_reflex_startle" for event in stale_stops)
+
+
 @pytest.mark.parametrize(
     ("family", "predicate"),
     [
@@ -323,7 +336,7 @@ def test_clean_scenario_has_no_real_brainagent_violations(real_seed_1000_outcome
         "hung",
     ):
         assert outcome.metrics[f"{name}_violation"] == 0.0
-    assert outcome.metrics["replies_unresolved_without_completion"] == 1
+    assert outcome.metrics["replies_unresolved_without_completion"] == 0
 
 
 def test_adr003_superseded_stop_truncates_old_reply_and_preserves_current_turn(
@@ -395,6 +408,10 @@ async def test_progress_cannot_report_words_that_were_never_streamed():
 def test_ordinary_barge_in_history_gap_is_measured_as_unclaimed(
     real_seed_1000_outcomes,
 ):
+    # ADR-003 Known: ordinary confirmed speech flushes playback but keeps the
+    # full reply row. The lifecycle (W4) now gives the reply its terminal
+    # outcome; cutting the row to the heard prefix is W5's (R8), so the gap is
+    # still measured, and still unclaimed.
     outcome = next(
         row
         for row in real_seed_1000_outcomes
@@ -403,6 +420,24 @@ def test_ordinary_barge_in_history_gap_is_measured_as_unclaimed(
     assert outcome.metrics["history_matches_heard_violation"] == 1.0
     assert outcome.metrics["history_matches_heard_claimed_violation"] == 0.0
     assert outcome.metrics["history_matches_heard_unclaimed_violation"] == 1.0
+    assert outcome.metrics["replies_with_zero_terminal_outcomes"] == 0
+
+
+def test_an_idle_finishes_generation_not_playback(real_seed_1000_outcomes):
+    # Every family opens with utterance, idle, progress(2 words): the reply is
+    # generated but still playing. Completing it at that idle made the
+    # barge-in land on a finished reply, so the family stopped testing
+    # barge-in (0 eligible replies, the interrupted reply COMPLETED).
+    outcome = next(
+        row
+        for row in real_seed_1000_outcomes
+        if row.categories == ("confirmed_barge_in",)
+    )
+    assert outcome.metrics["terminal_outcome_replies_eligible"] == 1
+    # Only the follow-up reply plays out; the interrupted one does not.
+    assert outcome.metrics["completed_outcome_count"] == 1
+    clean = next(r for r in real_seed_1000_outcomes if r.categories == ("clean",))
+    assert clean.metrics["completed_outcome_count"] == 1
 
 
 def test_scoring_functions_report_rates_and_reply_accounting():

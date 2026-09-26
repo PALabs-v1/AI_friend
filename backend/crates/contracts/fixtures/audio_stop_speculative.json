@@ -1,1 +1,1 @@
-{"interrupt":true,"speculative":true,"reason":null,"command_text":null,"intent":"SPECULATIVE_STOP","intent_type":"VOICE_INTERRUPTION","keywords":["stop"],"confidence":0.9,"perception_text":"stop","utterance_id":"utt-1","turn_id":null}
+{"interrupt":true,"flush":false,"speculative":true,"reason":null,"command_text":null,"intent":"SPECULATIVE_STOP","intent_type":"VOICE_INTERRUPTION","keywords":["stop"],"confidence":0.9,"perception_text":"stop","utterance_id":"utt-1","turn_id":null}

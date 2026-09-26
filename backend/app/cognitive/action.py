@@ -49,6 +49,7 @@ def _parse_typed_realization(raw: str) -> dict[str, Any] | None:
         "claim_ids_used": value.get("claim_ids_used", []),
     }
 
+
 # Phrases where the assistant attributes a fact to the shared past or the user's
 # prior statements ("you told me…", "remember when we…"). Such a phrase asserts a
 # memory; if its content is absent from the surfaced memories AND the user's
@@ -867,7 +868,9 @@ class ActionService:
         evidence = payload.get("visual_evidence")
         if evidence is not None:
             age_s = max(0.0, time.time() - evidence.timestamp)
-            recency = "novel observation" if evidence.confidence >= 1.0 else "previously seen"
+            recency = (
+                "novel observation" if evidence.confidence >= 1.0 else "previously seen"
+            )
             heading = f"WHAT YOU CURRENTLY SEE (as of {age_s:.0f}s ago, {recency})"
         else:
             heading = "WHAT YOU CURRENTLY SEE"
@@ -893,9 +896,7 @@ class ActionService:
             lines.append(f"- Relational stance: {intent.relational_stance}")
             lines.append(f"- Urgency: {intent.urgency:.2f}")
             if decision.allowed_claims:
-                lines.append(
-                    f"- You may claim: {', '.join(decision.allowed_claims)}"
-                )
+                lines.append(f"- You may claim: {', '.join(decision.allowed_claims)}")
             if decision.forbidden_claims:
                 lines.append(
                     "- You must NOT claim or imply: "
@@ -1324,12 +1325,18 @@ class ActionService:
             "opening, leave it -- do not force it, and do not ask twice.\n"
         )
 
-    async def _announce_self_correction(self, reason: str):
+    async def _announce_self_correction(self, reason: str, turn_id: str | None):
         """Interrupt playback so the retry is not spoken over the bad take."""
         if self.publish_cb:
             try:
                 await self.publish_cb(
-                    "audio.stop", {"interrupt": True, "reason": reason}
+                    "audio.stop",
+                    {
+                        "interrupt": True,
+                        "flush": True,
+                        "reason": reason,
+                        "turn_id": turn_id,
+                    },
                 )
             except Exception as pe:
                 logger.error(f"[System 3] Failed to publish interrupt: {pe}")
@@ -1520,7 +1527,9 @@ class ActionService:
                 logger.warning(
                     f"[System 3] Metacognitive violation: {me.reason}. Triggering self-correction."
                 )
-                await self._announce_self_correction(me.reason)
+                await self._announce_self_correction(
+                    me.reason, plan.payload.get("turn_id")
+                )
 
                 # Reported, not acted on: this layer has no StateService, and
                 # giving it one to fire a hormone would invert the dependency.
@@ -1917,7 +1926,9 @@ class ActionService:
             yield {"type": "error", "data": "Unknown operation."}
             yield {"type": "done", "data": ""}
 
-    async def _execute_wait(self, plan: ActionPlan) -> AsyncGenerator[dict[str, Any], None]:
+    async def _execute_wait(
+        self, plan: ActionPlan
+    ) -> AsyncGenerator[dict[str, Any], None]:
         """Realize a WAIT decision as terminal silence."""
         del plan
         yield {"type": "done", "data": ""}
