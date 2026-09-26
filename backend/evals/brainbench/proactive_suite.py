@@ -22,6 +22,7 @@ import itertools
 import logging
 import re
 import statistics
+from collections import deque
 from collections.abc import Iterable
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -199,6 +200,26 @@ async def _await_turn_background(
             )
 
 
+async def _apply_pending_broadcasts(
+    broadcasts: deque[dict[str, Any]],
+    subconscious_state: StateService,
+    last_marked_proactive_attempt: float | None,
+) -> int:
+    """Apply and release queued snapshots; retain no history already consumed."""
+    resets = 0
+    while broadcasts:
+        snapshot = broadcasts.popleft()
+        before = subconscious_state.current_state.last_proactive_attempt
+        await subconscious_state.apply_external_state(snapshot)
+        after = subconscious_state.current_state.last_proactive_attempt
+        resets += int(
+            _broadcast_lowered_marked_attempt(
+                before, after, last_marked_proactive_attempt
+            )
+        )
+    return resets
+
+
 async def _tick_gap(
     *,
     sim: Any,
@@ -207,10 +228,9 @@ async def _tick_gap(
     sim_clock: clock.ManualClock,
     subconscious_state: StateService,
     brain_state: StateService,
-    broadcasts: list[dict[str, Any]],
+    broadcasts: deque[dict[str, Any]],
     sync: SyncArm,
     tick_order: TickOrder,
-    broadcast_cursor: int,
     background_timeout: float,
     engine: SubconsciousEngine,
     max_ticks: int,
@@ -257,20 +277,14 @@ async def _tick_gap(
                 )
 
         async def apply_pending_broadcasts() -> None:
-            nonlocal broadcast_cursor, last_marked_proactive_attempt, resets
+            nonlocal last_marked_proactive_attempt, resets
             if sync != "broadcast":
                 return
-            while broadcast_cursor < len(broadcasts):
-                snapshot = broadcasts[broadcast_cursor]
-                before = subconscious_state.current_state.last_proactive_attempt
-                await subconscious_state.apply_external_state(snapshot)
-                after = subconscious_state.current_state.last_proactive_attempt
-                resets += int(
-                    _broadcast_lowered_marked_attempt(
-                        before, after, last_marked_proactive_attempt
-                    )
-                )
-                broadcast_cursor += 1
+            resets += await _apply_pending_broadcasts(
+                broadcasts,
+                subconscious_state,
+                last_marked_proactive_attempt,
+            )
 
         async def run_subconscious_tick() -> None:
             nonlocal eligible_ticks, last_attempt_set_by_suite, previous_init
@@ -380,7 +394,6 @@ async def _tick_gap(
         "resets": resets,
         "ignored_thought_count": ignored_events,
         "ignored_thought_raises": ignored_raise_sum,
-        "broadcast_cursor": broadcast_cursor,
         "last_marked_proactive_attempt": last_marked_proactive_attempt,
         "last_attempt_set_by_suite": last_attempt_set_by_suite,
     }
@@ -592,11 +605,14 @@ async def run_proactive_suite(
     engine = SubconsciousEngine(llm_client=getattr(service, "llm_service", NullLLM()))
     sim_clock = clock.ManualClock(sim.start)
     original_publish_cb = brain_state.publish_cb
-    broadcasts: list[dict[str, Any]] = []
+    broadcasts: deque[dict[str, Any]] = deque()
+    broadcasts_emitted = 0
 
     async def capture_publish(subject: str, data: dict[str, Any]) -> None:
-        if subject == "state.broadcast":
+        nonlocal broadcasts_emitted
+        if subject == "state.broadcast" and sync == "broadcast":
             broadcasts.append(data)
+            broadcasts_emitted += 1
         if original_publish_cb is not None:
             await original_publish_cb(subject, data)
 
@@ -606,7 +622,6 @@ async def run_proactive_suite(
     all_outcomes: list[SuiteOutcome] = []
     prior_initiation: datetime | None = None
     last_marked_proactive_attempt: float | None = None
-    broadcast_cursor = 0
     window = int(
         Config.SYSTEM_TICK_INTERVAL
         if collision_window_seconds is None
@@ -625,7 +640,7 @@ async def run_proactive_suite(
             )
             brain_state.record_user_interaction()
             subconscious_state.record_user_interaction()
-            broadcasts_before_turn = len(broadcasts)
+            broadcasts_before_turn = broadcasts_emitted
             first_outputs = [
                 output
                 async for output in service.cognitive.process_event(
@@ -648,15 +663,13 @@ async def run_proactive_suite(
                 service, timeout=background_timeout, turn_id=first_turn.turn_id
             )
             if sync == "broadcast":
-                if len(broadcasts) == broadcasts_before_turn:
+                if broadcasts_emitted == broadcasts_before_turn:
                     raise RuntimeError(
                         f"brain emitted no state.broadcast after {first_turn.turn_id}"
                     )
-                while broadcast_cursor < len(broadcasts):
-                    await subconscious_state.apply_external_state(
-                        broadcasts[broadcast_cursor]
-                    )
-                    broadcast_cursor += 1
+                await _apply_pending_broadcasts(
+                    broadcasts, subconscious_state, last_marked_proactive_attempt
+                )
             known_plans.update(
                 claim.entity
                 for claim in annotations[0].claims
@@ -684,7 +697,6 @@ async def run_proactive_suite(
                     broadcasts=broadcasts,
                     sync=sync,
                     tick_order=tick_order,
-                    broadcast_cursor=broadcast_cursor,
                     background_timeout=background_timeout,
                     engine=engine,
                     max_ticks=max_ticks_per_gap,
@@ -693,7 +705,6 @@ async def run_proactive_suite(
                     prior_initiation=prior_initiation,
                     last_marked_proactive_attempt=last_marked_proactive_attempt,
                 )
-                broadcast_cursor = gap["broadcast_cursor"]
                 last_marked_proactive_attempt = gap["last_marked_proactive_attempt"]
                 initiated_at = gap["initiations_at"]
                 if initiated_at:
@@ -714,7 +725,7 @@ async def run_proactive_suite(
                 subconscious_state.resolve_proactive_thoughts(turn.text)
                 brain_state.record_user_interaction()
                 subconscious_state.record_user_interaction()
-                broadcasts_before_turn = len(broadcasts)
+                broadcasts_before_turn = broadcasts_emitted
                 outputs = [
                     output
                     async for output in service.cognitive.process_event(
@@ -735,21 +746,15 @@ async def run_proactive_suite(
                     service, timeout=background_timeout, turn_id=turn.turn_id
                 )
                 if sync == "broadcast":
-                    if len(broadcasts) == broadcasts_before_turn:
+                    if broadcasts_emitted == broadcasts_before_turn:
                         raise RuntimeError(
                             f"brain emitted no state.broadcast after {turn.turn_id}"
                         )
-                    while broadcast_cursor < len(broadcasts):
-                        snapshot = broadcasts[broadcast_cursor]
-                        before = subconscious_state.current_state.last_proactive_attempt
-                        await subconscious_state.apply_external_state(snapshot)
-                        after = subconscious_state.current_state.last_proactive_attempt
-                        gap["resets"] += int(
-                            _broadcast_lowered_marked_attempt(
-                                before, after, last_marked_proactive_attempt
-                            )
-                        )
-                        broadcast_cursor += 1
+                    gap["resets"] += await _apply_pending_broadcasts(
+                        broadcasts,
+                        subconscious_state,
+                        last_marked_proactive_attempt,
+                    )
                 else:
                     subconscious_state.current_state.last_user_interaction = (
                         turn.t.timestamp()

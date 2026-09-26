@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import asyncio
+import gc
 import itertools
 import math
+from collections import deque
 from datetime import datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
@@ -19,6 +21,7 @@ from app.state.agent_state import StateService
 from evals.brainbench.adapters import build_cognitive_service
 from evals.brainbench.proactive_suite import (
     _active_goal_context,
+    _apply_pending_broadcasts,
     _broadcast_lowered_marked_attempt,
     _useful_initiation,
     category_distribution,
@@ -165,6 +168,39 @@ def test_reset_instrumentation_requires_a_lowering_of_a_marked_value():
     assert not _broadcast_lowered_marked_attempt(200.0, 100.0, None)
 
 
+@pytest.mark.asyncio
+async def test_consumed_state_broadcasts_are_released_each_tick():
+    """Pending history stays empty after each drain, regardless of tick count."""
+
+    class State:
+        def __init__(self):
+            self.current_state = SimpleNamespace(last_proactive_attempt=10.0)
+            self.applied = 0
+
+        async def apply_external_state(self, snapshot):
+            self.current_state.last_proactive_attempt = snapshot[
+                "last_proactive_attempt"
+            ]
+            self.applied += 1
+
+    broadcasts = deque()
+    state = State()
+    resets = 0
+    broadcasts.extend({"last_proactive_attempt": value} for value in (9.0, 11.0, 12.0))
+    resets += await _apply_pending_broadcasts(broadcasts, state, 10.0)
+    assert len(broadcasts) == 0
+    assert resets == 1
+
+    for tick in range(10_000):
+        broadcasts.append({"last_proactive_attempt": float(12 + tick)})
+        resets += await _apply_pending_broadcasts(broadcasts, state, 10.0)
+        assert len(broadcasts) == 0
+
+    assert state.applied == 10_003
+    assert state.current_state.last_proactive_attempt == 10_011.0
+    assert resets == 1
+
+
 def test_proactive_scoring_captures_importance_categories_and_ignore_decay():
     outcome = SuiteOutcome(
         probe_key="measured",
@@ -201,11 +237,23 @@ def test_proactive_scoring_captures_importance_categories_and_ignore_decay():
     assert re_raise_decay([outcome])["raises_per_ignored_thought"] == 2.0
 
 
-def test_short_replay_crosses_idle_and_cooldown_thresholds_and_restores_callback(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-):
-    """The actual StateService gate first opens at 2h, then at 3h in the none arm."""
+class _FakeCognitive:
+    """Minimal cognitive stand-in: every turn persists, so the brain broadcasts."""
 
+    def __init__(self, state: StateService):
+        self.state = state
+        self.pipeline = SimpleNamespace(_system2_task=None)
+        self.last_reflection_task = None
+        self.identity = SimpleNamespace(persona=state.persona)
+
+    async def process_event(self, event):
+        self.state.current_state.last_user_interaction = clock.time()
+        await self.state.persist_state()
+        yield {"type": "content", "data": event["content"]}
+
+
+def _four_hour_replay(monkeypatch: pytest.MonkeyPatch):
+    """Two turns four hours apart with minute ticks: 239 ticks in the gap."""
     start = datetime(2025, 1, 1)
     turns = [
         SimpleNamespace(turn_id="t1", t=start, text="hello"),
@@ -222,26 +270,79 @@ def test_short_replay_crosses_idle_and_cooldown_thresholds_and_restores_callback
         events_by_id={},
         timeline=SimpleNamespace(value_at=lambda *_args: None),
     )
-    simulation = (sim, turns, annotations, [], [])
-
     monkeypatch.setattr(Config, "PROACTIVE_ENABLED", True)
     monkeypatch.setattr(Config, "PROACTIVE_IDLE_THRESHOLD_SECONDS", 7200)
     monkeypatch.setattr(Config, "PROACTIVE_COOLDOWN_SECONDS", 3600)
     monkeypatch.setattr(Config, "PROACTIVE_MIN_ENERGY", 0.0)
     monkeypatch.setattr(Config, "PROACTIVE_MIN_TURN_PROBABILITY", 0.0)
     monkeypatch.setattr(Config, "SYSTEM_TICK_INTERVAL", 60)
+    return (sim, turns, annotations, [], [])
 
-    class FakeCognitive:
-        def __init__(self, state: StateService):
-            self.state = state
-            self.pipeline = SimpleNamespace(_system2_task=None)
-            self.last_reflection_task = None
-            self.identity = SimpleNamespace(persona=state.persona)
 
-        async def process_event(self, event):
-            self.state.current_state.last_user_interaction = clock.time()
-            await self.state.persist_state()
-            yield {"type": "content", "data": event["content"]}
+def _live_broadcast_snapshots() -> int:
+    """Count state.broadcast payloads still reachable anywhere in the process."""
+    gc.collect()
+    return sum(
+        1
+        for obj in gc.get_objects()
+        if type(obj) is dict and "proactive_goals" in obj and "implied_goals" in obj
+    )
+
+
+@pytest.mark.parametrize("sync", ["broadcast", "none"])
+def test_replay_holds_no_consumed_state_broadcasts(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, sync: str
+):
+    """Retained snapshots must not grow with simulated time.
+
+    Every tick the brain publishes a full state snapshot, which carries the
+    W9 goal history. The harness used to keep all of them for the whole
+    cell, so a 6m cell passed 3 GB RSS. Nothing here holds a snapshot, so
+    what is still alive late in the gap is what the harness retains.
+    """
+    simulation = _four_hour_replay(monkeypatch)
+    live_at_tick: dict[int, int] = {}
+
+    async def run():
+        brain = StateService(
+            db_path=str(tmp_path / "brain.db"), writer_id="brain_agent"
+        )
+        brain.current_state.energy = 1.0
+        brain.current_state.dominance = 1.0
+        original_tick = brain.handle_system_tick
+        ticks = 0
+
+        async def sample_tick(data):
+            nonlocal ticks
+            ticks += 1
+            if ticks in (20, 200):
+                live_at_tick[ticks] = _live_broadcast_snapshots()
+            await original_tick(data)
+
+        brain.handle_system_tick = sample_tick
+        service = SimpleNamespace(
+            mode="architecture_only", cognitive=_FakeCognitive(brain)
+        )
+        await run_proactive_suite(
+            simulation,
+            service,
+            sync=sync,
+            tick_order="brain_first",
+            run_dir=tmp_path / sync,
+        )
+
+    asyncio.run(run())
+    assert set(live_at_tick) == {20, 200}
+    # A snapshot in flight is fine; 180 more ticks must not add retained ones.
+    assert live_at_tick[200] <= live_at_tick[20] <= 3, live_at_tick
+
+
+def test_short_replay_crosses_idle_and_cooldown_thresholds_and_restores_callback(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """The actual StateService gate first opens at 2h, then at 3h in the none arm."""
+
+    simulation = _four_hour_replay(monkeypatch)
 
     observations: dict[str, dict[str, Any]] = {}
     active_arm: str | None = None
@@ -313,7 +414,7 @@ def test_short_replay_crosses_idle_and_cooldown_thresholds_and_restores_callback
         original_callback = brain.publish_cb
         service = SimpleNamespace(
             mode="architecture_only",
-            cognitive=FakeCognitive(brain),
+            cognitive=_FakeCognitive(brain),
         )
         outcomes = await run_proactive_suite(
             simulation,
