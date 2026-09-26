@@ -66,14 +66,13 @@ class TestParseQdrantCreatedAt:
 
     def test_missing_value_falls_back_to_current_time(self):
         current_time = datetime(2026, 6, 1, tzinfo=UTC)
-        assert (
-            MemoryStore._parse_qdrant_created_at(None, current_time) == current_time
-        )
+        assert MemoryStore._parse_qdrant_created_at(None, current_time) == current_time
 
-    def test_unparseable_value_falls_back_to_current_time_not_epoch_zero(self):
-        current_time = datetime(2026, 6, 1, tzinfo=UTC)
-        out = MemoryStore._parse_qdrant_created_at("not a timestamp", current_time)
-        assert out == current_time
+    def test_unparseable_value_surfaces_instead_of_corrupting_recency(self):
+        with pytest.raises(ValueError, match="created_at"):
+            MemoryStore._parse_qdrant_created_at(
+                "not a timestamp", current_time=datetime(2026, 6, 1, tzinfo=UTC)
+            )
 
 
 _SCHEMA = """

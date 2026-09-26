@@ -52,7 +52,7 @@ that fails on the old code), **DECIDED** (architecture changed by ADR),
 | ID | Sev | Problem | Evidence | Status |
 |---|---|---|---|---|
 | S-1 | HIGH | `generate_proactive_response` inserted raw surfaced-memory text into the system-level proactive prompt — no `AntiInjectionGate`, no `[RETRIEVED-CONTENT]` delimiters | `test_proactive_memory_injection_is_quarantined` | FIXED |
-| S-2 | LOW | The chat path sanitises retrieved memory only when `MEMORY_TRUTH_ENABLED` (default on); the flag governs truth semantics, not injection safety | reading | OPEN |
+| S-2 | LOW | The chat path sanitises retrieved memory only when `MEMORY_TRUTH_ENABLED` (default on); the flag governs truth semantics, not injection safety | `test_action_selection.py::test_build_shared_history_quarantines_text_when_flag_off`; `test_stored_injection_corpus.py` | FIXED (ADR-W10) |
 
 ## Benchmark / tooling
 
@@ -224,4 +224,3 @@ improve over three consecutive rounds. Per the working agreement the loop
 stops here without a PASS; the decision whether to continue is the
 maintainer's. The history-path behaviour itself has shown no anomaly in any
 fuzz since R4 (400 seeds, two mixes, every round).
-

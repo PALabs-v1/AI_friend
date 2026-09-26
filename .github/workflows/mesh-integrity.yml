@@ -49,6 +49,16 @@ jobs:
           NEO4J_AUTH=neo4j/ci_dummy
           NEO4J_PLUGINS=["apoc"]
           NATS_URL=nats://localhost:4222
+          NATS_PROVISIONER_PASSWORD=ci_dummy_provisioner
+          NATS_SIGNALING_PASSWORD=ci_dummy_signaling
+          NATS_BRAIN_PASSWORD=ci_dummy_brain
+          NATS_SUBCONSCIOUS_PASSWORD=ci_dummy_subconscious
+          NATS_SURFACING_PASSWORD=ci_dummy_surfacing
+          NATS_SYSTEM_PASSWORD=ci_dummy_system
+          NATS_TRANSPORT_PASSWORD=ci_dummy_transport
+          NATS_STT_PASSWORD=ci_dummy_stt
+          NATS_VISION_PASSWORD=ci_dummy_vision
+          NATS_VOICE_PASSWORD=ci_dummy_voice
           OLLAMA_URL=http://localhost:11434
           SOVITS_URL=http://localhost:9871
           DATABASE_URL=postgresql://ai_friend:ci_dummy@localhost:5432/ai_friend_db
@@ -62,8 +72,8 @@ jobs:
 
       - name: Check no service publishes off loopback (P0-2)
         # audit/ (M4-S3, M4-S8) found every infra service bound to 0.0.0.0 by
-        # default, including the unauthenticated LiveKit SFU -- reachable by
-        # anything on the LAN. Every host port mapping must be prefixed
+        # default, including LiveKit -- reachable by anything on the LAN.
+        # Every host port mapping must be prefixed
         # 127.0.0.1: unless the line carries a "# lan-exposed: <reason>"
         # annotation explaining why that one service needs LAN reach.
         run: |
@@ -77,6 +87,16 @@ jobs:
             exit 1
           fi
           echo "✅ Every published port is loopback-bound (or explicitly annotated as LAN-exposed)"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Compose policy checker dependency
+        run: python -m pip install PyYAML
+
+      - name: Check host networking and loopback port policy
+        run: python backend/scripts/check_mesh_integrity.py
 
   prisma-validation:
     name: Prisma Schema & Identity Seed

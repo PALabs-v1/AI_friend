@@ -121,10 +121,10 @@ async def test_real_memory_search_traces_hybrid_actr_and_failure(tmp_path, monke
     store = build_memory_store(tmp_path)
 
     async def local_embedding(_text):
-        return [1.0, 0.0]
+        return [1.0] + [0.0] * 767
 
     monkeypatch.setattr(store, "get_embedding", local_embedding)
-    await store.add_memory("cobalt-marker-memory", embedding=[1.0, 0.0])
+    await store.add_memory("cobalt-marker-memory", embedding=[1.0] + [0.0] * 767)
     with trace.collect() as events:
         results = await store.search_memories(
             "cobalt-marker-query", refresh_on_recall=False
@@ -218,10 +218,10 @@ async def test_no_sink_skips_state_snapshots_and_search_trace_arguments(
     store = build_memory_store(tmp_path / "memory")
 
     async def local_embedding(_text):
-        return [1.0, 0.0]
+        return [1.0] + [0.0] * 767
 
     monkeypatch.setattr(store, "get_embedding", local_embedding)
-    await store.add_memory("no-sink-search-marker", embedding=[1.0, 0.0])
+    await store.add_memory("no-sink-search-marker", embedding=[1.0] + [0.0] * 767)
 
     def fail_emit(*_args, **_kwargs):
         raise AssertionError("trace arguments constructed with no trace sink")

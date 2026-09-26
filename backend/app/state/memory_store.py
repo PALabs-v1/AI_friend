@@ -34,6 +34,86 @@ from ..utils.background_tasks import spawn_background
 from .memory_ranking import hybrid_rank
 
 logger = logging.getLogger(__name__)
+_MAX_MEMORY_CONTENT_CHARS = 32_768
+_MAX_METADATA_DEPTH = 8
+_MAX_METADATA_ITEMS = 1_000
+_MAX_METADATA_SERIALIZED_CHARS = 1_000_000
+_EMBEDDING_DIMENSION = 768
+
+
+def _validate_metadata_tree(
+    value: Any, depth: int = 0, budget: list[int] | None = None
+):
+    """Reject metadata that JSON storage would truncate, coerce, or exhaust on."""
+    budget = budget if budget is not None else [_MAX_METADATA_ITEMS]
+    if depth > _MAX_METADATA_DEPTH:
+        raise ValueError("memory metadata nesting exceeds the supported depth")
+    budget[0] -= 1
+    if budget[0] < 0:
+        raise ValueError("memory metadata has too many values")
+    if value is None or isinstance(value, (str, bool, int)):
+        if isinstance(value, str) and len(value) > _MAX_MEMORY_CONTENT_CHARS:
+            raise ValueError("memory metadata string is too long")
+        return
+    if isinstance(value, float):
+        if not math.isfinite(value) or abs(value) > 1e12:
+            raise ValueError("memory metadata number is not finite or is too large")
+        return
+    if isinstance(value, dict):
+        if len(value) > 128 or any(not isinstance(key, str) for key in value):
+            raise ValueError("memory metadata keys must be bounded strings")
+        for key, item in value.items():
+            if len(key) > 256:
+                raise ValueError("memory metadata key is too long")
+            _validate_metadata_tree(item, depth + 1, budget)
+        return
+    if isinstance(value, (list, tuple)):
+        if len(value) > 256:
+            raise ValueError("memory metadata list is too long")
+        for item in value:
+            _validate_metadata_tree(item, depth + 1, budget)
+        return
+    raise ValueError(f"unsupported memory metadata value: {type(value).__name__}")
+
+
+def _finite_bounded_number(value: Any, name: str, lower: float, upper: float) -> None:
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, (int, float))
+        or not math.isfinite(value)
+        or not lower <= value <= upper
+    ):
+        raise ValueError(f"{name} must be a finite number in [{lower}, {upper}]")
+
+
+def _validate_optional_timestamp(value: Any, name: str) -> None:
+    if value is None or isinstance(value, datetime):
+        return
+    if not isinstance(value, str) or len(value) > 64:
+        raise ValueError(f"{name} must be a datetime or ISO timestamp")
+    try:
+        datetime.fromisoformat(value)
+    except ValueError as error:
+        raise ValueError(f"{name} is not a parseable ISO timestamp") from error
+
+
+def _decode_memory_metadata(value: Any) -> dict[str, Any]:
+    """Parse a stored metadata object or fail the retrieval visibly."""
+    if value is None:
+        return {}
+    if isinstance(value, str):
+        if len(value) > _MAX_METADATA_SERIALIZED_CHARS:
+            raise ValueError("stored memory metadata is too large")
+        try:
+            value = orjson.loads(value)
+        except (orjson.JSONDecodeError, TypeError) as error:
+            raise ValueError("stored memory metadata is not valid JSON") from error
+    if not isinstance(value, dict):
+        raise TypeError("stored memory metadata must be an object")
+    _validate_metadata_tree(value)
+    if len(orjson.dumps(value)) > _MAX_METADATA_SERIALIZED_CHARS:
+        raise ValueError("stored memory metadata is too large")
+    return value
 
 
 def _trace_enabled() -> bool:
@@ -1328,12 +1408,7 @@ class MemoryStore:
         current_valence: float | None,
     ) -> dict[str, Any] | None:
         """Check if a memory row matches the entity and represents a contradiction."""
-        raw_metadata = row.get("metadata") or {}
-        if isinstance(raw_metadata, str):
-            try:
-                raw_metadata = orjson.loads(raw_metadata)
-            except Exception:
-                raw_metadata = {}
+        raw_metadata = _decode_memory_metadata(row.get("metadata"))
         entities = raw_metadata.get("entities", [])
         if not isinstance(entities, list):
             entities = []
@@ -1456,6 +1531,30 @@ class MemoryStore:
         existing caller's behavior byte-for-byte.
         """
         try:
+            if not isinstance(content, str) or not content.strip():
+                raise ValueError("memory content must be a non-empty string")
+            if len(content) > _MAX_MEMORY_CONTENT_CHARS:
+                raise ValueError("memory content exceeds the supported size")
+            if raw_content is not None and (
+                not isinstance(raw_content, str)
+                or len(raw_content) > _MAX_MEMORY_CONTENT_CHARS
+            ):
+                raise ValueError("raw memory content must be a bounded string")
+            _finite_bounded_number(importance, "importance", 0.0, 1.0)
+            _finite_bounded_number(emotion, "emotion", 0.0, 1.0)
+            _finite_bounded_number(valence, "valence", -1.0, 1.0)
+            _finite_bounded_number(certainty, "certainty", 0.0, 1.0)
+            _validate_optional_timestamp(valid_from, "valid_from")
+            _validate_optional_timestamp(valid_until, "valid_until")
+            if metadata is None:
+                metadata = {}
+            if not isinstance(metadata, dict):
+                raise TypeError("memory metadata must be an object")
+            metadata = dict(metadata)
+            _validate_metadata_tree(metadata)
+            if len(orjson.dumps(metadata)) > _MAX_METADATA_SERIALIZED_CHARS:
+                raise ValueError("memory metadata is too large")
+
             import uuid
 
             # Generate a single UUID for both stores to ensure correlation
@@ -1491,8 +1590,6 @@ class MemoryStore:
             # Pre-link entities from graph to metadata
             present_entities = await self._prelink_memory_entities(content)
 
-            if metadata is None:
-                metadata = {}
             metadata["entities"] = present_entities
 
             if contradicts_id is None:
@@ -1509,6 +1606,16 @@ class MemoryStore:
                 if embedding is not None
                 else await self.get_embedding(content)
             )
+            if (
+                not isinstance(vector, (list, tuple))
+                or len(vector) != _EMBEDDING_DIMENSION
+            ):
+                raise ValueError(
+                    f"memory embedding must contain {_EMBEDDING_DIMENSION} values"
+                )
+            vector = [float(value) for value in vector]
+            if not all(math.isfinite(value) for value in vector):
+                raise ValueError("memory embedding values must be finite")
             if not vector:
                 return False
 
@@ -1808,15 +1915,20 @@ class MemoryStore:
         branch below, `float(created_val)` raises on every promoted memory,
         silently falling through to `current_time`/`now()` and losing its
         real creation timestamp -- which corrupts `_spacing_hours` for
-        exactly the memories old enough to have been promoted at all."""
-        if created_val:
+        exactly the memories old enough to have been promoted at all. A
+        present but malformed timestamp now raises so search can report the
+        corrupt row instead of silently assigning it a recent age."""
+        if created_val is not None:
             try:
-                return datetime.fromtimestamp(float(created_val), UTC)
-            except (TypeError, ValueError):
+                epoch = float(created_val)
+                if math.isfinite(epoch):
+                    return datetime.fromtimestamp(epoch, UTC)
+            except (OverflowError, TypeError, ValueError):
                 pass
             parsed = MemoryStore._as_aware_utc(created_val)
             if parsed is not None:
                 return parsed
+            raise ValueError("stored memory created_at is not a valid timestamp")
         return current_time if current_time is not None else clock.now(UTC)
 
     def _score_one_qdrant_candidate(
@@ -1890,12 +2002,7 @@ class MemoryStore:
         if score <= (threshold - 2.5) and importance_score < 0.7:
             return None
 
-        custom_metadata = {}
-        if "custom_metadata" in meta:
-            try:
-                custom_metadata = orjson.loads(meta["custom_metadata"])
-            except Exception:
-                pass  # nosec B110 - malformed/non-JSON custom_metadata degrades to {} regardless of cause
+        custom_metadata = _decode_memory_metadata(meta.get("custom_metadata"))
 
         return {
             "id": memory_id,
@@ -2113,12 +2220,7 @@ class MemoryStore:
             if created and created.tzinfo is None:
                 created = created.replace(tzinfo=UTC)
 
-            raw_meta = row.get("metadata")
-            if isinstance(raw_meta, str):
-                try:
-                    raw_meta = orjson.loads(raw_meta)
-                except Exception:
-                    raw_meta = {}
+            raw_meta = _decode_memory_metadata(row.get("metadata"))
 
             raw_candidates.append(
                 {
@@ -2131,7 +2233,7 @@ class MemoryStore:
                     "valence": row.get("valence") or 0.0,
                     "created_at": created,
                     "recall_count": max(1, row.get("recall_count") or 1),
-                    "metadata": raw_meta or {},
+                    "metadata": raw_meta,
                     "speaker": row.get("speaker"),
                     "record_type": row.get("record_type") or "episode",
                     "valid_from": row.get("valid_from"),
@@ -2192,7 +2294,10 @@ class MemoryStore:
         # _as_aware_utc, not a bare `.tzinfo` check: the SQLite converter
         # returns text for an unparseable stored value, and a string here
         # used to raise AttributeError and fail the whole search.
-        created = self._as_aware_utc(row.get("created_at"))
+        raw_created = row.get("created_at")
+        created = self._as_aware_utc(raw_created)
+        if raw_created is not None and created is None:
+            raise ValueError("stored memory created_at is not a valid timestamp")
 
         memory_valence = row.get("valence") or 0.0
         emotion_weight_row = row.get("emotional_weight") or 0.0
@@ -2227,12 +2332,7 @@ class MemoryStore:
         if score <= (threshold - 2.5) and (row.get("importance_score") or 0.5) < 0.7:
             return None
 
-        raw_meta = row.get("metadata")
-        if isinstance(raw_meta, str):
-            try:
-                raw_meta = orjson.loads(raw_meta)
-            except Exception:
-                raw_meta = {}
+        raw_meta = _decode_memory_metadata(row.get("metadata"))
 
         return {
             "id": row.get("id"),
@@ -2244,7 +2344,7 @@ class MemoryStore:
             "valence": row.get("valence") or 0.0,
             "created_at": created,
             "recall_count": recall_count,
-            "metadata": raw_meta or {},
+            "metadata": raw_meta,
             "speaker": row.get("speaker"),
             "record_type": row.get("record_type") or "episode",
             "valid_from": row.get("valid_from"),
@@ -3139,14 +3239,7 @@ class MemoryStore:
             return None
 
         mem_id = str(row.get("id") or uuid.uuid4())
-        raw_meta = row.get("metadata")
-        if isinstance(raw_meta, str):
-            try:
-                raw_meta = json.loads(raw_meta)
-            except Exception:
-                raw_meta = {}
-        elif not isinstance(raw_meta, dict):
-            raw_meta = {}
+        raw_meta = _decode_memory_metadata(row.get("metadata"))
 
         payload_meta = self._build_promotion_payload(row, raw_meta)
 
@@ -4545,17 +4638,12 @@ class MemoryStore:
                 for row in rows:
                     if not row.get("content") or not row.get("id"):
                         continue
-                    raw_meta = row.get("metadata")
-                    if isinstance(raw_meta, str):
-                        try:
-                            raw_meta = orjson.loads(raw_meta)
-                        except Exception:
-                            raw_meta = {}
+                    raw_meta = _decode_memory_metadata(row.get("metadata"))
                     candidates.append(
                         {
                             "id": row["id"],
                             "content": row["content"],
-                            "metadata": raw_meta or {},
+                            "metadata": raw_meta,
                         }
                     )
                 return candidates
@@ -4660,41 +4748,24 @@ class MemoryStore:
 
     @staticmethod
     def _parse_actr_created_at(created_at, current_time):
-        """Best-effort parse of a stored `created_at` into a datetime,
-        falling back to `current_time`/now for anything unparseable."""
-        if not created_at:
+        """Parse a stored timestamp; only a missing value may use the fallback."""
+        if created_at is None:
             return current_time if current_time is not None else clock.now()
-
-        if not isinstance(created_at, str):
-            return created_at
-
-        for fmt in (
-            "%Y-%m-%d %H:%M:%S",
-            "%Y-%m-%dT%H:%M:%S",
-            "%Y-%m-%d %H:%M:%S.%f",
-            "%Y-%m-%dT%H:%M:%S.%f",
-        ):
-            try:
-                return datetime.strptime(created_at.split("+")[0], fmt)
-            except ValueError:
-                continue
-        return current_time if current_time is not None else clock.now()
+        parsed = MemoryStore._as_aware_utc(created_at)
+        if parsed is None:
+            raise ValueError("stored memory created_at is not a valid timestamp")
+        return parsed
 
     @staticmethod
     def _extract_actr_decay_rate(metadata, default_rate: float) -> float:
         """Per-memory decay_rate override from metadata, if present."""
-        import json
-
-        meta = {}
-        if isinstance(metadata, str):
-            try:
-                meta = json.loads(metadata)
-            except Exception:  # nosec B110 - malformed metadata falls back to {} / default_rate below
-                pass
-        elif isinstance(metadata, dict):
-            meta = metadata
-
-        return float(meta.get("decay_rate", default_rate)) if meta else default_rate
+        meta = _decode_memory_metadata(metadata)
+        rate = meta.get("decay_rate", default_rate)
+        if isinstance(rate, bool) or not isinstance(rate, (int, float)):
+            raise TypeError("memory decay_rate metadata must be numeric")
+        if not math.isfinite(rate) or not 0 <= rate <= 10:
+            raise ValueError("memory decay_rate metadata is out of range")
+        return float(rate)
 
     def _compute_actr_decay(self, rows: list, current_time=None) -> tuple[list, list]:
         """Pure ACT-R activation decision per row: which memory ids should be
