@@ -30,16 +30,6 @@ from ..cognitive.goals import GoalRecord, review_due_goals
 from ..config import Config
 from ..errors import StateConflictError
 from ..persona import PersonaProfile
-
-_PROACTIVE_WATERMARK_MAX_SCRIPT = """
-local current = redis.call('GET', KEYS[1])
-local incoming = tonumber(ARGV[1])
-if not current or tonumber(current) < incoming then
-    redis.call('SET', KEYS[1], ARGV[1])
-    return ARGV[1]
-end
-return current
-"""
 from ..utils.background_tasks import spawn_background
 from .person_model import PersonModel
 
@@ -64,6 +54,80 @@ def _new_capability_model() -> "CapabilityLimitationModel":
 
 
 logger = logging.getLogger(__name__)
+
+# Redis script: keep the larger of the stored and incoming proactive-attempt
+# watermark, so a stale writer can never move the cooldown backwards (V-4).
+_PROACTIVE_WATERMARK_MAX_SCRIPT = """
+local current = redis.call('GET', KEYS[1])
+local incoming = tonumber(ARGV[1])
+if not current or tonumber(current) < incoming then
+    redis.call('SET', KEYS[1], ARGV[1])
+    return ARGV[1]
+end
+return current
+"""
+
+# Bounds on the proactive state every snapshot and state.broadcast carries.
+_MAX_INTERACTION_HOURS = 168
+_MAX_PROACTIVE_GOALS = 256
+
+
+def _parse_interaction_hours(raw: Any) -> list[int] | None:
+    """User turn hours from storage or a broadcast; None when absent or
+    unreadable, so the caller keeps what it has."""
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw)
+        except json.JSONDecodeError:
+            return None
+    if not isinstance(raw, list):
+        return None
+    return [
+        int(hour) % 24
+        for hour in raw[-_MAX_INTERACTION_HOURS:]
+        if isinstance(hour, int) and not isinstance(hour, bool)
+    ]
+
+
+def _bounded_proactive_goals(goals: list[GoalRecord]) -> list[GoalRecord]:
+    """Hold the thought history to _MAX_PROACTIVE_GOALS. A closed thought (never
+    raised again) is what stops it being raised again, so closed ones go first
+    and oldest first; list order is creation order, which stays correct under
+    simulated time where created_at (wall clock) does not."""
+    excess = len(goals) - _MAX_PROACTIVE_GOALS
+    if excess <= 0:
+        return goals
+    closed = [
+        goal
+        for goal in goals
+        if goal.proactive_raise_count <= len(goal.proactive_outcomes)
+        and goal.re_raise_probability(Config.PROACTIVE_IGNORE_ZERO_AFTER) == 0.0
+    ]
+    evicted = {id(goal) for goal in closed[:excess]}
+    kept = [goal for goal in goals if id(goal) not in evicted]
+    return kept[-_MAX_PROACTIVE_GOALS:]
+
+
+def _parse_proactive_goals(raw: Any) -> list[GoalRecord] | None:
+    """Thought history from storage or a broadcast. One malformed record is
+    skipped, not allowed to abort hydration or a whole state broadcast."""
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw)
+        except json.JSONDecodeError:
+            return None
+    if not isinstance(raw, list):
+        return None
+    goals = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        try:
+            goals.append(GoalRecord.model_validate(item))
+        except ValueError as error:
+            logger.warning("Skipping malformed proactive goal record: %s", error)
+    return _bounded_proactive_goals(goals)
+
 
 # Roadmap sectionC: recognising a somatic comfort fires a phasic dopamine burst of
 # this size. Kept here rather than in somatic.py because it is a property of the
@@ -904,28 +968,12 @@ class StateService:
                     self.current_state.last_proactive_attempt = float(
                         data.get("last_proactive_attempt", 0.0)
                     )
-                    raw_hours = data.get("user_interaction_hours", "[]")
-                    try:
-                        hours = json.loads(raw_hours)
-                    except (TypeError, json.JSONDecodeError):
-                        hours = []
-                    if isinstance(hours, list):
-                        self.current_state.user_interaction_hours = [
-                            int(hour) % 24
-                            for hour in hours[-168:]
-                            if isinstance(hour, int) and not isinstance(hour, bool)
-                        ]
-                    raw_goals = data.get("proactive_goals", "[]")
-                    try:
-                        goals = json.loads(raw_goals)
-                    except (TypeError, json.JSONDecodeError):
-                        goals = []
-                    if isinstance(goals, list):
-                        self.proactive_goals = [
-                            GoalRecord.model_validate(goal)
-                            for goal in goals
-                            if isinstance(goal, dict)
-                        ]
+                    hours = _parse_interaction_hours(data.get("user_interaction_hours"))
+                    if hours is not None:
+                        self.current_state.user_interaction_hours = hours
+                    goals = _parse_proactive_goals(data.get("proactive_goals"))
+                    if goals is not None:
+                        self.proactive_goals = goals
                     self.current_state.interaction_count = int(
                         data.get("interaction_count", 0)
                     )
@@ -1008,32 +1056,18 @@ class StateService:
                         "SELECT hours_json FROM agent_user_activity_hours WHERE agent_name = ?",
                         (agent_name,),
                     ).fetchone()
-                    if activity_row:
-                        try:
-                            hours = json.loads(activity_row[0])
-                        except (TypeError, json.JSONDecodeError):
-                            hours = []
-                        if isinstance(hours, list):
-                            self.current_state.user_interaction_hours = [
-                                int(hour) % 24
-                                for hour in hours[-168:]
-                                if isinstance(hour, int) and not isinstance(hour, bool)
-                            ]
+                    hours = _parse_interaction_hours(
+                        activity_row[0] if activity_row else None
+                    )
+                    if hours is not None:
+                        self.current_state.user_interaction_hours = hours
                     goals_row = conn.execute(
                         "SELECT goals_json FROM agent_proactive_goals WHERE agent_name = ?",
                         (agent_name,),
                     ).fetchone()
-                    if goals_row:
-                        try:
-                            goals = json.loads(goals_row[0])
-                        except (TypeError, json.JSONDecodeError):
-                            goals = []
-                        if isinstance(goals, list):
-                            self.proactive_goals = [
-                                GoalRecord.model_validate(goal)
-                                for goal in goals
-                                if isinstance(goal, dict)
-                            ]
+                    goals = _parse_proactive_goals(goals_row[0] if goals_row else None)
+                    if goals is not None:
+                        self.proactive_goals = goals
                     logger.debug("[State] Hydrated successfully from SQLite.")
                     return
         except Exception as e:
@@ -1224,13 +1258,11 @@ class StateService:
             self.current_state.last_proactive_attempt = max(
                 self.current_state.last_proactive_attempt, incoming_attempt
             )
-            interaction_hours = data.get("user_interaction_hours")
-            if isinstance(interaction_hours, list):
-                self.current_state.user_interaction_hours = [
-                    int(hour) % 24
-                    for hour in interaction_hours[-168:]
-                    if isinstance(hour, int) and not isinstance(hour, bool)
-                ]
+            interaction_hours = _parse_interaction_hours(
+                data.get("user_interaction_hours")
+            )
+            if interaction_hours is not None:
+                self.current_state.user_interaction_hours = interaction_hours
             self.current_state.interaction_count = int(
                 data.get("interaction_count", self.current_state.interaction_count)
             )
@@ -1252,13 +1284,9 @@ class StateService:
             known_concepts = data.get("known_concepts")
             if isinstance(known_concepts, list):
                 self.current_state.user_mental_model.known_concepts = known_concepts
-            proactive_goals = data.get("proactive_goals")
-            if isinstance(proactive_goals, list):
-                self.proactive_goals = [
-                    GoalRecord.model_validate(goal)
-                    for goal in proactive_goals
-                    if isinstance(goal, dict)
-                ]
+            proactive_goals = _parse_proactive_goals(data.get("proactive_goals"))
+            if proactive_goals is not None:
+                self.proactive_goals = proactive_goals
             self.current_state.baseline_valence = float(
                 data.get("baseline_valence", self.current_state.baseline_valence)
             )
@@ -1508,7 +1536,7 @@ class StateService:
                 VALUES (?, ?)
                 ON CONFLICT(agent_name) DO UPDATE SET hours_json = excluded.hours_json
                 """,
-                (agent_name, json.dumps(hours[-168:])),
+                (agent_name, json.dumps(hours[-_MAX_INTERACTION_HOURS:])),
             )
 
     def _write_proactive_goals(self, agent_name: str, goals: list[GoalRecord]) -> None:
@@ -1527,7 +1555,7 @@ class StateService:
         self.current_state.last_user_interaction = clock.time()
         hour = datetime.fromtimestamp(self.current_state.last_user_interaction).hour
         self.current_state.user_interaction_hours.append(hour)
-        del self.current_state.user_interaction_hours[:-168]
+        del self.current_state.user_interaction_hours[:-_MAX_INTERACTION_HOURS]
 
     def record_proactive_thought(
         self, description: str, *, goal_id: str | None = None
@@ -1552,6 +1580,7 @@ class StateService:
                 description=description,
             )
             self.proactive_goals.append(record)
+            self.proactive_goals = _bounded_proactive_goals(self.proactive_goals)
         chance = record.re_raise_probability(Config.PROACTIVE_IGNORE_ZERO_AFTER)
         if chance > 0:
             record.record_proactive_raise(now)

@@ -361,3 +361,75 @@ async def test_foreground_pipeline_turn_finishes_while_consolidation_is_in_fligh
     assert outputs
     print(f"foreground_turn_elapsed_s={elapsed:.6f} budget_s=0.500000")
     assert elapsed < 0.5
+
+
+def _thought(goal_id: str, description: str) -> GoalRecord:
+    return GoalRecord(
+        goal_id=goal_id,
+        type="proactive_thought",
+        source="subconscious",
+        description=description,
+    )
+
+
+@pytest.mark.asyncio
+async def test_one_malformed_goal_does_not_abort_a_state_broadcast(tmp_path):
+    """Regression: goals were validated in one comprehension, so a single bad
+    record raised out of apply_external_state halfway through applying it
+    (and out of hydration before the mood baselines were loaded)."""
+    state = StateService(
+        graph_store=MagicMock(),
+        db_path=str(tmp_path / "s.db"),
+        writer_id="subconscious_agent",
+    )
+    good = _thought("g1", "ask about the exam").model_dump()
+    bad = {"goal_id": "g2", "proactive_outcomes": ["exploded"]}
+
+    await state.apply_external_state(
+        {
+            "proactive_goals": [good, bad],
+            "interaction_count": 7,
+            "baseline_valence": 0.3,
+        }
+    )
+
+    assert [goal.goal_id for goal in state.proactive_goals] == ["g1"]
+    assert state.current_state.interaction_count == 7
+    assert state.current_state.baseline_valence == 0.3
+
+
+def test_stored_goal_history_skips_a_malformed_record():
+    from app.state.agent_state import _parse_proactive_goals
+
+    raw = [_thought("g1", "a").model_dump(), {"proactive_raise_count": "many"}, 3]
+    assert [goal.goal_id for goal in _parse_proactive_goals(raw)] == ["g1"]
+    assert _parse_proactive_goals("{not json") is None
+    assert _parse_proactive_goals(None) is None
+
+
+def test_thought_history_stays_bounded_and_evicts_closed_thoughts_first(tmp_path):
+    """Every distinct thought used to add a record forever, and every record
+    rides in each snapshot and state.broadcast."""
+    from app.state import agent_state
+
+    state = StateService(
+        graph_store=MagicMock(),
+        db_path=str(tmp_path / "s.db"),
+        writer_id="subconscious_agent",
+    )
+    closed = _thought("closed", "an old dismissed thought")
+    closed.record_proactive_raise(1.0)
+    closed.record_proactive_outcome("dismissed")
+    state.proactive_goals = [closed]
+    cap = agent_state._MAX_PROACTIVE_GOALS
+
+    ids = [
+        state.record_proactive_thought(f"distinct thought {i}")[0]
+        for i in range(cap + 10)
+    ]
+
+    kept = {goal.goal_id for goal in state.proactive_goals}
+    assert len(state.proactive_goals) == cap
+    assert "closed" not in kept
+    assert ids[-1] in kept
+    assert ids[0] not in kept
