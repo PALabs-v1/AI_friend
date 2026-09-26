@@ -62,34 +62,64 @@ async def test_invalid_metadata_is_rejected_before_write(
     assert row_count == 0
 
 
+@pytest.mark.parametrize(
+    ("column", "value"),
+    [
+        ("metadata", "{not-json"),
+        ("metadata", json.dumps({"oversized": "x" * 1_000_001})),
+        ("created_at", "yesterday-ish"),
+    ],
+)
 @pytest.mark.asyncio
-async def test_corrupt_stored_metadata_surfaces_as_search_error(isolated_memory_store):
+async def test_one_corrupt_row_is_skipped_not_a_failed_search(
+    isolated_memory_store, column, value, monkeypatch
+):
+    """Regression: W10a's read validation raised out of the per-row loop, so
+    one corrupt memory made every search return nothing (an outage reported
+    as an error). The corrupt row is left out and counted; the rest of the
+    store is still retrievable."""
+    from app.config import Config
+
+    monkeypatch.setattr(Config, "MEMORY_RANKING_POLICY", "hybrid")
     store, conversation = isolated_memory_store
-    assert await store.add_memory("Alice likes tea", embedding=[0.1] * 768)
-    async with conversation.pool.acquire() as conn:
-        await conn.execute("UPDATE memories SET metadata = ?", "{not-json")
-
-    results = await store.search_memories("Alice tea", refresh_on_recall=False)
-
-    assert results == []
-    assert "metadata" in (store.last_search_error or "").lower()
-
+    assert await store.add_memory("Alice likes green tea", embedding=[0.1] * 768)
+    assert await store.add_memory("Bob likes green tea too", embedding=[0.1] * 768)
     async with conversation.pool.acquire() as conn:
         await conn.execute(
-            "UPDATE memories SET metadata = ?",
-            json.dumps({"oversized": "x" * 1_000_001}),
+            f"UPDATE memories SET {column} = ? WHERE content LIKE 'Alice%'",  # nosec B608 - column from the fixed parametrize list
+            value,
         )
-    results = await store.search_memories("Alice tea", refresh_on_recall=False)
-    assert results == []
-    assert "too large" in (store.last_search_error or "")
 
-    async with conversation.pool.acquire() as conn:
-        await conn.execute(
-            "UPDATE memories SET metadata = ?, created_at = ?", "{}", "yesterday-ish"
-        )
-    results = await store.search_memories("Alice tea", refresh_on_recall=False)
-    assert results == []
-    assert "created_at" in (store.last_search_error or "")
+    results = await store.search_memories("green tea", refresh_on_recall=False)
+
+    contents = [r["content"] for r in results]
+    assert any("Bob" in c for c in contents), contents
+    assert not any("Alice" in c for c in contents), contents
+    assert store.last_search_error is None
+    assert store.last_search_trace["skipped_corrupt"] == 1
+    assert store.corrupt_rows_skipped >= 1
+
+
+def test_decay_pass_leaves_a_corrupt_row_alone_and_processes_the_rest():
+    store = object.__new__(MemoryStore)
+    store.decay_rate = 0.5
+    old = "2020-01-01T00:00:00+00:00"
+    rows = [
+        {"id": "corrupt", "created_at": "yesterday-ish", "importance_score": 0.2},
+        {
+            "id": "bad-rate",
+            "created_at": old,
+            "metadata": {"decay_rate": float("inf")},
+            "importance_score": 0.2,
+        },
+        {"id": "healthy", "created_at": old, "importance_score": 0.2},
+    ]
+
+    to_delete, to_update = store._compute_actr_decay(rows)
+
+    touched = set(to_delete) | {mem_id for _, mem_id in to_update}
+    assert touched == {"healthy"}
+    assert store.corrupt_rows_skipped == 2
 
 
 @pytest.mark.asyncio

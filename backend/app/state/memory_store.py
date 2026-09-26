@@ -116,6 +116,11 @@ def _decode_memory_metadata(value: Any) -> dict[str, Any]:
     return value
 
 
+# What a stored row that fails validation raises (bad metadata JSON or
+# shape, an unparseable timestamp, an out-of-range decay rate).
+_CORRUPT_ROW_ERRORS = (ValueError, TypeError)
+
+
 def _trace_enabled() -> bool:
     # Runtime import avoids app.state -> app.cognitive.__init__ -> core -> app.state.
     from ..cognitive.trace import enabled
@@ -1400,6 +1405,25 @@ class MemoryStore:
             return -1
         return 0
 
+    def _skip_corrupt_row(self, row_id: Any, where: str, error: Exception) -> None:
+        """Leave one stored row that fails validation out of this operation.
+
+        Validation on read is there so a corrupt row cannot rank with a made-up
+        age or feed garbage metadata onward; it must not turn one bad row into a
+        failed search (or decay, promotion, relinking pass) for every memory,
+        which is what raising out of the per-row loop did. Same shape as the
+        vector index's `skipped_dimension`: counted, logged by id, never text.
+        """
+        self.corrupt_rows_skipped = getattr(self, "corrupt_rows_skipped", 0) + 1
+        self._search_corrupt_skipped = getattr(self, "_search_corrupt_skipped", 0) + 1
+        logger.warning(
+            "Skipping corrupt memory %s during %s (%s): %s",
+            row_id,
+            where,
+            type(error).__name__,
+            error,
+        )
+
     def _check_row_contradiction(
         self,
         row: dict[str, Any],
@@ -1487,9 +1511,13 @@ class MemoryStore:
             current_valence = None
 
         for row in rows:
-            match = self._check_row_contradiction(
-                row, subject_key, current_polarity, current_valence
-            )
+            try:
+                match = self._check_row_contradiction(
+                    row, subject_key, current_polarity, current_valence
+                )
+            except _CORRUPT_ROW_ERRORS as error:
+                self._skip_corrupt_row(row.get("id"), "contradiction", error)
+                continue
             if match is not None:
                 return match
         return None
@@ -2051,19 +2079,23 @@ class MemoryStore:
             db_metadata = await self._fetch_candidate_db_metadata(candidates)
 
             for cand in candidates:
-                scored = self._score_one_qdrant_candidate(
-                    cand,
-                    db_metadata,
-                    wing=wing,
-                    room=room,
-                    excluded=excluded,
-                    threshold=threshold,
-                    current_valence=current_valence,
-                    current_arousal=current_arousal,
-                    current_cortisol=current_cortisol,
-                    current_time=current_time,
-                    now_ts=now_ts,
-                )
+                try:
+                    scored = self._score_one_qdrant_candidate(
+                        cand,
+                        db_metadata,
+                        wing=wing,
+                        room=room,
+                        excluded=excluded,
+                        threshold=threshold,
+                        current_valence=current_valence,
+                        current_arousal=current_arousal,
+                        current_cortisol=current_cortisol,
+                        current_time=current_time,
+                        now_ts=now_ts,
+                    )
+                except _CORRUPT_ROW_ERRORS as error:
+                    self._skip_corrupt_row(cand.get("id"), "qdrant_scoring", error)
+                    continue
                 if scored is not None:
                     raw_candidates.append(scored)
         except Exception as qe:
@@ -2220,7 +2252,11 @@ class MemoryStore:
             if created and created.tzinfo is None:
                 created = created.replace(tzinfo=UTC)
 
-            raw_meta = _decode_memory_metadata(row.get("metadata"))
+            try:
+                raw_meta = _decode_memory_metadata(row.get("metadata"))
+            except _CORRUPT_ROW_ERRORS as error:
+                self._skip_corrupt_row(row.get("id"), "sqlite_candidates", error)
+                continue
 
             raw_candidates.append(
                 {
@@ -2399,14 +2435,18 @@ class MemoryStore:
         for row in rows:
             if row["content"] in excluded:
                 continue
-            cand = self._build_candidate_from_row(
-                row,
-                now,
-                current_valence,
-                current_arousal,
-                current_cortisol,
-                threshold,
-            )
+            try:
+                cand = self._build_candidate_from_row(
+                    row,
+                    now,
+                    current_valence,
+                    current_arousal,
+                    current_cortisol,
+                    threshold,
+                )
+            except _CORRUPT_ROW_ERRORS as error:
+                self._skip_corrupt_row(row.get("id"), "row_candidates", error)
+                continue
             if cand is not None:
                 raw_candidates.append(cand)
         return raw_candidates
@@ -3334,17 +3374,21 @@ class MemoryStore:
         for row_index, (_ranking_score, _score, similarity, row) in enumerate(
             scored_archive_rows
         ):
-            promoted = await self._promote_one_archived_row(
-                row,
-                parsed_embeddings[row_index],
-                similarity,
-                matched_cues,
-                threshold=threshold,
-                current_valence=current_valence,
-                current_arousal=current_arousal,
-                current_cortisol=current_cortisol,
-                current_time=current_time,
-            )
+            try:
+                promoted = await self._promote_one_archived_row(
+                    row,
+                    parsed_embeddings[row_index],
+                    similarity,
+                    matched_cues,
+                    threshold=threshold,
+                    current_valence=current_valence,
+                    current_arousal=current_arousal,
+                    current_cortisol=current_cortisol,
+                    current_time=current_time,
+                )
+            except _CORRUPT_ROW_ERRORS as error:
+                self._skip_corrupt_row(row.get("id"), "archive_promotion", error)
+                continue
             if promoted is not None:
                 promoted_results.append(promoted)
                 if row_index in missing_indices:
@@ -3731,11 +3775,14 @@ class MemoryStore:
                     if row.get("content") in excluded:
                         continue
                     row["similarity"] = similarity_by_id.get(str(row.get("id")), 0.0)
-                    candidates.append(
-                        self._build_candidate_from_row(
+                    try:
+                        cand = self._build_candidate_from_row(
                             row, now, threshold=float("-inf"), **neutral
                         )
-                    )
+                    except _CORRUPT_ROW_ERRORS as error:
+                        self._skip_corrupt_row(row.get("id"), "hybrid_pool", error)
+                        continue
+                    candidates.append(cand)
                 candidates.sort(key=lambda c: c.get("similarity") or 0.0, reverse=True)
                 return candidates[:pool_size], "sqlite"
 
@@ -3755,12 +3802,16 @@ class MemoryStore:
                 row = dict(row)
                 if row.get("content") in excluded:
                     continue
-                cand = self._build_candidate_from_row(
-                    row,
-                    now,
-                    threshold=float("-inf"),
-                    **neutral,
-                )
+                try:
+                    cand = self._build_candidate_from_row(
+                        row,
+                        now,
+                        threshold=float("-inf"),
+                        **neutral,
+                    )
+                except _CORRUPT_ROW_ERRORS as error:
+                    self._skip_corrupt_row(row.get("id"), "hybrid_pool", error)
+                    continue
                 if cand is not None:
                     candidates.append(cand)
             return candidates[:pool_size], "postgres"
@@ -3894,6 +3945,7 @@ class MemoryStore:
         current_time,
     ):
         started = time.perf_counter()
+        self._search_corrupt_skipped = 0
         cache_key = self._build_search_cache_key(
             query_text,
             wing,
@@ -4015,6 +4067,7 @@ class MemoryStore:
                     if source == "sqlite"
                     else 0
                 ),
+                "skipped_corrupt": self._search_corrupt_skipped,
                 "error": self.last_search_error,
                 "error_code": "retrieval_error" if self.last_search_error else None,
                 "ms": round((time.perf_counter() - started) * 1000.0, 2),
@@ -4035,6 +4088,7 @@ class MemoryStore:
                     pool=self.last_search_trace["pool"],
                     archived_candidates=self.last_search_trace["archived_candidates"],
                     skipped_dimension=self.last_search_trace["skipped_dimension"],
+                    skipped_corrupt=self.last_search_trace["skipped_corrupt"],
                     error=bool(self.last_search_trace["error"]),
                     **(
                         {"error_code": self.last_search_trace["error_code"]}
@@ -4638,7 +4692,11 @@ class MemoryStore:
                 for row in rows:
                     if not row.get("content") or not row.get("id"):
                         continue
-                    raw_meta = _decode_memory_metadata(row.get("metadata"))
+                    try:
+                        raw_meta = _decode_memory_metadata(row.get("metadata"))
+                    except _CORRUPT_ROW_ERRORS as error:
+                        self._skip_corrupt_row(row["id"], "relinking", error)
+                        continue
                     candidates.append(
                         {
                             "id": row["id"],
@@ -4785,7 +4843,14 @@ class MemoryStore:
             # Fallbacks
             n_recalls = max(1, recall_count if recall_count is not None else 1)
 
-            dt = self._parse_actr_created_at(row.get("created_at"), current_time)
+            try:
+                dt = self._parse_actr_created_at(row.get("created_at"), current_time)
+                decay_rate = self._extract_actr_decay_rate(metadata, self.decay_rate)
+            except _CORRUPT_ROW_ERRORS as error:
+                # Neither archived nor decayed: a row this pass cannot read is
+                # left exactly as it is.
+                self._skip_corrupt_row(mem_id, "actr_decay", error)
+                continue
 
             # Calculate hours since creation. Coerce both operands to
             # aware-UTC so a naive stored created_at and an aware
@@ -4797,8 +4862,6 @@ class MemoryStore:
             )
             delta = now - (self._as_aware_utc(dt) or now)
             hours_since = max(0.0, delta.total_seconds() / 3600.0)
-
-            decay_rate = self._extract_actr_decay_rate(metadata, self.decay_rate)
 
             # Shield recent memories created in the last 24 hours from pruning (deletion)
             is_shielded = hours_since < 24.0

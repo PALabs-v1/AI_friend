@@ -23,6 +23,7 @@ _SCHEMAS: dict[str, frozenset[str]] = {
             "pool",
             "archived_candidates",
             "skipped_dimension",
+            "skipped_corrupt",
             "error",
             "error_code",
             "ms",
