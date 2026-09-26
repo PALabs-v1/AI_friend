@@ -108,6 +108,7 @@ def _agent(history, scripts):
     core.state.last_speculative_intent = None
     core.state.get_context_snapshot = MagicMock(return_value={})
     core.state.release_adrenaline = AsyncMock()
+    core.state.persist_state = AsyncMock()  # W9: a proactive turn persists its attempt
     core.workspace_store.get_snapshot = AsyncMock(return_value=None)
 
     async def process_event(raw_event, **_):
@@ -293,6 +294,11 @@ async def test_stop_during_a_proactive_utterance_leaves_every_reply_intact():
     proactive = await _say(agent, "think", "S", subconscious=True)
     await proactive
     await _settle(agent)
+    state = agent.cognitive_core.state
+    # W9 (V-4): the accepted attempt and its thought are durable before generation.
+    state.mark_proactive_attempt.assert_called_once_with()
+    state.record_proactive_thought.assert_called_once_with("think", goal_id=None)
+    state.persist_state.assert_awaited_once_with()
     await _progress(agent, "S", 19)
     turn_u = await _say(agent, "stop", "U")
     await turn_u
@@ -304,6 +310,9 @@ async def test_stop_during_a_proactive_utterance_leaves_every_reply_intact():
         ["assistant", thought],
         ["User", "stop"],
     ]
+    # Only the user turn clears the idle clock and resolves open thoughts.
+    state.resolve_proactive_thoughts.assert_called_with("stop")
+    state.persist_state.assert_awaited_once_with()
     assert [o[1] for o in _outcomes(agent)] == ["COMPLETED"]  # no second record for A
 
 
