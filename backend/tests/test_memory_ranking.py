@@ -375,6 +375,13 @@ async def _insert(conn, mem_id, vec, wing="personal", when="2026-01-01 00:00:00"
     )
 
 
+async def _insert_legacy_embedding(store, content, vector):
+    """Seed a pre-existing row from an older embedding model."""
+    async with store.pool.acquire() as conn:
+        await _insert(conn, f"legacy-{content}", vector)
+    store._sqlite_vector_index.invalidate("personal")
+
+
 @pytest.fixture
 def sqlite_conn():
     from app.state.sqlite_fallback import SQLiteConnection
@@ -457,9 +464,8 @@ def test_zero_importance_is_not_promoted_to_mid_importance():
     assert order.index("ordinary memory") < order.index("decayed memory")
 
 
-def test_candidate_builder_tolerates_text_timestamps():
-    """The SQLite converter hands back text for an unparseable stored value;
-    candidate building must degrade that field, not fail the search."""
+def test_candidate_builder_rejects_unparseable_stored_timestamps():
+    """A corrupt stored timestamp must surface instead of silently re-aging."""
     from app.state.memory_store import MemoryStore
 
     store = object.__new__(MemoryStore)
@@ -474,8 +480,8 @@ def test_candidate_builder_tolerates_text_timestamps():
         "last_recalled_at": "also garbled",
         "metadata": "{}",
     }
-    cand = store._build_candidate_from_row(row, NOW, 0.0, 0.5, 0.0, float("-inf"))
-    assert cand is not None and cand["created_at"] is None
+    with pytest.raises(ValueError, match="created_at"):
+        store._build_candidate_from_row(row, NOW, 0.0, 0.5, 0.0, float("-inf"))
 
 
 # --- adversarial-review findings on the vector index --------------------------
@@ -586,7 +592,9 @@ async def test_index_filters_room_before_ranking(sqlite_conn):
 @pytest.mark.asyncio
 async def test_dimension_mismatch_is_reported_not_silent(sqlite_store, monkeypatch):
     monkeypatch.setattr(Config, "MEMORY_RANKING_POLICY", "hybrid")
-    await sqlite_store.add_memory("stored with an old model", embedding=_vec(0, 16))
+    await _insert_legacy_embedding(
+        sqlite_store, "stored with an old model", _vec(0, 16)
+    )
     sqlite_store.get_embedding = AsyncMock(return_value=_vec(0, 768))
     assert await sqlite_store.search_memories("anything", refresh_on_recall=False) == []
     assert "dimension" in (sqlite_store.last_search_error or "")
@@ -720,7 +728,9 @@ async def test_dimension_outage_is_not_served_from_cache_as_nothing_found(
     """R2-4: the empty result was cached for 15 s and a cache hit clears
     `last_search_error`, so a repeat query reported the outage as silence."""
     monkeypatch.setattr(Config, "MEMORY_RANKING_POLICY", "hybrid")
-    await sqlite_store.add_memory("stored with an old model", embedding=_vec(0, 16))
+    await _insert_legacy_embedding(
+        sqlite_store, "stored with an old model", _vec(0, 16)
+    )
     sqlite_store.get_embedding = AsyncMock(return_value=_vec(0, 768))
     for _ in range(2):
         assert await sqlite_store.search_memories("same", refresh_on_recall=False) == []
@@ -737,7 +747,7 @@ async def test_partial_dimension_loss_is_traced_and_logged(
 
     monkeypatch.setattr(Config, "MEMORY_RANKING_POLICY", "hybrid")
     for i in range(3):
-        await sqlite_store.add_memory(f"old model {i}", embedding=_vec(i, 16))
+        await _insert_legacy_embedding(sqlite_store, f"old model {i}", _vec(i, 16))
     await sqlite_store.add_memory("new model", embedding=_vec(1))
     sqlite_store.get_embedding = AsyncMock(return_value=_vec(1))
     with caplog.at_level(logging.WARNING, logger="app.state.sqlite_vector_index"):

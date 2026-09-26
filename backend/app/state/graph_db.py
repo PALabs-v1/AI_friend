@@ -5,6 +5,7 @@ import json
 import logging
 import re
 import time
+import unicodedata
 from collections import OrderedDict
 from typing import Any
 
@@ -26,6 +27,46 @@ GRAPHDB_CLOSE_DRAIN_TIMEOUT_SECONDS = 10.0
 
 logger = logging.getLogger("graph_db")
 _CYPHER_IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+_PROTECTED_PERSONA_ENTITY_RE = re.compile(
+    r"(?:^|_)(?:avoid_list|avoid_rules|refusal_fields|refusal_rules|boundaries|"
+    r"safety_rules|immutable_core|constitutional_traits|forbidden_claims|"
+    r"protected_fields)(?:_|$)",
+    re.IGNORECASE,
+)
+_GRAPH_INJECTION_RE = re.compile(
+    r"ignore\s+(?:the\s+)?(?:previous|prior|all)?\s*instructions|"
+    r"reveal\s+(?:the\s+)?(?:system\s+)?prompt|"
+    r"\b(?:system|assistant|user)\s*:|<\s*/?\s*system\s*>",
+    re.IGNORECASE,
+)
+_GRAPH_CONFUSABLES = str.maketrans(
+    {
+        "а": "a",
+        "е": "e",
+        "о": "o",
+        "р": "p",
+        "с": "c",
+        "х": "x",
+        "у": "y",
+        "і": "i",
+        "ј": "j",
+        "ѕ": "s",
+        "α": "a",
+        "β": "b",
+        "ε": "e",
+        "ζ": "z",
+        "η": "h",
+        "ι": "i",
+        "κ": "k",
+        "μ": "m",
+        "ν": "v",
+        "ο": "o",
+        "ρ": "p",
+        "τ": "t",
+        "υ": "y",
+        "χ": "x",
+    }
+)
 
 
 class GraphDB:
@@ -114,7 +155,11 @@ class GraphDB:
 
     @staticmethod
     def _safe_label(label: str | None) -> str:
+        if label is not None and not isinstance(label, str):
+            raise ValueError("Unsafe Cypher label")
         label = (label or "Entity").strip()
+        if len(label) > 64:
+            raise ValueError("Unsafe Cypher label")
         label = label[0].upper() + label[1:] if label else "Entity"
         if not _CYPHER_IDENTIFIER_RE.fullmatch(label):
             raise ValueError(f"Unsafe Cypher label: {label!r}")
@@ -122,10 +167,31 @@ class GraphDB:
 
     @staticmethod
     def _safe_relation(relation: str) -> str:
+        if not isinstance(relation, str) or len(relation) > 64:
+            raise ValueError("Unsafe Cypher relation")
         rel_type = relation.upper().replace(" ", "_").replace("-", "_")
         if not _CYPHER_IDENTIFIER_RE.fullmatch(rel_type):
             raise ValueError(f"Unsafe Cypher relation: {relation!r}")
         return rel_type
+
+    @staticmethod
+    def _safe_entity_name(name: str) -> str:
+        """Reject reflection text that could poison retrieval or identity state."""
+        if not isinstance(name, str):
+            raise TypeError("Graph entity names must be strings")
+        name = name.strip()
+        if not name or len(name) > 128 or any(ord(char) < 32 for char in name):
+            raise ValueError("Unsafe graph entity name")
+        normalized = unicodedata.normalize("NFKC", name)
+        for invisible in ("\u200b", "\u200c", "\u200d", "\ufeff"):
+            normalized = normalized.replace(invisible, "")
+        normalized = normalized.casefold().translate(_GRAPH_CONFUSABLES)
+        if _GRAPH_INJECTION_RE.search(normalized):
+            raise ValueError("Instruction-like graph entity name")
+        normalized = re.sub(r"[^a-z0-9_]+", "_", normalized).strip("_")
+        if _PROTECTED_PERSONA_ENTITY_RE.search(normalized):
+            raise ValueError("Graph edges cannot target protected persona fields")
+        return name
 
     # P3-11: the fact-extraction prompt leaves "relation" free-text, so the
     # LLM's word choice (LIKES vs ENJOYS vs PREFERS) becomes a distinct
@@ -276,6 +342,10 @@ class GraphDB:
         """
         Consolidates a relationship, incrementing weight on match or setting default properties.
         """
+        subject_name = self._safe_entity_name(subject_name)
+        target_name = self._safe_entity_name(target_name)
+        if subject_name.casefold() == target_name.casefold():
+            raise ValueError("Self-referential graph edges are not accepted")
         await self._invalidate_cache(subject_name)
         rel_type = self._canonicalize_relation(self._safe_relation(relation))
         s_lbl = self._safe_label(subject_label)

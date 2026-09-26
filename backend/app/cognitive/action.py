@@ -14,7 +14,7 @@ from .decision import ActionPlan
 from .external_action import ExternalActionIntent
 from .identity import _HOSTILE_TO_USER, _match_views
 from .json_extract import extract_first_json_value
-from .memory_activation import AntiInjectionGate
+from .memory_activation import AntiInjectionGate, wrap_retrieved_text
 
 logger = logging.getLogger(__name__)
 
@@ -375,10 +375,7 @@ def _wrap_retrieved(text: str) -> str:
     strings -- lower-cased here so it can't forge an early close and smuggle
     text outside the boundary the model is told to treat as inert data.
     """
-    safe = text.replace(_RETRIEVED_OPEN, "[retrieved-content]").replace(
-        _RETRIEVED_CLOSE, "[/retrieved-content]"
-    )
-    return f"{_RETRIEVED_OPEN}{safe}{_RETRIEVED_CLOSE}"
+    return wrap_retrieved_text(text)
 
 
 class _ChatStreamState:
@@ -809,20 +806,17 @@ class ActionService:
         own = [m for m in surfaced if (m.get("source") or "") == BIOGRAPHY_SOURCE]
         shared = [m for m in surfaced if (m.get("source") or "") != BIOGRAPHY_SOURCE]
 
+        sanitized_content = _ANTI_INJECTION_GATE.sanitize_memory_batch(
+            [str(memory.get("content", "")) for memory in surfaced]
+        )
+        safe_by_identity = {
+            id(memory): content
+            for memory, content in zip(surfaced, sanitized_content, strict=True)
+        }
+
         def _rendered_content(memory: dict) -> str:
-            """Fix round (Codex review B4): every piece of surfaced-memory
-            text renders through the injection gate before it reaches the
-            prompt, when Config.MEMORY_TRUTH_ENABLED is on -- previously
-            AntiInjectionGate.sanitize_memory_text existed with no caller
-            anywhere in the codebase, so it had no effect on the live
-            attack surface regardless of the flag. Gated the same way as
-            every other Phase 02 behavior change: off preserves exact
-            Phase 1 rendering.
-            """
-            content = memory.get("content", "")
-            if Config.MEMORY_TRUTH_ENABLED:
-                content = _ANTI_INJECTION_GATE.sanitize_memory_text(content)
-            return content
+            """Apply injection safety independently of truth semantics."""
+            return safe_by_identity[id(memory)]
 
         blocks = []
         if own:

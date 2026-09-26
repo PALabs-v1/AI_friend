@@ -352,11 +352,13 @@ async def setup_streams(
     )
     logger.info("Connecting to NATS at %s", nats_url)
 
-    connect_kwargs: dict[str, str] = {}
     nats_user = os.getenv("NATS_USER")
     nats_password = os.getenv("NATS_PASSWORD")
-    if nats_user and nats_password:
-        connect_kwargs.update(user=nats_user, password=nats_password)
+    if not nats_user or not nats_password:
+        raise RuntimeError(
+            "NATS stream provisioning requires NATS_USER and NATS_PASSWORD"
+        )
+    connect_kwargs = {"user": nats_user, "password": nats_password}
 
     nc = await nats.connect(cast(str, nats_url), **connect_kwargs)
     try:

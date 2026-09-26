@@ -69,11 +69,8 @@ fn stop_aborts_generation(stop: &contracts::AudioStop) -> bool {
     !stop.speculative && !stop.flush
 }
 
-/// P2-1, opt-in: connects with a username/password only when both are
-/// given, mirroring `BaseAgent.connect` (Python) so both halves of the mesh
-/// honour the same opt-in credential -- see nats-accounts.conf's own header
-/// for how an operator turns this on. With neither given (the default),
-/// this is `async_nats::connect(url)`, unchanged from before this existed.
+/// Runtime agents require a username/password, matching the authenticated
+/// default in `nats-accounts.conf` and Python's `BaseAgent.connect`.
 /// Takes the credentials as parameters rather than reading
 /// `NATS_USER`/`NATS_PASSWORD` internally so tests can exercise both
 /// branches without mutating this process's real environment (`cargo test`
@@ -82,15 +79,16 @@ async fn connect_nats(
     url: &str,
     user: Option<String>,
     password: Option<String>,
-) -> std::result::Result<async_nats::Client, async_nats::ConnectError> {
+) -> Result<async_nats::Client> {
     match (user, password) {
-        (Some(user), Some(password)) => {
+        (Some(user), Some(password)) if !user.is_empty() && !password.is_empty() => {
             async_nats::ConnectOptions::new()
                 .user_and_password(user, password)
                 .connect(url)
                 .await
+                .context("NATS authentication failed")
         }
-        _ => async_nats::connect(url).await,
+        _ => anyhow::bail!("NATS_USER and NATS_PASSWORD are required"),
     }
 }
 
@@ -175,7 +173,9 @@ impl ReverbFilter {
         }
 
         let mut samples = framed
-            .chunks_exact(2)
+            .as_chunks::<2>()
+            .0
+            .iter()
             .map(|chunk| i16::from_le_bytes([chunk[0], chunk[1]]))
             .collect::<Vec<i16>>();
 
@@ -953,7 +953,7 @@ fn extract_wav_data(data: &[u8]) -> Option<Vec<u8>> {
             return Some(data[start..end].to_vec());
         }
         pos += 8 + chunk_size;
-        if chunk_size % 2 != 0 {
+        if !chunk_size.is_multiple_of(2) {
             pos += 1; // RIFF chunks are word-aligned
         }
     }
@@ -985,6 +985,9 @@ type HesitationCache =
 /// circuit breaker is open (a known-down engine) or when this specific
 /// synthesis attempt fails; a failed attempt records on the same breaker
 /// real speech does, since a TTS engine down for one is down for both.
+// The inputs are independent runtime services; keeping them explicit avoids
+// shared mutable state across voice synthesis calls.
+#[allow(clippy::too_many_arguments)]
 async fn hesitation_pcm(
     config: &VoiceConfig,
     http: &Client,
@@ -1066,7 +1069,9 @@ fn apply_attenuation(pcm: &mut [u8], current_val: &mut f64, target_val: f64) {
         return;
     }
     let mut samples = pcm
-        .chunks_exact(2)
+        .as_chunks::<2>()
+        .0
+        .iter()
         .map(|chunk| i16::from_le_bytes([chunk[0], chunk[1]]))
         .collect::<Vec<i16>>();
 
@@ -1098,7 +1103,9 @@ fn generate_and_publish_visemes(
         return Ok(());
     }
     let samples = pcm
-        .chunks_exact(2)
+        .as_chunks::<2>()
+        .0
+        .iter()
         .map(|chunk| i16::from_le_bytes([chunk[0], chunk[1]]))
         .collect::<Vec<i16>>();
     let num_samples = samples.len();
@@ -1144,6 +1151,9 @@ fn generate_and_publish_visemes(
     Ok(())
 }
 
+// These per-turn resources have distinct ownership and lifetimes, so keep
+// them explicit instead of hiding them in shared agent state.
+#[allow(clippy::too_many_arguments)]
 async fn handle_chat_output(
     config: &VoiceConfig,
     http: &Client,
@@ -1750,7 +1760,9 @@ fn utterance_gain(noise_scale_factor: &std::sync::Mutex<f64>, volume: f64) -> f6
 fn scale_pcm_in_place(pcm: &mut [u8], noise_scale: f64) {
     if noise_scale != 1.0 && pcm.len() >= 2 {
         let mut samples = pcm
-            .chunks_exact(2)
+            .as_chunks::<2>()
+            .0
+            .iter()
             .map(|chunk| i16::from_le_bytes([chunk[0], chunk[1]]))
             .collect::<Vec<i16>>();
 
@@ -2265,7 +2277,9 @@ mod tests {
 
         assert_eq!(processed.len(), input_pcm.len());
         let out_samples = processed
-            .chunks_exact(2)
+            .as_chunks::<2>()
+            .0
+            .iter()
             .map(|chunk| i16::from_le_bytes([chunk[0], chunk[1]]))
             .collect::<Vec<i16>>();
 
@@ -2297,7 +2311,9 @@ mod tests {
         let second = filter.process(&[0, 30, 0], 1.0);
         assert_eq!(second.len(), 4);
         let out_samples = second
-            .chunks_exact(2)
+            .as_chunks::<2>()
+            .0
+            .iter()
             .map(|chunk| i16::from_le_bytes([chunk[0], chunk[1]]))
             .collect::<Vec<i16>>();
         // Samples 1 and 2 of this filter instance, delayed=0 for both (buffer
@@ -2359,7 +2375,9 @@ mod tests {
 
         let processed = filter.process(&sustained_tone, 1.0);
         let out_samples = processed
-            .chunks_exact(2)
+            .as_chunks::<2>()
+            .0
+            .iter()
             .map(|chunk| i16::from_le_bytes([chunk[0], chunk[1]]))
             .collect::<Vec<i16>>();
 
@@ -2412,7 +2430,9 @@ mod tests {
         // with chunk1's tail. No sample anywhere is a value neither chunk contains.
         assert_eq!(out2, chunk2_bytes);
         let out2_samples = out2
-            .chunks_exact(2)
+            .as_chunks::<2>()
+            .0
+            .iter()
             .map(|chunk| i16::from_le_bytes([chunk[0], chunk[1]]))
             .collect::<Vec<i16>>();
         assert!(out2_samples.iter().all(|&s| s == 200));
@@ -2450,7 +2470,9 @@ mod tests {
         scale_pcm_in_place(&mut scale_down_bytes, 0.7);
 
         let scaled_down_samples = scale_down_bytes
-            .chunks_exact(2)
+            .as_chunks::<2>()
+            .0
+            .iter()
             .map(|chunk| i16::from_le_bytes([chunk[0], chunk[1]]))
             .collect::<Vec<i16>>();
 
@@ -2463,7 +2485,9 @@ mod tests {
         scale_pcm_in_place(&mut scale_up_bytes, 1.4);
 
         let scaled_up_samples = scale_up_bytes
-            .chunks_exact(2)
+            .as_chunks::<2>()
+            .0
+            .iter()
             .map(|chunk| i16::from_le_bytes([chunk[0], chunk[1]]))
             .collect::<Vec<i16>>();
 
@@ -3568,9 +3592,9 @@ mod tests {
         Some((guard, port))
     }
 
-    /// P2-1: `connect_nats` must actually authenticate against the real
+    /// `connect_nats` must actually authenticate against the real
     /// shipped accounts file when `NATS_USER`/`NATS_PASSWORD` are set --
-    /// the Rust half of the same opt-in mechanism
+    /// the Rust half of the same default authentication policy
     /// `test_nats_accounts_enforcement.py` proves for the Python half.
     #[tokio::test]
     async fn connect_nats_authenticates_with_correct_credentials() {
@@ -3612,20 +3636,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn connect_nats_connects_anonymously_when_no_credentials_are_given() {
-        // No accounts server here -- an ordinary, unauthenticated local
-        // nats-server (or none at all) is the default-deployment case this
-        // opt-in feature must leave completely unchanged.
-        let url = std::env::var("NATS_URL").unwrap_or_else(|_| "nats://127.0.0.1:4222".to_string());
-        if async_nats::connect(&url).await.is_err() {
-            eprintln!("SKIP: no plain NATS at {url}");
-            return;
-        }
-
-        let result = connect_nats(&url, None, None).await;
-        assert!(
-            result.is_ok(),
-            "no credentials given must still connect normally"
-        );
+    async fn connect_nats_refuses_missing_credentials() {
+        let result = connect_nats("nats://127.0.0.1:4222", None, None).await;
+        assert!(result.is_err(), "agents must never connect anonymously");
     }
 }

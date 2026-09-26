@@ -38,7 +38,7 @@ from ..state.self_knowledge_store import SelfKnowledgeStore
 from ..state.temporal_store import TemporalMemoryStore
 from ..state.working_memory_store import WorkingMemoryStore
 from ..state.workspace_store import SQLiteWorkspaceStore
-from .action import ActionService, _wrap_retrieved
+from .action import ActionService
 from .appraisal import AppraisalEngine, AppraisalVector
 from .background_scheduler import BackgroundScheduler
 from .decision import DecisionService
@@ -46,7 +46,7 @@ from .external_action import ExternalActionDispatcher
 from .identity import IdentityManager
 from .learning import ReflectionService
 from .learning_governance import LearningGovernor
-from .memory_activation import AntiInjectionGate, MemoryActivation
+from .memory_activation import AntiInjectionGate, MemoryActivation, wrap_retrieved_text
 from .percept import PerceptEnvelope
 from .perception import PerceptionService
 from .pipeline import CognitivePipeline, WorkspaceSnapshotLike
@@ -594,11 +594,11 @@ class CognitiveService:
         if not self.surfaced_memories:
             return ""
         gate = AntiInjectionGate()
-        lines = [
-            f"- {_wrap_retrieved(gate.sanitize_memory_text(str(m.get('content', ''))))}"
-            for m in self.surfaced_memories[-3:]
-            if m.get("content")
-        ]
+        memories = [m for m in self.surfaced_memories[-3:] if m.get("content")]
+        sanitized = gate.sanitize_memory_batch(
+            [str(memory.get("content", "")) for memory in memories]
+        )
+        lines = [f"- {wrap_retrieved_text(content)}" for content in sanitized]
         if not lines:
             return ""
         return (

@@ -84,7 +84,7 @@ jobs:
     - uses: actions/checkout@v4
     - name: Start NATS Service
       run: |
-        docker run -d --name nats -p 4222:4222 -p 8222:8222 nats:latest -js -m 8222
+        bash scripts/ci/start_nats_mesh.sh docker
         # Wait for NATS to be ready
         for i in {1..10}; do
           if wget --no-verbose --tries=1 --spider http://localhost:8222/healthz; then
@@ -146,7 +146,7 @@ jobs:
         NATS_URL: nats://localhost:4222
       run: |
         cd backend
-        python scripts/bootstrap/setup_nats_streams.py
+        NATS_USER=nats_provisioner NATS_PASSWORD="$NATS_PROVISIONER_PASSWORD" python scripts/bootstrap/setup_nats_streams.py
     - name: Run Test Suite
       env:
         NATS_URL: nats://localhost:4222
@@ -174,7 +174,7 @@ jobs:
     - uses: actions/checkout@v4
     - name: Start NATS Service
       run: |
-        docker run -d --name nats -p 4222:4222 -p 8222:8222 nats:latest -js -m 8222
+        bash scripts/ci/start_nats_mesh.sh docker
         for i in {1..10}; do
           if wget --no-verbose --tries=1 --spider http://localhost:8222/healthz; then
             echo "NATS is ready!"
@@ -206,7 +206,7 @@ jobs:
         NATS_URL: nats://localhost:4222
       run: |
         cd backend
-        python scripts/bootstrap/setup_nats_streams.py
+        NATS_USER=nats_provisioner NATS_PASSWORD="$NATS_PROVISIONER_PASSWORD" python scripts/bootstrap/setup_nats_streams.py
     - name: Run benchmark and latency tests
       env:
         NATS_URL: nats://localhost:4222

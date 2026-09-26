@@ -110,7 +110,7 @@ async def test_surfacing_mesh_regression_emits_system_tick_and_memory_surfaced()
         pool=pool, graph_db=mock_graph, ollama_base_url="http://mock-ollama"
     )
     memory_store.qdrant_store.client = None
-    memory_store.get_embedding = AsyncMock(return_value=[0.1, 0.2, 0.3])
+    memory_store.get_embedding = AsyncMock(return_value=[0.1, 0.2, 0.3] + [0.0] * 765)
 
     seeded = await memory_store.add_memory(
         content="You mentioned exam stress yesterday.",

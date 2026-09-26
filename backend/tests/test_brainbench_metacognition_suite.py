@@ -142,7 +142,7 @@ def scripted_service(tmp_path, monkeypatch):
         )
 
     async def embedding(_text: str) -> list[float]:
-        return [1.0, 0.0]
+        return [1.0] + [0.0] * 767
 
     monkeypatch.setattr(service.memory_store, "get_embedding", embedding)
     yield service
