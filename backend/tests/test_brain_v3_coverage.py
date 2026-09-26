@@ -18,8 +18,9 @@ COVERAGE = V3 / "work" / "COVERAGE.md"
 REGISTER = REPO / "docs" / "brain-research" / "01-problems.md"
 FINDINGS = V3 / "findings.md"
 DECISIONS = V3 / "decisions"
+NF_TABLE = V3 / "research" / "neuro" / "fidelity-table.md"
 
-OWNERS = {f"W{n}" for n in range(1, 12)} | {
+OWNERS = {f"W{n}" for n in range(1, 13)} | {
     "SW",
     "P6",
     "P8",
@@ -69,6 +70,16 @@ def _decisions() -> set[str]:
     return {p.name[:6] for p in DECISIONS.glob("DR-[0-9][0-9][0-9]-*.md")}
 
 
+def _nf_findings() -> set[str]:
+    """NF-n IDs from the neuroscience fidelity table's data rows."""
+    ids = set()
+    for line in NF_TABLE.read_text().splitlines():
+        match = re.match(r"^\| (NF-\d+) \|", line)
+        if match:
+            ids.add(match.group(1))
+    return ids
+
+
 def test_every_row_has_a_valid_owner():
     rows = _coverage_rows()
     assert rows, "COVERAGE.md has no rows"
@@ -104,12 +115,30 @@ def test_every_decision_is_owned():
     assert not missing, f"decisions with no owner: {missing}"
 
 
+def test_every_nf_finding_is_owned():
+    """Every mechanism the neuroscience fidelity table flagged (defect,
+    label-only, or dead code) has a coverage row, same as an F-finding.
+    A row adopted into a workstream and shipped can move to CLOSED with its
+    evidence (`test_closed_rows_name_their_evidence`); until then it stays
+    listed, so nothing the audit found is silently forgotten."""
+    rows = _coverage_rows()
+    missing = sorted(_nf_findings() - set(rows))
+    assert not missing, f"NF findings with no owner: {missing}"
+
+
 def test_no_row_names_an_id_that_does_not_exist():
-    register, findings, decisions = _register(), _findings(), _decisions()
+    register, findings, decisions, nf = (
+        _register(),
+        _findings(),
+        _decisions(),
+        _nf_findings(),
+    )
     stale = []
     for item in _coverage_rows():
         if re.fullmatch(r"[MAVSB]-\d+", item):
             known = item in register
+        elif item.startswith("NF-"):
+            known = item in nf
         elif item.startswith("F-"):
             known = item.split(".")[0] in findings
         elif item.startswith("DR-"):

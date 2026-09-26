@@ -2,12 +2,12 @@
 
 Every open item from every source this cycle has produced, mapped to exactly
 one owner. `backend/tests/test_brain_v3_coverage.py` fails if an open
-register item, an open finding or any decision record is missing from this
-table, or if a row names an ID that does not exist. That keeps "nothing left
-out" a checked property, not a promise.
+register item, an open finding, any decision record or any `NF-n` fidelity
+finding is missing from this table, or if a row names an ID that does not
+exist. That keeps "nothing left out" a checked property, not a promise.
 
 Owners:
-- `W1`..`W11`: Phase 7 workstreams (`05-research-plan.md`, specs in this directory)
+- `W1`..`W12`: Phase 7 workstreams (`05-research-plan.md`, specs in this directory; W12 is the neuroscience fidelity audit and human-data probes, `12-neuroscience-grounding.md`)
 - `SW`: the pre-existing problem sweep (`SW.md`)
 - `P6`: Phase 6 (BrainBench) remainder
 - `P8` scale, `P9` chaos, `P10` integration and simplification
@@ -153,3 +153,42 @@ F-008 and F-014 item 4 are fixed (`167db41b`, `e2b73f89`).
 | SW-6 | SW | plan, Phase 7 sweep list | `.agents/CONTEXT.md` numeric drift |
 | SW-8 | SW | F-016 investigation | `WorkingMemoryStore` writes global Redis keys (`working:turns`, `working:state`) with no session in the key, and its readers (`get_recent_turns`, `load_session_state`) have no production caller: namespace the keys, or delete the dead read path |
 | SW-7 | SW | Phase 6 | `MockDeterministicLLM.generate_stream` returns a coroutine, not an async generator (`tests/integration/harness/mock_cognitive_engines.py`) |
+| NF-1 | W1 | `research/neuro/fidelity-table.md` | default memory activation is not ACT-R base-level learning (no per-use trace history) |
+| NF-2 | W1 | `research/neuro/fidelity-table.md` | retrieval never strengthens a memory in production; both live callers pass refresh_on_recall=False |
+| NF-3 | W7 | `research/neuro/fidelity-table.md` | the "ACT-R spacing" bonus is a mean-gap heuristic, not Pavlik & Anderson's model |
+| NF-4 | W1 | `research/neuro/fidelity-table.md` | pruning/archive thresholds are policy labeled as ACT-R decay; no such deletion rule is published |
+| NF-5 | W7 | `research/neuro/fidelity-table.md` | consolidation/replay is reflection plus a maintenance sweep, not CLS/sleep-stage replay |
+| NF-6 | W1 | `research/neuro/fidelity-table.md` | TemporalMemoryStore/classify_contradiction constructed but never called (reconsolidation unwired) |
+| NF-7 | W1 | `research/neuro/fidelity-table.md` | fixed .95/.98 emotional-memory attenuation on retrieval has no source-derived condition |
+| NF-8 | W1 | `research/neuro/fidelity-table.md` | mood-congruent retrieval label; affect values never enter the default hybrid_rank score |
+| NF-9 | W1 | `research/neuro/fidelity-table.md` | lexicon "Hebbian" associations are a co-occurrence/refresh heuristic, not a cited Hebbian variant |
+| NF-10 | W1 | `research/neuro/fidelity-table.md` | graph-edge decay/PPR helpers exist but the active hybrid ranker never consumes them |
+| NF-11 | W2 | `research/neuro/fidelity-table.md` | PAD/emotion-label thresholds differ between agent_state.py and expression.py |
+| NF-12 | W2 | `research/neuro/fidelity-table.md` | P0: appraisal reads the agent's own mood as the event signal; user words never move valence (A-1) |
+| NF-13 | W2 | `research/neuro/fidelity-table.md` | synchronous metadata-appraisal weights are a hand-set heuristic labeled CPM/EMA |
+| NF-14 | W2 | `research/neuro/fidelity-table.md` | P1: expectedness-to-arousal mapping breaks its own stated [-1,1] scale at both endpoints |
+| NF-15 | W2 | `research/neuro/fidelity-table.md` | mood-pull reducer is app-specific, labeled as ALMA's published equation |
+| NF-16 | W2 | `research/neuro/fidelity-table.md` | P0: PAD decay uses nominal tick interval, not elapsed time (A-5); Rust helper diverges and is unused |
+| NF-17 | W2 | `research/neuro/fidelity-table.md` | P0: derived arousal is written back into persistent energy, contaminating a resource state (A-4) |
+| NF-18 | W2 | `research/neuro/fidelity-table.md` | phasic hormone curves are a faithful exponential effect proxy, labeled as full neurochemical kinetics |
+| NF-19 | W2 | `research/neuro/fidelity-table.md` | reward-prediction-error path is a turn-surprise heuristic, not calibrated TD/RPE |
+| NF-20 | W2 | `research/neuro/fidelity-table.md` | "reappraisal" measures outcome feedback, not Gross's cognitive-reinterpretation strategy |
+| NF-21 | W2 | `research/neuro/fidelity-table.md` | cortisol/adrenaline are behavioral-proxy labels with no HPA/circadian state or route kinetics |
+| NF-22 | W8 | `research/neuro/fidelity-table.md` | "global controls" are hand-weighted signals labeled as LC-NE/Doya neuromodulatory gain |
+| NF-23 | W3 | `research/neuro/fidelity-table.md` | P0: trust (labeled Marsh 1994) is fed by the agent's own mood, saturates within 6-13 turns |
+| NF-24 | W3 | `research/neuro/fidelity-table.md` | PersonModel success/failure/rupture/repair implemented but never called or persisted |
+| NF-25 | W3 | `research/neuro/fidelity-table.md` | attachment accumulator only ever rises with message volume, labeled Bowlby attachment |
+| NF-26 | W8 | `research/neuro/fidelity-table.md` | Theory of Mind overwrites state from a point estimate with no uncertainty or provenance |
+| NF-27 | W9 | `research/neuro/fidelity-table.md` | MAUT goal scoring is an auditable heuristic, not a user-elicited utility model |
+| NF-28 | W9 | `research/neuro/fidelity-table.md` | P1: "ACT-R goal utility RL" reward input (gaze) is never produced; unchosen goals never fall |
+| NF-29 | W9 | `research/neuro/fidelity-table.md` | intent persistence is an unpublished EMA smoother over volatile process state |
+| NF-30 | W9 | `research/neuro/fidelity-table.md` | re-raise decay is a linear policy labeled prospective-memory extinction; silence isn't dismissal |
+| NF-31 | W9 | `research/neuro/fidelity-table.md` | "turn-taking probability" gates proactive outreach; it is not a spoken-turn-transition model |
+| NF-32 | W9 | `research/neuro/fidelity-table.md` | background thought is a reasonable product metaphor for DMN, not an implemented mechanism |
+| NF-33 | W2 | `research/neuro/fidelity-table.md` | fatigue/circadian model is label-only Borbély two-process; night recovery direction is inverted from intent |
+| NF-34 | W8 | `research/neuro/fidelity-table.md` | LearningProgressCuriosity and learning_gain exist with no production caller (dead code) |
+| NF-35 | W8 | `research/neuro/fidelity-table.md` | metacognitive calibration (ECE/evaluate_directive) is partly wired; no calibration evidence is learned |
+| NF-36 | W2 | `research/neuro/fidelity-table.md` | prosody/expression coefficients are engineered controls labeled as hormone-to-acoustic signatures |
+| NF-37 | W2 | `research/neuro/fidelity-table.md` | persona compiler is an authored parameter mapping, not psychometric Whole Trait Theory |
+| NF-38 | W12 | `research/neuro/fidelity-table.md` | global workspace is a per-turn CAS state object, not competing-specialist broadcast selection |
+| NF-39 | W8 | `research/neuro/fidelity-table.md` | P0: novelty is Jaccard over a 20-message window; measured baseline inverts repeated vs fresh content |

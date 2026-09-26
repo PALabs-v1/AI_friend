@@ -23,4 +23,6 @@ repos:
       - id: codespell
         # --ignore-words-list: real words codespell does not know (lifesim vocab).
         args: [--ignore-words=.lycheeignore, "--ignore-words-list=brunch,arre,unparseable"]
-        exclude: (?x)^(.*package-lock\.json|.*pnpm-lock\.yaml|.*yarn\.lock|.*schema\.prisma|\.agents/.*|.*test_identity\.py|.*test_performance\.py|backend/app/state/memory_store\.py)$
+        # research/neuro/*.md: copied research artifacts full of citation URLs,
+        # author surnames and ACT-R parameter names that trip false positives.
+        exclude: (?x)^(.*package-lock\.json|.*pnpm-lock\.yaml|.*yarn\.lock|.*schema\.prisma|\.agents/.*|.*test_identity\.py|.*test_performance\.py|backend/app/state/memory_store\.py|docs/brain-research-v3/research/neuro/.*\.md)$
