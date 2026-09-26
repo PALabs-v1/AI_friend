@@ -4134,6 +4134,40 @@ class MemoryStore:
                 )
             return []
 
+    @staticmethod
+    def _emit_actr_search_trace(
+        source: str,
+        *,
+        results: list | None = None,
+        pool: int = 0,
+        archived_candidates: int = 0,
+        cache_hit: bool = False,
+        error_code: str | None = None,
+    ) -> None:
+        """One `memory.search` trace event for the ACT-R policy path (ids and
+        numbers only, never memory text)."""
+        if not _trace_enabled():
+            return
+        _emit_trace(
+            "memory.search",
+            policy=Config.MEMORY_RANKING_POLICY,
+            source=source,
+            pool=pool,
+            archived_candidates=archived_candidates,
+            skipped_dimension=0,
+            error=error_code is not None,
+            **({"error_code": error_code} if error_code is not None else {}),
+            cache_hit=cache_hit,
+            results=[
+                {
+                    "id": result.get("id"),
+                    "score": result.get("score", 0.0),
+                    "terms": result.get("score_terms"),
+                }
+                for result in results or []
+            ],
+        )
+
     async def search_memories(
         self,
         query_text,
@@ -4219,25 +4253,7 @@ class MemoryStore:
             current_time=current_time,
         )
         if cache_hit is not None:
-            if _trace_enabled():
-                _emit_trace(
-                    "memory.search",
-                    policy=Config.MEMORY_RANKING_POLICY,
-                    source="cache",
-                    pool=0,
-                    archived_candidates=0,
-                    skipped_dimension=0,
-                    error=False,
-                    cache_hit=True,
-                    results=[
-                        {
-                            "id": result.get("id"),
-                            "score": result.get("score", 0.0),
-                            "terms": result.get("score_terms"),
-                        }
-                        for result in cache_hit
-                    ],
-                )
+            self._emit_actr_search_trace("cache", results=cache_hit, cache_hit=True)
             return cache_hit
 
         try:
@@ -4247,19 +4263,7 @@ class MemoryStore:
             if not query_vector:
                 self.last_search_error = "embedding service returned no vector"
                 self.last_search_error_at = clock.time()
-                if _trace_enabled():
-                    _emit_trace(
-                        "memory.search",
-                        policy=Config.MEMORY_RANKING_POLICY,
-                        source="embedding",
-                        pool=0,
-                        archived_candidates=0,
-                        skipped_dimension=0,
-                        error=True,
-                        error_code="empty_embedding",
-                        cache_hit=False,
-                        results=[],
-                    )
+                self._emit_actr_search_trace("embedding", error_code="empty_embedding")
                 return []
 
             mrl_dim, candidate_limit = self._compute_mrl_gating(
@@ -4386,25 +4390,12 @@ class MemoryStore:
                 cache_key=cache_key,
                 now_ts=now_ts,
             )
-            if _trace_enabled():
-                _emit_trace(
-                    "memory.search",
-                    policy=Config.MEMORY_RANKING_POLICY,
-                    source="sqlite" if is_sqlite else "postgres",
-                    pool=len(raw_candidates),
-                    archived_candidates=len(promoted_results) if matched_cues else 0,
-                    skipped_dimension=0,
-                    error=False,
-                    cache_hit=False,
-                    results=[
-                        {
-                            "id": result.get("id"),
-                            "score": result.get("score", 0.0),
-                            "terms": result.get("score_terms"),
-                        }
-                        for result in finalized
-                    ],
-                )
+            self._emit_actr_search_trace(
+                "sqlite" if is_sqlite else "postgres",
+                results=finalized,
+                pool=len(raw_candidates),
+                archived_candidates=len(promoted_results) if matched_cues else 0,
+            )
             return finalized
 
         except Exception as e:
@@ -4421,19 +4412,7 @@ class MemoryStore:
             # failure so a caller that cares can tell the difference.
             self.last_search_error = str(e)
             self.last_search_error_at = clock.time()
-            if _trace_enabled():
-                _emit_trace(
-                    "memory.search",
-                    policy=Config.MEMORY_RANKING_POLICY,
-                    source="error",
-                    pool=0,
-                    archived_candidates=0,
-                    skipped_dimension=0,
-                    error=True,
-                    error_code=type(e).__name__,
-                    cache_hit=False,
-                    results=[],
-                )
+            self._emit_actr_search_trace("error", error_code=type(e).__name__)
             return []
 
     async def _refresh_memories(
