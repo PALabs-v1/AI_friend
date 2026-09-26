@@ -524,3 +524,126 @@ def test_rest_phase_night_is_the_users_night(monkeypatch):
     assert is_rest_phase(at, at - 3600, fatigue=0.0)
     monkeypatch.setattr(Config, "USER_TIMEZONE", "UTC")
     assert not is_rest_phase(at, at - 3600, fatigue=0.0)
+
+
+def _fill_thought_history_to_the_cap(state: StateService) -> None:
+    from app.state import agent_state
+
+    for index in range(agent_state._MAX_PROACTIVE_GOALS):
+        state.record_proactive_thought(f"remember to ask how trip number {index} went")
+    state.proactive_goals[0].record_proactive_outcome("ignored")
+    state.proactive_goals[1].deadline = 1_900_000_000.0
+
+
+async def _persist_and_capture_broadcast(state: StateService) -> dict:
+    broadcasts: list[dict] = []
+
+    async def capture(subject, data):
+        if subject == "state.broadcast":
+            broadcasts.append(data)
+
+    state.publish_cb = capture
+    await state.persist_state()
+    await asyncio.gather(*state._background_tasks)
+    assert len(broadcasts) == 1
+    return broadcasts[0]
+
+
+@pytest.mark.asyncio
+async def test_state_broadcast_at_the_goal_cap_is_small_and_round_trips(
+    tmp_path, monkeypatch
+):
+    """Regression: every goal rode in every state.broadcast as a full dump,
+    about 580 bytes of mostly empty defaults each. The brain broadcasts on
+    every 60 s tick into the file-backed AI_MESSAGES stream (7-day age, 1 GiB
+    cap, oldest discarded first), so at the 256-goal cap state snapshots alone
+    came to about 1.4 GB a week and pushed chat history out of the stream."""
+    import json
+
+    monkeypatch.setattr(Config, "REDIS_URL", "")
+    sender = StateService(
+        graph_store=MagicMock(),
+        db_path=str(tmp_path / "brain.db"),
+        writer_id="brain_agent",
+    )
+    _fill_thought_history_to_the_cap(sender)
+
+    payload = await _persist_and_capture_broadcast(sender)
+
+    # 80 KiB a minute is about 790 MiB a week; the full dump was 149 KiB.
+    assert len(json.dumps(payload)) < 80 * 1024
+    receiver = StateService(
+        graph_store=MagicMock(),
+        db_path=str(tmp_path / "subconscious.db"),
+        writer_id="subconscious_agent",
+    )
+    await receiver.apply_external_state(payload)
+    assert receiver.proactive_goals == sender.proactive_goals
+    assert receiver.proactive_goals[0].proactive_ignored_count == 1
+    assert receiver.proactive_goals[1].deadline == 1_900_000_000.0
+
+
+@pytest.mark.asyncio
+async def test_state_row_and_thought_history_commit_together(tmp_path, monkeypatch):
+    """Regression: the state row, the activity hours and the thought history
+    were three separate SQLite transactions. A failure after the first left a
+    state row whose thought history belonged to a different persist; now all
+    three commit or none does."""
+    import sqlite3
+
+    monkeypatch.setattr(Config, "REDIS_URL", "")
+    database = str(tmp_path / "atomic.db")
+    state = StateService(graph_store=MagicMock(), db_path=database)
+    state.current_state.mood = 0.2
+    await state.persist_state()
+
+    with sqlite3.connect(database) as conn:
+        conn.execute("DROP TABLE agent_proactive_goals")
+    state.current_state.mood = 0.9
+    await state.persist_state()
+
+    with sqlite3.connect(database) as conn:
+        (mood,) = conn.execute("SELECT mood FROM agent_state").fetchone()
+    assert mood == pytest.approx(0.2)
+
+
+@pytest.mark.asyncio
+async def test_one_persist_writes_one_thought_history_everywhere(tmp_path, monkeypatch):
+    """Regression: the goal list was serialized separately for Redis, SQLite
+    and the broadcast, with an await between each, so a thought recorded
+    mid-persist reached some destinations and not others."""
+    import json
+    import sqlite3
+
+    class _MutatingRedis(_WatermarkRedis):
+        def __init__(self, on_hset):
+            super().__init__()
+            self.on_hset = on_hset
+
+        def hset(self, key, *, mapping):
+            super().hset(key, mapping=mapping)
+            self.on_hset()
+
+    monkeypatch.setattr(Config, "REDIS_URL", "")
+    database = str(tmp_path / "consistent.db")
+    state = StateService(graph_store=MagicMock(), db_path=database)
+    state.record_proactive_thought("ask about the exam", goal_id="exam")
+    state.redis_client = _MutatingRedis(
+        lambda: state.record_proactive_thought("recorded mid-persist", goal_id="late")
+    )
+
+    payload = await _persist_and_capture_broadcast(state)
+
+    in_redis = json.loads(
+        state.redis_client.hashes["state:my friend"]["proactive_goals"]
+    )
+    with sqlite3.connect(database) as conn:
+        (stored,) = conn.execute(
+            "SELECT goals_json FROM agent_proactive_goals"
+        ).fetchone()
+    ids = [goal["goal_id"] for goal in in_redis]
+    assert ids == ["exam"]
+    assert json.loads(stored) == in_redis
+    assert payload["proactive_goals"] == in_redis
+    # The late thought is not lost: the next persist carries it.
+    assert [goal.goal_id for goal in state.proactive_goals] == ["exam", "late"]

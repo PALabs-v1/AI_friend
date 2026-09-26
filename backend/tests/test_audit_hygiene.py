@@ -107,10 +107,11 @@ async def test_state_persistence_does_not_block_the_event_loop():
     service.redis_client = None
     service._persist_lock = asyncio.Lock()
     service.writer_id = ""  # Phase 2A: stamped onto current_state on persist
+    service.proactive_goals = []  # W9 thought history, persisted with the row
 
     ticks_when_write_finished = []
 
-    def slow_write(_params):
+    def slow_write(_params, *_side_tables):
         time.sleep(0.2)
         # Sampled at the moment the blocking work ends. Off the loop, the
         # heartbeat below has been running throughout and this is non-zero;
@@ -182,11 +183,12 @@ async def test_an_older_state_snapshot_cannot_land_on_top_of_a_newer_one():
     service.redis_client = None
     service._persist_lock = asyncio.Lock()
     service.writer_id = ""  # Phase 2A: stamped onto current_state on persist
+    service.proactive_goals = []  # W9 thought history, persisted with the row
 
     order = []
     delays = {0.5: 0.20, 0.9: 0.01}  # first write slow, second fast
 
-    def write(params):
+    def write(params, *_side_tables):
         mood = params[1]
         time.sleep(delays[mood])
         order.append(mood)

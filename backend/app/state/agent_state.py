@@ -122,6 +122,19 @@ def _parse_interaction_hours(raw: Any) -> list[int] | None:
     ]
 
 
+def _goal_payload(goals: list[GoalRecord]) -> list[dict[str, Any]]:
+    """Thought history as persisted and broadcast: fields left at their
+    default are omitted, and `GoalRecord.model_validate` restores them.
+
+    The full dump is about 580 bytes a goal, mostly empty defaults, and the
+    brain broadcasts this on every tick into the file-backed AI_MESSAGES
+    stream: at the 256-goal cap that was 149 KiB a minute, about 1.4 GB over
+    the stream's 7-day window against its 1 GiB cap, so state snapshots
+    evicted chat history. Omitting defaults cuts it to under half.
+    """
+    return [goal.model_dump(exclude_defaults=True) for goal in goals]
+
+
 def _bounded_proactive_goals(goals: list[GoalRecord]) -> list[GoalRecord]:
     """Hold the thought history to _MAX_PROACTIVE_GOALS. A closed thought (never
     raised again) is what stops it being raised again, so closed ones go first
@@ -1373,7 +1386,12 @@ class StateService:
                 "baseline_arousal": self.current_state.baseline_arousal,
                 "baseline_dominance": self.current_state.baseline_dominance,
                 "global_controls": self.get_global_controls().model_dump(),
+                # Serialized once, here, for all three destinations. Dumped
+                # separately before each await, one persist could write three
+                # different goal lists if a thought was recorded mid-persist.
+                "proactive_goals": _goal_payload(self.proactive_goals),
             }
+            goals_json = json.dumps(snapshot["proactive_goals"])
 
             # 1. Save to Redis
             if self.redis_client:
@@ -1413,9 +1431,7 @@ class StateService:
                             "user_interaction_hours": json.dumps(
                                 snapshot["user_interaction_hours"]
                             ),
-                            "proactive_goals": json.dumps(
-                                [goal.model_dump() for goal in self.proactive_goals]
-                            ),
+                            "proactive_goals": goals_json,
                             "interaction_count": str(snapshot["interaction_count"]),
                             "inferred_valence": str(snapshot["inferred_valence"]),
                             "inferred_arousal": str(snapshot["inferred_arousal"]),
@@ -1457,14 +1473,13 @@ class StateService:
                 snapshot["last_proactive_attempt"],
             )
             try:
-                await asyncio.to_thread(self._write_state_row, sqlite_params)
                 await asyncio.to_thread(
-                    self._write_user_activity_hours,
-                    agent_name,
-                    snapshot["user_interaction_hours"],
-                )
-                await asyncio.to_thread(
-                    self._write_proactive_goals, agent_name, self.proactive_goals
+                    self._write_state_row,
+                    sqlite_params,
+                    json.dumps(
+                        snapshot["user_interaction_hours"][-_MAX_INTERACTION_HOURS:]
+                    ),
+                    goals_json,
                 )
             except Exception as e:
                 logger.error(f"Failed to persist state to SQLite: {e}")
@@ -1476,7 +1491,6 @@ class StateService:
                 **snapshot,
                 "implied_goals": self.current_state.user_mental_model.implied_goals,
                 "known_concepts": self.current_state.user_mental_model.known_concepts,
-                "proactive_goals": [goal.model_dump() for goal in self.proactive_goals],
                 "timestamp": clock.time(),
             }
             try:
@@ -1494,8 +1508,14 @@ class StateService:
             f"[State] Persisted to cache (non-blocking Neo4j): V={snapshot['mood']:.2f} Ar={snapshot['energy']:.2f} D={snapshot['dominance']:.2f}"
         )
 
-    def _write_state_row(self, params) -> None:
-        """Write the agent_state row. Synchronous; called only via `to_thread`.
+    def _write_state_row(self, params, hours_json: str, goals_json: str) -> None:
+        """Write the agent_state row and the two W9 side tables in one
+        transaction. Synchronous; called only via `to_thread`.
+
+        One connection and one commit for all three: written separately, a
+        crash between them left a state row whose rhythm or thought history
+        belonged to a different persist, and each persist paid three opens,
+        three commits and three thread hops on every tick.
 
         Split out of `persist_state` so the blocking `sqlite3` work happens off
         the event loop -- it ran on every persist, from five call sites
@@ -1543,33 +1563,28 @@ class StateService:
                 """,
                     params,
                 )
+                # Rhythm sample and thought history, kept apart from the
+                # affect row but committed with it.
+                conn.execute(
+                    """
+                    INSERT INTO agent_user_activity_hours (agent_name, hours_json)
+                    VALUES (?, ?)
+                    ON CONFLICT(agent_name) DO UPDATE SET hours_json = excluded.hours_json
+                    """,
+                    (params[0], hours_json),
+                )
+                conn.execute(
+                    """
+                    INSERT INTO agent_proactive_goals (agent_name, goals_json)
+                    VALUES (?, ?)
+                    ON CONFLICT(agent_name) DO UPDATE SET goals_json = excluded.goals_json
+                    """,
+                    (params[0], goals_json),
+                )
         finally:
             # `finally`, not a trailing call: the original leaked the connection
             # whenever the INSERT raised.
             conn.close()
-
-    def _write_user_activity_hours(self, agent_name: str, hours: list[int]) -> None:
-        """Persist the bounded rhythm sample separately from affect state."""
-        with sqlite3.connect(self.db_path) as conn:
-            conn.execute(
-                """
-                INSERT INTO agent_user_activity_hours (agent_name, hours_json)
-                VALUES (?, ?)
-                ON CONFLICT(agent_name) DO UPDATE SET hours_json = excluded.hours_json
-                """,
-                (agent_name, json.dumps(hours[-_MAX_INTERACTION_HOURS:])),
-            )
-
-    def _write_proactive_goals(self, agent_name: str, goals: list[GoalRecord]) -> None:
-        with sqlite3.connect(self.db_path) as conn:
-            conn.execute(
-                """
-                INSERT INTO agent_proactive_goals (agent_name, goals_json)
-                VALUES (?, ?)
-                ON CONFLICT(agent_name) DO UPDATE SET goals_json = excluded.goals_json
-                """,
-                (agent_name, json.dumps([goal.model_dump() for goal in goals])),
-            )
 
     def record_user_interaction(self):
         """Mark that the user just interacted. Called by BrainAgent on every chat.input."""
