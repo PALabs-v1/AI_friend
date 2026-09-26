@@ -47,7 +47,7 @@ jobs:
           cd backend
           pip install --upgrade pip
           pip install -r requirements-base.txt
-          pip install pytest pytest-asyncio PyYAML Pillow
+          pip install pytest pytest-asyncio PyYAML Pillow hypothesis==6.168.1
       - name: Build cognitive-rust extension
         run: |
           cd backend

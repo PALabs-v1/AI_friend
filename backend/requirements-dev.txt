@@ -3,6 +3,7 @@ pytest
 pytest-asyncio
 pytest-cov
 pytest-benchmark
+hypothesis==6.168.1
 mutmut==3.7.0
 ruff==0.16.1
 # Code-quality CI tools; configuration lives in pyproject.toml.
