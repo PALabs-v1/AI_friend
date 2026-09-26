@@ -1,15 +1,15 @@
 port: 7880
 bind_addresses:
-  - ""
+  - "0.0.0.0"
 rtc:
   tcp_port: 7881
   port_range_start: 50000
   port_range_end: 51000
   use_external_ip: false
-  node_ip: 100.88.246.46
+  node_ip: 127.0.0.1
 
 redis:
-  address: 127.0.0.1:6379
+  address: redis:6379
 
 # P0-1: no `keys:` block here. Signing keys come solely from the
 # LIVEKIT_KEYS env var (see docker-compose.infra.yml), which livekit-server

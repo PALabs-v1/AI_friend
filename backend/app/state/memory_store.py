@@ -34,6 +34,140 @@ from ..utils.background_tasks import spawn_background
 from .memory_ranking import hybrid_rank
 
 logger = logging.getLogger(__name__)
+_MAX_MEMORY_CONTENT_CHARS = 32_768
+_MAX_METADATA_DEPTH = 8
+_MAX_METADATA_ITEMS = 1_000
+_MAX_METADATA_SERIALIZED_CHARS = 1_000_000
+_EMBEDDING_DIMENSION = 768
+
+
+def _validate_metadata_tree(
+    value: Any, depth: int = 0, budget: list[int] | None = None
+):
+    """Reject metadata that JSON storage would truncate, coerce, or exhaust on."""
+    budget = budget if budget is not None else [_MAX_METADATA_ITEMS]
+    if depth > _MAX_METADATA_DEPTH:
+        raise ValueError("memory metadata nesting exceeds the supported depth")
+    budget[0] -= 1
+    if budget[0] < 0:
+        raise ValueError("memory metadata has too many values")
+    if value is None or isinstance(value, (str, bool, int)):
+        if isinstance(value, str) and len(value) > _MAX_MEMORY_CONTENT_CHARS:
+            raise ValueError("memory metadata string is too long")
+        return
+    if isinstance(value, float):
+        if not math.isfinite(value) or abs(value) > 1e12:
+            raise ValueError("memory metadata number is not finite or is too large")
+        return
+    if isinstance(value, dict):
+        if len(value) > 128 or any(not isinstance(key, str) for key in value):
+            raise ValueError("memory metadata keys must be bounded strings")
+        for key, item in value.items():
+            if len(key) > 256:
+                raise ValueError("memory metadata key is too long")
+            _validate_metadata_tree(item, depth + 1, budget)
+        return
+    if isinstance(value, (list, tuple)):
+        if len(value) > 256:
+            raise ValueError("memory metadata list is too long")
+        for item in value:
+            _validate_metadata_tree(item, depth + 1, budget)
+        return
+    raise ValueError(f"unsupported memory metadata value: {type(value).__name__}")
+
+
+def _finite_bounded_number(value: Any, name: str, lower: float, upper: float) -> None:
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, (int, float))
+        or not math.isfinite(value)
+        or not lower <= value <= upper
+    ):
+        raise ValueError(f"{name} must be a finite number in [{lower}, {upper}]")
+
+
+def _validate_optional_timestamp(value: Any, name: str) -> None:
+    if value is None or isinstance(value, datetime):
+        return
+    if not isinstance(value, str) or len(value) > 64:
+        raise ValueError(f"{name} must be a datetime or ISO timestamp")
+    try:
+        datetime.fromisoformat(value)
+    except ValueError as error:
+        raise ValueError(f"{name} is not a parseable ISO timestamp") from error
+
+
+def _validate_memory_write(
+    content: Any,
+    raw_content: Any,
+    *,
+    importance: Any,
+    emotion: Any,
+    valence: Any,
+    certainty: Any,
+    valid_from: Any,
+    valid_until: Any,
+    metadata: Any,
+) -> dict[str, Any]:
+    """Reject a write add_memory cannot store faithfully; return a private
+    copy of its metadata (the caller's dict is never mutated)."""
+    if not isinstance(content, str) or not content.strip():
+        raise ValueError("memory content must be a non-empty string")
+    if len(content) > _MAX_MEMORY_CONTENT_CHARS:
+        raise ValueError("memory content exceeds the supported size")
+    if raw_content is not None and (
+        not isinstance(raw_content, str) or len(raw_content) > _MAX_MEMORY_CONTENT_CHARS
+    ):
+        raise ValueError("raw memory content must be a bounded string")
+    _finite_bounded_number(importance, "importance", 0.0, 1.0)
+    _finite_bounded_number(emotion, "emotion", 0.0, 1.0)
+    _finite_bounded_number(valence, "valence", -1.0, 1.0)
+    _finite_bounded_number(certainty, "certainty", 0.0, 1.0)
+    _validate_optional_timestamp(valid_from, "valid_from")
+    _validate_optional_timestamp(valid_until, "valid_until")
+    if metadata is None:
+        metadata = {}
+    if not isinstance(metadata, dict):
+        raise TypeError("memory metadata must be an object")
+    metadata = dict(metadata)
+    _validate_metadata_tree(metadata)
+    if len(orjson.dumps(metadata)) > _MAX_METADATA_SERIALIZED_CHARS:
+        raise ValueError("memory metadata is too large")
+    return metadata
+
+
+def _validated_embedding(vector: Any) -> list[float]:
+    """The schema's vector(768), as finite floats, or a ValueError."""
+    if not isinstance(vector, (list, tuple)) or len(vector) != _EMBEDDING_DIMENSION:
+        raise ValueError(f"memory embedding must contain {_EMBEDDING_DIMENSION} values")
+    values = [float(value) for value in vector]
+    if not all(math.isfinite(value) for value in values):
+        raise ValueError("memory embedding values must be finite")
+    return values
+
+
+def _decode_memory_metadata(value: Any) -> dict[str, Any]:
+    """Parse a stored metadata object or fail the retrieval visibly."""
+    if value is None:
+        return {}
+    if isinstance(value, str):
+        if len(value) > _MAX_METADATA_SERIALIZED_CHARS:
+            raise ValueError("stored memory metadata is too large")
+        try:
+            value = orjson.loads(value)
+        except (orjson.JSONDecodeError, TypeError) as error:
+            raise ValueError("stored memory metadata is not valid JSON") from error
+    if not isinstance(value, dict):
+        raise TypeError("stored memory metadata must be an object")
+    _validate_metadata_tree(value)
+    if len(orjson.dumps(value)) > _MAX_METADATA_SERIALIZED_CHARS:
+        raise ValueError("stored memory metadata is too large")
+    return value
+
+
+# What a stored row that fails validation raises (bad metadata JSON or
+# shape, an unparseable timestamp, an out-of-range decay rate).
+_CORRUPT_ROW_ERRORS = (ValueError, TypeError)
 
 
 def _trace_enabled() -> bool:
@@ -1320,6 +1454,25 @@ class MemoryStore:
             return -1
         return 0
 
+    def _skip_corrupt_row(self, row_id: Any, where: str, error: Exception) -> None:
+        """Leave one stored row that fails validation out of this operation.
+
+        Validation on read is there so a corrupt row cannot rank with a made-up
+        age or feed garbage metadata onward; it must not turn one bad row into a
+        failed search (or decay, promotion, relinking pass) for every memory,
+        which is what raising out of the per-row loop did. Same shape as the
+        vector index's `skipped_dimension`: counted, logged by id, never text.
+        """
+        self.corrupt_rows_skipped = getattr(self, "corrupt_rows_skipped", 0) + 1
+        self._search_corrupt_skipped = getattr(self, "_search_corrupt_skipped", 0) + 1
+        logger.warning(
+            "Skipping corrupt memory %s during %s (%s): %s",
+            row_id,
+            where,
+            type(error).__name__,
+            error,
+        )
+
     def _check_row_contradiction(
         self,
         row: dict[str, Any],
@@ -1328,12 +1481,7 @@ class MemoryStore:
         current_valence: float | None,
     ) -> dict[str, Any] | None:
         """Check if a memory row matches the entity and represents a contradiction."""
-        raw_metadata = row.get("metadata") or {}
-        if isinstance(raw_metadata, str):
-            try:
-                raw_metadata = orjson.loads(raw_metadata)
-            except Exception:
-                raw_metadata = {}
+        raw_metadata = _decode_memory_metadata(row.get("metadata"))
         entities = raw_metadata.get("entities", [])
         if not isinstance(entities, list):
             entities = []
@@ -1412,9 +1560,13 @@ class MemoryStore:
             current_valence = None
 
         for row in rows:
-            match = self._check_row_contradiction(
-                row, subject_key, current_polarity, current_valence
-            )
+            try:
+                match = self._check_row_contradiction(
+                    row, subject_key, current_polarity, current_valence
+                )
+            except _CORRUPT_ROW_ERRORS as error:
+                self._skip_corrupt_row(row.get("id"), "contradiction", error)
+                continue
             if match is not None:
                 return match
         return None
@@ -1456,6 +1608,18 @@ class MemoryStore:
         existing caller's behavior byte-for-byte.
         """
         try:
+            metadata = _validate_memory_write(
+                content,
+                raw_content,
+                importance=importance,
+                emotion=emotion,
+                valence=valence,
+                certainty=certainty,
+                valid_from=valid_from,
+                valid_until=valid_until,
+                metadata=metadata,
+            )
+
             import uuid
 
             # Generate a single UUID for both stores to ensure correlation
@@ -1491,8 +1655,6 @@ class MemoryStore:
             # Pre-link entities from graph to metadata
             present_entities = await self._prelink_memory_entities(content)
 
-            if metadata is None:
-                metadata = {}
             metadata["entities"] = present_entities
 
             if contradicts_id is None:
@@ -1504,13 +1666,11 @@ class MemoryStore:
                         contradicts_id = contradiction.get("id")
                         break
 
-            vector = (
+            vector = _validated_embedding(
                 embedding
                 if embedding is not None
                 else await self.get_embedding(content)
             )
-            if not vector:
-                return False
 
             vector_str = str(vector)
             async with self.pool.acquire() as conn:
@@ -1808,15 +1968,20 @@ class MemoryStore:
         branch below, `float(created_val)` raises on every promoted memory,
         silently falling through to `current_time`/`now()` and losing its
         real creation timestamp -- which corrupts `_spacing_hours` for
-        exactly the memories old enough to have been promoted at all."""
-        if created_val:
+        exactly the memories old enough to have been promoted at all. A
+        present but malformed timestamp now raises so search can report the
+        corrupt row instead of silently assigning it a recent age."""
+        if created_val is not None:
             try:
-                return datetime.fromtimestamp(float(created_val), UTC)
-            except (TypeError, ValueError):
+                epoch = float(created_val)
+                if math.isfinite(epoch):
+                    return datetime.fromtimestamp(epoch, UTC)
+            except (OverflowError, TypeError, ValueError):
                 pass
             parsed = MemoryStore._as_aware_utc(created_val)
             if parsed is not None:
                 return parsed
+            raise ValueError("stored memory created_at is not a valid timestamp")
         return current_time if current_time is not None else clock.now(UTC)
 
     def _score_one_qdrant_candidate(
@@ -1890,12 +2055,7 @@ class MemoryStore:
         if score <= (threshold - 2.5) and importance_score < 0.7:
             return None
 
-        custom_metadata = {}
-        if "custom_metadata" in meta:
-            try:
-                custom_metadata = orjson.loads(meta["custom_metadata"])
-            except Exception:
-                pass  # nosec B110 - malformed/non-JSON custom_metadata degrades to {} regardless of cause
+        custom_metadata = _decode_memory_metadata(meta.get("custom_metadata"))
 
         return {
             "id": memory_id,
@@ -1944,19 +2104,23 @@ class MemoryStore:
             db_metadata = await self._fetch_candidate_db_metadata(candidates)
 
             for cand in candidates:
-                scored = self._score_one_qdrant_candidate(
-                    cand,
-                    db_metadata,
-                    wing=wing,
-                    room=room,
-                    excluded=excluded,
-                    threshold=threshold,
-                    current_valence=current_valence,
-                    current_arousal=current_arousal,
-                    current_cortisol=current_cortisol,
-                    current_time=current_time,
-                    now_ts=now_ts,
-                )
+                try:
+                    scored = self._score_one_qdrant_candidate(
+                        cand,
+                        db_metadata,
+                        wing=wing,
+                        room=room,
+                        excluded=excluded,
+                        threshold=threshold,
+                        current_valence=current_valence,
+                        current_arousal=current_arousal,
+                        current_cortisol=current_cortisol,
+                        current_time=current_time,
+                        now_ts=now_ts,
+                    )
+                except _CORRUPT_ROW_ERRORS as error:
+                    self._skip_corrupt_row(cand.get("id"), "qdrant_scoring", error)
+                    continue
                 if scored is not None:
                     raw_candidates.append(scored)
         except Exception as qe:
@@ -2113,12 +2277,11 @@ class MemoryStore:
             if created and created.tzinfo is None:
                 created = created.replace(tzinfo=UTC)
 
-            raw_meta = row.get("metadata")
-            if isinstance(raw_meta, str):
-                try:
-                    raw_meta = orjson.loads(raw_meta)
-                except Exception:
-                    raw_meta = {}
+            try:
+                raw_meta = _decode_memory_metadata(row.get("metadata"))
+            except _CORRUPT_ROW_ERRORS as error:
+                self._skip_corrupt_row(row.get("id"), "sqlite_candidates", error)
+                continue
 
             raw_candidates.append(
                 {
@@ -2131,7 +2294,7 @@ class MemoryStore:
                     "valence": row.get("valence") or 0.0,
                     "created_at": created,
                     "recall_count": max(1, row.get("recall_count") or 1),
-                    "metadata": raw_meta or {},
+                    "metadata": raw_meta,
                     "speaker": row.get("speaker"),
                     "record_type": row.get("record_type") or "episode",
                     "valid_from": row.get("valid_from"),
@@ -2192,7 +2355,10 @@ class MemoryStore:
         # _as_aware_utc, not a bare `.tzinfo` check: the SQLite converter
         # returns text for an unparseable stored value, and a string here
         # used to raise AttributeError and fail the whole search.
-        created = self._as_aware_utc(row.get("created_at"))
+        raw_created = row.get("created_at")
+        created = self._as_aware_utc(raw_created)
+        if raw_created is not None and created is None:
+            raise ValueError("stored memory created_at is not a valid timestamp")
 
         memory_valence = row.get("valence") or 0.0
         emotion_weight_row = row.get("emotional_weight") or 0.0
@@ -2227,12 +2393,7 @@ class MemoryStore:
         if score <= (threshold - 2.5) and (row.get("importance_score") or 0.5) < 0.7:
             return None
 
-        raw_meta = row.get("metadata")
-        if isinstance(raw_meta, str):
-            try:
-                raw_meta = orjson.loads(raw_meta)
-            except Exception:
-                raw_meta = {}
+        raw_meta = _decode_memory_metadata(row.get("metadata"))
 
         return {
             "id": row.get("id"),
@@ -2244,7 +2405,7 @@ class MemoryStore:
             "valence": row.get("valence") or 0.0,
             "created_at": created,
             "recall_count": recall_count,
-            "metadata": raw_meta or {},
+            "metadata": raw_meta,
             "speaker": row.get("speaker"),
             "record_type": row.get("record_type") or "episode",
             "valid_from": row.get("valid_from"),
@@ -2299,14 +2460,18 @@ class MemoryStore:
         for row in rows:
             if row["content"] in excluded:
                 continue
-            cand = self._build_candidate_from_row(
-                row,
-                now,
-                current_valence,
-                current_arousal,
-                current_cortisol,
-                threshold,
-            )
+            try:
+                cand = self._build_candidate_from_row(
+                    row,
+                    now,
+                    current_valence,
+                    current_arousal,
+                    current_cortisol,
+                    threshold,
+                )
+            except _CORRUPT_ROW_ERRORS as error:
+                self._skip_corrupt_row(row.get("id"), "row_candidates", error)
+                continue
             if cand is not None:
                 raw_candidates.append(cand)
         return raw_candidates
@@ -3139,14 +3304,7 @@ class MemoryStore:
             return None
 
         mem_id = str(row.get("id") or uuid.uuid4())
-        raw_meta = row.get("metadata")
-        if isinstance(raw_meta, str):
-            try:
-                raw_meta = json.loads(raw_meta)
-            except Exception:
-                raw_meta = {}
-        elif not isinstance(raw_meta, dict):
-            raw_meta = {}
+        raw_meta = _decode_memory_metadata(row.get("metadata"))
 
         payload_meta = self._build_promotion_payload(row, raw_meta)
 
@@ -3241,17 +3399,21 @@ class MemoryStore:
         for row_index, (_ranking_score, _score, similarity, row) in enumerate(
             scored_archive_rows
         ):
-            promoted = await self._promote_one_archived_row(
-                row,
-                parsed_embeddings[row_index],
-                similarity,
-                matched_cues,
-                threshold=threshold,
-                current_valence=current_valence,
-                current_arousal=current_arousal,
-                current_cortisol=current_cortisol,
-                current_time=current_time,
-            )
+            try:
+                promoted = await self._promote_one_archived_row(
+                    row,
+                    parsed_embeddings[row_index],
+                    similarity,
+                    matched_cues,
+                    threshold=threshold,
+                    current_valence=current_valence,
+                    current_arousal=current_arousal,
+                    current_cortisol=current_cortisol,
+                    current_time=current_time,
+                )
+            except _CORRUPT_ROW_ERRORS as error:
+                self._skip_corrupt_row(row.get("id"), "archive_promotion", error)
+                continue
             if promoted is not None:
                 promoted_results.append(promoted)
                 if row_index in missing_indices:
@@ -3638,11 +3800,14 @@ class MemoryStore:
                     if row.get("content") in excluded:
                         continue
                     row["similarity"] = similarity_by_id.get(str(row.get("id")), 0.0)
-                    candidates.append(
-                        self._build_candidate_from_row(
+                    try:
+                        cand = self._build_candidate_from_row(
                             row, now, threshold=float("-inf"), **neutral
                         )
-                    )
+                    except _CORRUPT_ROW_ERRORS as error:
+                        self._skip_corrupt_row(row.get("id"), "hybrid_pool", error)
+                        continue
+                    candidates.append(cand)
                 candidates.sort(key=lambda c: c.get("similarity") or 0.0, reverse=True)
                 return candidates[:pool_size], "sqlite"
 
@@ -3662,12 +3827,16 @@ class MemoryStore:
                 row = dict(row)
                 if row.get("content") in excluded:
                     continue
-                cand = self._build_candidate_from_row(
-                    row,
-                    now,
-                    threshold=float("-inf"),
-                    **neutral,
-                )
+                try:
+                    cand = self._build_candidate_from_row(
+                        row,
+                        now,
+                        threshold=float("-inf"),
+                        **neutral,
+                    )
+                except _CORRUPT_ROW_ERRORS as error:
+                    self._skip_corrupt_row(row.get("id"), "hybrid_pool", error)
+                    continue
                 if cand is not None:
                     candidates.append(cand)
             return candidates[:pool_size], "postgres"
@@ -3801,6 +3970,7 @@ class MemoryStore:
         current_time,
     ):
         started = time.perf_counter()
+        self._search_corrupt_skipped = 0
         cache_key = self._build_search_cache_key(
             query_text,
             wing,
@@ -3922,6 +4092,7 @@ class MemoryStore:
                     if source == "sqlite"
                     else 0
                 ),
+                "skipped_corrupt": self._search_corrupt_skipped,
                 "error": self.last_search_error,
                 "error_code": "retrieval_error" if self.last_search_error else None,
                 "ms": round((time.perf_counter() - started) * 1000.0, 2),
@@ -3942,6 +4113,7 @@ class MemoryStore:
                     pool=self.last_search_trace["pool"],
                     archived_candidates=self.last_search_trace["archived_candidates"],
                     skipped_dimension=self.last_search_trace["skipped_dimension"],
+                    skipped_corrupt=self.last_search_trace["skipped_corrupt"],
                     error=bool(self.last_search_trace["error"]),
                     **(
                         {"error_code": self.last_search_trace["error_code"]}
@@ -3986,6 +4158,40 @@ class MemoryStore:
                     results=[],
                 )
             return []
+
+    @staticmethod
+    def _emit_actr_search_trace(
+        source: str,
+        *,
+        results: list | None = None,
+        pool: int = 0,
+        archived_candidates: int = 0,
+        cache_hit: bool = False,
+        error_code: str | None = None,
+    ) -> None:
+        """One `memory.search` trace event for the ACT-R policy path (ids and
+        numbers only, never memory text)."""
+        if not _trace_enabled():
+            return
+        _emit_trace(
+            "memory.search",
+            policy=Config.MEMORY_RANKING_POLICY,
+            source=source,
+            pool=pool,
+            archived_candidates=archived_candidates,
+            skipped_dimension=0,
+            error=error_code is not None,
+            **({"error_code": error_code} if error_code is not None else {}),
+            cache_hit=cache_hit,
+            results=[
+                {
+                    "id": result.get("id"),
+                    "score": result.get("score", 0.0),
+                    "terms": result.get("score_terms"),
+                }
+                for result in results or []
+            ],
+        )
 
     async def search_memories(
         self,
@@ -4072,25 +4278,7 @@ class MemoryStore:
             current_time=current_time,
         )
         if cache_hit is not None:
-            if _trace_enabled():
-                _emit_trace(
-                    "memory.search",
-                    policy=Config.MEMORY_RANKING_POLICY,
-                    source="cache",
-                    pool=0,
-                    archived_candidates=0,
-                    skipped_dimension=0,
-                    error=False,
-                    cache_hit=True,
-                    results=[
-                        {
-                            "id": result.get("id"),
-                            "score": result.get("score", 0.0),
-                            "terms": result.get("score_terms"),
-                        }
-                        for result in cache_hit
-                    ],
-                )
+            self._emit_actr_search_trace("cache", results=cache_hit, cache_hit=True)
             return cache_hit
 
         try:
@@ -4100,19 +4288,7 @@ class MemoryStore:
             if not query_vector:
                 self.last_search_error = "embedding service returned no vector"
                 self.last_search_error_at = clock.time()
-                if _trace_enabled():
-                    _emit_trace(
-                        "memory.search",
-                        policy=Config.MEMORY_RANKING_POLICY,
-                        source="embedding",
-                        pool=0,
-                        archived_candidates=0,
-                        skipped_dimension=0,
-                        error=True,
-                        error_code="empty_embedding",
-                        cache_hit=False,
-                        results=[],
-                    )
+                self._emit_actr_search_trace("embedding", error_code="empty_embedding")
                 return []
 
             mrl_dim, candidate_limit = self._compute_mrl_gating(
@@ -4239,25 +4415,12 @@ class MemoryStore:
                 cache_key=cache_key,
                 now_ts=now_ts,
             )
-            if _trace_enabled():
-                _emit_trace(
-                    "memory.search",
-                    policy=Config.MEMORY_RANKING_POLICY,
-                    source="sqlite" if is_sqlite else "postgres",
-                    pool=len(raw_candidates),
-                    archived_candidates=len(promoted_results) if matched_cues else 0,
-                    skipped_dimension=0,
-                    error=False,
-                    cache_hit=False,
-                    results=[
-                        {
-                            "id": result.get("id"),
-                            "score": result.get("score", 0.0),
-                            "terms": result.get("score_terms"),
-                        }
-                        for result in finalized
-                    ],
-                )
+            self._emit_actr_search_trace(
+                "sqlite" if is_sqlite else "postgres",
+                results=finalized,
+                pool=len(raw_candidates),
+                archived_candidates=len(promoted_results) if matched_cues else 0,
+            )
             return finalized
 
         except Exception as e:
@@ -4274,19 +4437,7 @@ class MemoryStore:
             # failure so a caller that cares can tell the difference.
             self.last_search_error = str(e)
             self.last_search_error_at = clock.time()
-            if _trace_enabled():
-                _emit_trace(
-                    "memory.search",
-                    policy=Config.MEMORY_RANKING_POLICY,
-                    source="error",
-                    pool=0,
-                    archived_candidates=0,
-                    skipped_dimension=0,
-                    error=True,
-                    error_code=type(e).__name__,
-                    cache_hit=False,
-                    results=[],
-                )
+            self._emit_actr_search_trace("error", error_code=type(e).__name__)
             return []
 
     async def _refresh_memories(
@@ -4545,17 +4696,16 @@ class MemoryStore:
                 for row in rows:
                     if not row.get("content") or not row.get("id"):
                         continue
-                    raw_meta = row.get("metadata")
-                    if isinstance(raw_meta, str):
-                        try:
-                            raw_meta = orjson.loads(raw_meta)
-                        except Exception:
-                            raw_meta = {}
+                    try:
+                        raw_meta = _decode_memory_metadata(row.get("metadata"))
+                    except _CORRUPT_ROW_ERRORS as error:
+                        self._skip_corrupt_row(row["id"], "relinking", error)
+                        continue
                     candidates.append(
                         {
                             "id": row["id"],
                             "content": row["content"],
-                            "metadata": raw_meta or {},
+                            "metadata": raw_meta,
                         }
                     )
                 return candidates
@@ -4660,41 +4810,24 @@ class MemoryStore:
 
     @staticmethod
     def _parse_actr_created_at(created_at, current_time):
-        """Best-effort parse of a stored `created_at` into a datetime,
-        falling back to `current_time`/now for anything unparseable."""
-        if not created_at:
+        """Parse a stored timestamp; only a missing value may use the fallback."""
+        if created_at is None:
             return current_time if current_time is not None else clock.now()
-
-        if not isinstance(created_at, str):
-            return created_at
-
-        for fmt in (
-            "%Y-%m-%d %H:%M:%S",
-            "%Y-%m-%dT%H:%M:%S",
-            "%Y-%m-%d %H:%M:%S.%f",
-            "%Y-%m-%dT%H:%M:%S.%f",
-        ):
-            try:
-                return datetime.strptime(created_at.split("+")[0], fmt)
-            except ValueError:
-                continue
-        return current_time if current_time is not None else clock.now()
+        parsed = MemoryStore._as_aware_utc(created_at)
+        if parsed is None:
+            raise ValueError("stored memory created_at is not a valid timestamp")
+        return parsed
 
     @staticmethod
     def _extract_actr_decay_rate(metadata, default_rate: float) -> float:
         """Per-memory decay_rate override from metadata, if present."""
-        import json
-
-        meta = {}
-        if isinstance(metadata, str):
-            try:
-                meta = json.loads(metadata)
-            except Exception:  # nosec B110 - malformed metadata falls back to {} / default_rate below
-                pass
-        elif isinstance(metadata, dict):
-            meta = metadata
-
-        return float(meta.get("decay_rate", default_rate)) if meta else default_rate
+        meta = _decode_memory_metadata(metadata)
+        rate = meta.get("decay_rate", default_rate)
+        if isinstance(rate, bool) or not isinstance(rate, (int, float)):
+            raise TypeError("memory decay_rate metadata must be numeric")
+        if not math.isfinite(rate) or not 0 <= rate <= 10:
+            raise ValueError("memory decay_rate metadata is out of range")
+        return float(rate)
 
     def _compute_actr_decay(self, rows: list, current_time=None) -> tuple[list, list]:
         """Pure ACT-R activation decision per row: which memory ids should be
@@ -4714,7 +4847,14 @@ class MemoryStore:
             # Fallbacks
             n_recalls = max(1, recall_count if recall_count is not None else 1)
 
-            dt = self._parse_actr_created_at(row.get("created_at"), current_time)
+            try:
+                dt = self._parse_actr_created_at(row.get("created_at"), current_time)
+                decay_rate = self._extract_actr_decay_rate(metadata, self.decay_rate)
+            except _CORRUPT_ROW_ERRORS as error:
+                # Neither archived nor decayed: a row this pass cannot read is
+                # left exactly as it is.
+                self._skip_corrupt_row(mem_id, "actr_decay", error)
+                continue
 
             # Calculate hours since creation. Coerce both operands to
             # aware-UTC so a naive stored created_at and an aware
@@ -4726,8 +4866,6 @@ class MemoryStore:
             )
             delta = now - (self._as_aware_utc(dt) or now)
             hours_since = max(0.0, delta.total_seconds() / 3600.0)
-
-            decay_rate = self._extract_actr_decay_rate(metadata, self.decay_rate)
 
             # Shield recent memories created in the last 24 hours from pruning (deletion)
             is_shielded = hours_since < 24.0

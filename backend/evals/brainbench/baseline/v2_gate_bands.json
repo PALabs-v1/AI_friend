@@ -1,7 +1,7 @@
 {
   "description": "V2 BrainBench gate bands (evals/brainbench/gates.py)",
   "dirty": false,
-  "git_sha": "1118ba2a301d7b174bc5010dd5613a5f9791f3fa",
+  "git_sha": "8df188fecf984d16176345b7d994711a8fb98599",
   "metrics": {
     "attention.interference_collision_rate": {
       "direction": "lower",
@@ -42,6 +42,11 @@
       "direction": "lower",
       "value": 0.14285714285714285,
       "why": "barge-in lifecycle invariant `terminal_outcomes_per_reply` (ADR-003)"
+    },
+    "bargein.unresolved_reply_rate": {
+      "direction": "lower",
+      "value": 0.5751633986928104,
+      "why": "started replies, played out or not, that never got a terminal outcome"
     },
     "bargein.zero_terminal_reply_rate": {
       "direction": "lower",
@@ -140,7 +145,7 @@
     }
   },
   "observed_budgets": {
-    "resources.turn_latency_p95_ms": 3.2972080080071464
+    "resources.turn_latency_p95_ms": 11.136208020616323
   },
   "slice": {
     "bargein_scenarios_per_family": 3,
@@ -169,5 +174,5 @@
     "absolute": 1e-06,
     "relative": 0.01
   },
-  "wall_seconds": 26.0
+  "wall_seconds": 56.9
 }

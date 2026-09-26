@@ -1,5 +1,5 @@
 """
-P2-1 (opt-in): proves `nats-accounts.conf` actually enforces the
+Proves the default `nats-accounts.conf` actually enforces the
 per-agent permissions it declares, against a real `nats-server` -- not just
 that the config file parses. Per the roadmap's own words: "A test asserts
 the scoping actually denies a subject outside an agent's grant; without
@@ -72,7 +72,10 @@ def nats_accounts_server(tmp_path):
     not a hand-rolled stand-in -- a passing test here means the file this
     repo actually ships enforces what it claims to, not a lookalike."""
     assert ACCOUNTS_CONF.exists(), f"expected {ACCOUNTS_CONF} to exist"
-    port = _free_port()
+    try:
+        port = _free_port()
+    except PermissionError as error:
+        pytest.skip(f"sandbox denies local TCP listeners: {error}")
     store_dir = tmp_path / "jetstream"
     account_passwords = {
         "NATS_PROVISIONER_PASSWORD": "changeme_nats_provisioner",
@@ -241,6 +244,17 @@ async def test_wrong_password_is_rejected(real_nats, nats_accounts_server):
     with pytest.raises((real_nats.errors.Error, TimeoutError)):
         await asyncio.wait_for(
             real_nats.connect(_url(port, "vision_agent", "not-the-real-password")),
+            timeout=3.0,
+        )
+
+
+@pytest.mark.asyncio
+async def test_default_mesh_config_refuses_an_unauthenticated_client(
+    real_nats, nats_accounts_server
+):
+    with pytest.raises((real_nats.errors.Error, TimeoutError)):
+        await asyncio.wait_for(
+            real_nats.connect(f"nats://127.0.0.1:{nats_accounts_server}"),
             timeout=3.0,
         )
 

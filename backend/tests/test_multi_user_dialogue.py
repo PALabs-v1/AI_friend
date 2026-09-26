@@ -179,7 +179,7 @@ async def test_reflection_dynamic_speaker_consolidation():
     with patch.object(service, "_extract_json", return_value=[]):
         await service._consolidate(episodes)
 
-    # Verify generate prompts compiled with Raj: and Priya:
+    # Speaker labels and dialogue stay separated as untrusted prompt fields.
     mock_llm.generate.assert_called()
     prompts = [call[0][0] for call in mock_llm.generate.call_args_list]
 
@@ -187,6 +187,14 @@ async def test_reflection_dynamic_speaker_consolidation():
     consol_prompt = next(
         p for p in prompts if "Consolidate the following recent interaction" in p
     )
-    assert "Raj: Is Priya going to the park?" in consol_prompt
-    assert "Priya: I'm going to workspace." in consol_prompt
+    assert (
+        "[RETRIEVED-CONTENT]Raj[/RETRIEVED-CONTENT]: "
+        "[RETRIEVED-CONTENT]Is Priya going to the park?[/RETRIEVED-CONTENT]"
+        in consol_prompt
+    )
+    assert (
+        "[RETRIEVED-CONTENT]Priya[/RETRIEVED-CONTENT]: "
+        "[RETRIEVED-CONTENT]I'm going to workspace.[/RETRIEVED-CONTENT]"
+        in consol_prompt
+    )
     assert "User:" not in consol_prompt

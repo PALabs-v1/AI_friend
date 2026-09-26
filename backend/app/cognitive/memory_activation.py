@@ -79,6 +79,11 @@ _INJECTION_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"new\s+system\s+prompt", re.IGNORECASE),
     re.compile(r"pretend\s+(you are|to be)", re.IGNORECASE),
     re.compile(
+        r"(?:repeat|print|quote|copy|echo|reproduce).{0,48}"
+        r"(?:system|developer|hidden).{0,32}prompt",
+        re.IGNORECASE,
+    ),
+    re.compile(
         r"reveal\s+(?:the|system|all)(?:\s+(?:the|system|all)){0,1}\s+prompt",
         re.IGNORECASE,
     ),
@@ -99,6 +104,7 @@ _INJECTION_PATTERNS: tuple[re.Pattern[str], ...] = (
 # the imperative payload straight past the redaction. A detected attempt now
 # discards the entire untrusted string.
 _QUARANTINE_MARKER = "[UNTRUSTED_CONTENT_FILTERED]"
+_MAX_UNTRUSTED_TEXT_CHARS = 8192
 
 # Characters with no visible rendering that an attacker can splice into the
 # middle of a trigger word (e.g. "ignore previ<ZWSP>ous instructions") to
@@ -108,6 +114,43 @@ _QUARANTINE_MARKER = "[UNTRUSTED_CONTENT_FILTERED]"
 # (U+200B), zero width non-joiner (U+200C), zero width joiner (U+200D), and
 # byte order mark / zero width no-break space (U+FEFF).
 _ZERO_WIDTH_CHARS = ("\u200b", "\u200c", "\u200d", "\ufeff")
+_CONFUSABLE_TRANSLATION = str.maketrans(
+    {
+        "а": "a",
+        "е": "e",
+        "о": "o",
+        "р": "p",
+        "с": "c",
+        "х": "x",
+        "у": "y",
+        "і": "i",
+        "ј": "j",
+        "ѕ": "s",
+        "Α": "A",
+        "Β": "B",
+        "Ε": "E",
+        "Ζ": "Z",
+        "Η": "H",
+        "Ι": "I",
+        "Κ": "K",
+        "Μ": "M",
+        "Ν": "N",
+        "Ο": "O",
+        "Ρ": "P",
+        "Τ": "T",
+        "Υ": "Y",
+        "Χ": "X",
+        "ο": "o",
+        "ι": "i",
+        "κ": "k",
+        "ν": "v",
+        "τ": "t",
+        "υ": "y",
+        "χ": "x",
+        "ε": "e",
+        "ρ": "p",
+    }
+)
 
 
 def _normalize_for_detection(text: str) -> str:
@@ -122,7 +165,7 @@ def _normalize_for_detection(text: str) -> str:
     normalized = unicodedata.normalize("NFKC", text)
     for zero_width in _ZERO_WIDTH_CHARS:
         normalized = normalized.replace(zero_width, "")
-    return normalized
+    return normalized.casefold().translate(_CONFUSABLE_TRANSLATION)
 
 
 class AntiInjectionGate:
@@ -141,15 +184,60 @@ class AntiInjectionGate:
     def is_injection_attempt(self, text: str) -> bool:
         if not text:
             return False
-        normalized = _normalize_for_detection(text)
-        return any(pattern.search(normalized) for pattern in _INJECTION_PATTERNS)
+        return self._matches_normalized(_normalize_for_detection(text))
+
+    @staticmethod
+    def _matches_normalized(text: str) -> bool:
+        return any(pattern.search(text) for pattern in _INJECTION_PATTERNS)
 
     def sanitize_memory_text(self, text: str) -> str:
         if not text:
             return text
+        if len(text) > _MAX_UNTRUSTED_TEXT_CHARS:
+            return _QUARANTINE_MARKER
         if self.is_injection_attempt(text):
             return _QUARANTINE_MARKER
         return text
+
+    def sanitize_memory_batch(self, texts: list[str]) -> list[str]:
+        """Quarantine related fields together when an attack is split across them."""
+        normalized = [
+            None
+            if len(text) > _MAX_UNTRUSTED_TEXT_CHARS
+            else _normalize_for_detection(text)
+            for text in texts
+        ]
+        rendered = [
+            _QUARANTINE_MARKER
+            if text is None or self._matches_normalized(text)
+            else original
+            for original, text in zip(texts, normalized, strict=True)
+        ]
+        if any(text == _QUARANTINE_MARKER for text in rendered):
+            return rendered
+        combined = "\n".join(text for text in normalized if text is not None)
+        reversed_combined = "\n".join(
+            text for text in reversed(normalized) if text is not None
+        )
+        if self._matches_normalized(combined) or self._matches_normalized(
+            reversed_combined
+        ):
+            return [_QUARANTINE_MARKER for _ in texts]
+        return rendered
+
+
+def wrap_retrieved_text(text: str) -> str:
+    """Wrap untrusted text while canonicalizing attempts to forge our markers."""
+    text = unicodedata.normalize("NFKC", text)
+    for zero_width in _ZERO_WIDTH_CHARS:
+        text = text.replace(zero_width, "")
+    text = re.sub(
+        r"\[\s*/?\s*retrieved-content\s*\]",
+        lambda match: match.group(0).lower().replace(" ", ""),
+        text,
+        flags=re.IGNORECASE,
+    )
+    return f"[RETRIEVED-CONTENT]{text}[/RETRIEVED-CONTENT]"
 
 
 _VALID_CONTRADICTION_STATES: frozenset[str] = frozenset(ContradictionState.__args__)
@@ -346,4 +434,3 @@ def memories_to_activations(
     if last_search_error and not any(a.outage_flag for a in activations):
         activations.append(_retrieval_outage_activation(last_search_error))
     return activations
-

@@ -125,15 +125,15 @@ async def test_abstain_threshold_separates_dev_seed_hit_from_noise(
     store = build_memory_store(tmp_path)
 
     async def query_embedding(_text: str) -> list[float]:
-        return [1.0, 0.0]
+        return [1.0] + [0.0] * 767
 
     monkeypatch.setattr(store, "get_embedding", query_embedding)
     try:
         assert await store.add_memory(
-            supported.text, embedding=[1.0, 0.0], current_time=probe.t
+            supported.text, embedding=[1.0] + [0.0] * 767, current_time=probe.t
         )
         assert await store.add_memory(
-            noise.text, embedding=[0.0, 1.0], current_time=probe.t
+            noise.text, embedding=[0.0, 1.0] + [0.0] * 766, current_time=probe.t
         )
         retrieved = await store.search_memories(
             probe.text, limit=5, current_time=probe.t

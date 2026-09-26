@@ -8,6 +8,10 @@ os.environ.setdefault("NEO4J_PASSWORD", "strong_ci_test_password")
 os.environ.setdefault("NEO4J_URI", "bolt://127.0.0.1:7687")
 os.environ.setdefault("LIVEKIT_API_KEY", "dummy_key")
 os.environ.setdefault("LIVEKIT_API_SECRET", "dummy_secret")
+# Unit tests use the in-memory NATS simulator, but the production clients now
+# correctly require an explicit identity even when no server is contacted.
+os.environ["NATS_USER"] = "test_agent"
+os.environ["NATS_PASSWORD"] = "test-only-password"
 
 # Point persona discovery at nothing for the whole suite.
 #

@@ -85,14 +85,9 @@ class BaseAgent:
     def __init__(self, name: str, nats_url: str | None = None):
         self.name = name
         self.nats_url = nats_url or os.getenv("NATS_URL", "nats://127.0.0.1:4222")
-        # P2-1, opt-in: one (user, password) pair per process/container --
-        # each agent already runs in its own container in
-        # docker-compose.prod.yml, so there is nowhere for a per-agent value
-        # to come from except this process's own environment. Both absent
-        # (the default) means `connect()` passes neither kwarg to
-        # `nats.connect`, so an unconfigured deployment connects exactly as
-        # it always has -- see nats-accounts.conf's own header for how an
-        # operator actually turns this on.
+        # Each process has one scoped NATS identity supplied by Compose. The
+        # credentials are mandatory so a missing .env value cannot silently
+        # downgrade an authenticated mesh to an anonymous connection.
         self.nats_user = os.getenv("NATS_USER")
         self.nats_password = os.getenv("NATS_PASSWORD")
         # Any, not a nats-py type: self.js._jsm is accessed directly below,
@@ -147,6 +142,10 @@ class BaseAgent:
     async def connect(self):
         """Connect to the NATS Mesh and bootstrap streams."""
         try:
+            if not self.nats_user or not self.nats_password:
+                raise RuntimeError(
+                    f"Agent '{self.name}' requires NATS_USER and NATS_PASSWORD"
+                )
             # Connect with infinite auto-reconnection parameters for maximum reliability
             connect_kwargs = {
                 "connect_timeout": 10,
@@ -157,24 +156,16 @@ class BaseAgent:
                 "error_cb": self._on_nats_error,
                 "closed_cb": self._on_nats_closed,
             }
-            # P2-1, opt-in: only added when both are set, so an
-            # unconfigured deployment's connect call is byte-for-byte what
-            # it was before this existed.
-            if self.nats_user and self.nats_password:
-                connect_kwargs["user"] = self.nats_user
-                connect_kwargs["password"] = self.nats_password
+            connect_kwargs["user"] = self.nats_user
+            connect_kwargs["password"] = self.nats_password
             self.nc = await nats.connect(self.nats_url, **connect_kwargs)
             self.js = self.nc.jetstream()
-            if self.nats_user and self.nats_password:
-                # Authenticated runtime identities intentionally do not have
-                # stream-administration rights. The dedicated provisioning
-                # identity must prepare the streams before agents start.
-                logger.info(
-                    "Agent '%s' using runtime NATS credentials; skipping stream administration.",
-                    self.name,
-                )
-            else:
-                await self._bootstrap_mesh()
+            # Runtime identities intentionally lack stream-administration
+            # rights; the authenticated provisioner prepares streams first.
+            logger.info(
+                "Agent '%s' connected with scoped NATS credentials; skipping stream administration.",
+                self.name,
+            )
             logger.info(f"Agent '{self.name}' connected to mesh at {self.nats_url}")
 
             # Auto-subscribe active agents to cache synchronization broadcasts.

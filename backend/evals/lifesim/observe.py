@@ -700,7 +700,14 @@ def render(sim) -> tuple[list[Turn], list[Annotation]]:
         while len(session_items) < total:
             session_items.append(("filler", None))
         rng.shuffle(session_items)
+        # The schedule fixes a start before the turn gaps below are drawn, so a
+        # long late session can still be running when the next one is due (the
+        # next day's first session is the usual case). The conversation in
+        # progress comes first: the next one starts a minute after its last
+        # turn. No draw here, so sessions that did not overlap render the same.
         clock = session.start
+        if turns and clock <= turns[-1].t:
+            clock = turns[-1].t + timedelta(minutes=1)
         for idx, (kind, obj) in enumerate(session_items):
             if idx:
                 clock += timedelta(seconds=rng.randint(20, 180))

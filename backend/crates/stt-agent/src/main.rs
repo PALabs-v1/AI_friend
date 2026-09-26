@@ -36,11 +36,8 @@ use audio::{Endpointer, ResamplerCache, VadEvent};
 use sensevoice::SenseVoiceModel;
 use whisper::WhisperModel;
 
-/// P2-1, opt-in: connects with a username/password only when both are
-/// given, mirroring `BaseAgent.connect` (Python) so both halves of the mesh
-/// honour the same opt-in credential -- see nats-accounts.conf's own header
-/// for how an operator turns this on. With neither given (the default),
-/// this is `async_nats::connect(url)`, unchanged from before this existed.
+/// Runtime agents require a username/password, matching the authenticated
+/// default in `nats-accounts.conf` and Python's `BaseAgent.connect`.
 /// Takes the credentials as parameters rather than reading
 /// `NATS_USER`/`NATS_PASSWORD` internally so tests can exercise both
 /// branches without mutating this process's real environment (`cargo test`
@@ -49,15 +46,16 @@ async fn connect_nats(
     url: &str,
     user: Option<String>,
     password: Option<String>,
-) -> std::result::Result<async_nats::Client, async_nats::ConnectError> {
+) -> Result<async_nats::Client> {
     match (user, password) {
-        (Some(user), Some(password)) => {
+        (Some(user), Some(password)) if !user.is_empty() && !password.is_empty() => {
             async_nats::ConnectOptions::new()
                 .user_and_password(user, password)
                 .connect(url)
                 .await
+                .context("NATS authentication failed")
         }
-        _ => async_nats::connect(url).await,
+        _ => anyhow::bail!("NATS_USER and NATS_PASSWORD are required"),
     }
 }
 
@@ -789,6 +787,9 @@ async fn publish_partial(
         if should_fire {
             let stop = AudioStop {
                 interrupt: true,
+                // A speculative duck never flushes (flush is the brain's
+                // self-correction stop, DR-029).
+                flush: false,
                 speculative: true,
                 reason: None,
                 command_text: None,

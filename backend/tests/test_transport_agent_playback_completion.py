@@ -1,241 +1,313 @@
-"""FIX-CLD-02 (`orchestration/PHASE_01/FIX_PLAN.md` Part B): the normal
-(non-interrupted) playback path never published a terminal
-`AudioPlaybackProgress(completed=True, ...)` event -- only a confirmed
-`audio.stop` interruption produced any terminal signal at all. Without it,
-`BrainAgent._on_audio_playback_progress` (Phase 1 causal slice, §22/§38)
-never saw `progress.completed` for a turn that simply finished speaking, so
-it never emitted a COMPLETED `OutcomeRecord` for the common case.
-
-These tests cover the fix at both ends: the producer side (`_on_nats_audio`
-queuing a completion marker behind whatever real audio its own message
-carried) and the consumer side (`_audio_playback_worker` only reporting
-completion once every real frame ahead of the marker has actually reached
-`audio_source.capture_frame` -- the closest observable "reached the
-speaker" point in this architecture, per `_maybe_publish_playback_progress`'s
-own docstring).
-"""
+"""Regression coverage for transport-owned playback lifecycle terminals."""
 
 import asyncio
-import base64
-from types import SimpleNamespace
-from unittest.mock import AsyncMock, patch
+import contextlib
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from app.agents.transport_agent import TransportAgent
-from app.contracts import Topics
+from app.contracts import AudioPlaybackLifecycle, Topics
 
 
-def _make_agent(queue_size: int = 8) -> TransportAgent:
+def _make_agent() -> TransportAgent:
     with patch("app.agents.transport_agent.Config") as mock_config:
         mock_config.NATS_URL = "nats://127.0.0.1:4222"
         mock_config.LIVEKIT_URL = "ws://127.0.0.1:7880"
         mock_config.LIVEKIT_API_KEY = "k"
         mock_config.LIVEKIT_API_SECRET = "s"
         mock_config.SAMPLE_RATE = 16000
-        mock_config.TRANSPORT_AUDIO_QUEUE_SIZE = queue_size
+        mock_config.TRANSPORT_AUDIO_QUEUE_SIZE = 8
         agent = TransportAgent()
     agent.publish = AsyncMock()
     return agent
 
 
-def _stream_chunk(pcm: bytes, *, done: bool) -> dict:
-    return {
-        "audio": base64.b64encode(pcm).decode("ascii") if pcm else "",
-        "done": done,
-        "sample_rate": 16000,
-        "channels": 1,
-    }
-
-
-def _metadata(turn_id="turn-1", character_offset=None, word_index=None) -> dict:
-    meta: dict = {"turn_id": turn_id}
-    if character_offset is not None:
-        meta["character_offset"] = character_offset
-    if word_index is not None:
-        meta["word_index"] = word_index
-    return meta
-
-
-# --- Producer side: _on_nats_audio enqueues a completion marker ------------
-
-
 @pytest.mark.asyncio
-async def test_on_nats_audio_queues_a_completion_marker_behind_the_final_frame():
-    """The marker must land strictly after the real PCM this same message
-    carried, so a worker draining the queue FIFO never reports completion
-    before that audio has actually been fed to the audio source."""
+async def test_pcm_bytes_do_not_create_a_terminal_without_typed_trailer():
     agent = _make_agent()
-
     await agent._on_nats_audio(
-        _stream_chunk(b"\x00\x00" * 4, done=True),
-        metadata=_metadata(character_offset=42, word_index=7),
-    )
-
-    assert agent.audio_queue.qsize() == 2
-    real_frame = agent.audio_queue.get_nowait()
-    marker = agent.audio_queue.get_nowait()
-
-    assert real_frame[0] == b"\x00\x00" * 4
-    assert real_frame[3] == "turn-1"
-    assert real_frame[6] is False  # not a completion marker
-
-    assert marker[0] == b""  # no audio of its own
-    assert marker[3] == "turn-1"
-    assert marker[4] == 42
-    assert marker[5] == 7
-    assert marker[6] is True
-
-
-@pytest.mark.asyncio
-async def test_on_nats_audio_done_with_no_audio_still_queues_a_marker():
-    """A bodiless trailer message (no PCM, just the done flag) must still
-    produce a completion marker -- otherwise a stream whose very last
-    message carries no audio of its own would never signal completion."""
-    agent = _make_agent()
-
-    await agent._on_nats_audio(
-        _stream_chunk(b"", done=True),
-        metadata=_metadata(character_offset=10, word_index=2),
-    )
-
-    assert agent.audio_queue.qsize() == 1
-    marker = agent.audio_queue.get_nowait()
-    assert marker[0] == b""
-    assert marker[6] is True
-
-
-@pytest.mark.asyncio
-async def test_on_nats_audio_without_done_never_queues_a_marker():
-    """The common per-chunk case (more audio still to come) must not emit a
-    marker -- only the message actually flagged `done` does."""
-    agent = _make_agent()
-
-    await agent._on_nats_audio(
-        _stream_chunk(b"\x00\x00" * 4, done=False), metadata=_metadata()
+        b"\x00\x00" * 4,
+        metadata={"turn_id": "turn-1", "character_offset": 4, "word_index": 1},
     )
 
     assert agent.audio_queue.qsize() == 1
     frame = agent.audio_queue.get_nowait()
-    assert frame[6] is False
-
-
-# --- Consumer side: the drain worker reports completion in FIFO order -----
+    assert frame[0] == b"\x00\x00" * 4
+    assert frame[-1] is None
 
 
 @pytest.mark.asyncio
-async def test_playback_worker_publishes_completed_progress_after_draining_real_frames():
-    """Proves ordering, not just eventual publication: the real frame must
-    reach `audio_source.capture_frame` before the completion event is
-    published, and the completion payload must carry the marker's own
-    offset/word_index -- not the real frame's."""
+async def test_typed_trailer_follows_pcm_and_waits_for_playout_before_completed():
     agent = _make_agent()
-    agent.audio_source = SimpleNamespace(capture_frame=AsyncMock())
+    agent.audio_source = MagicMock()
+    agent.audio_source.capture_frame = AsyncMock()
+    agent.audio_source.wait_for_playout = AsyncMock()
+    tasks = []
 
-    await agent.audio_queue.put((b"\x00\x00" * 8, 16000, 1, "turn-1", 5, 1, False))
-    await agent.audio_queue.put((b"", 16000, 1, "turn-1", 20, 4, True))
+    def spawn(coro):
+        task = asyncio.create_task(coro)
+        tasks.append(task)
+        return task
+
+    agent.spawn = MagicMock(side_effect=spawn)
+    await agent._on_nats_audio(
+        b"\x00\x00" * 4,
+        metadata={"turn_id": "turn-1", "character_offset": 4, "word_index": 1},
+    )
+    await agent._on_nats_audio(
+        b'{"kind":"END_OF_STREAM","utterance_id":"turn-1",'
+        b'"turn_id":"turn-1","failed":false}',
+        metadata={
+            "audio_stream_kind": "trailer",
+            "utterance_id": "turn-1",
+            "turn_id": "turn-1",
+            "character_offset": 4,
+            "word_index": 1,
+        },
+    )
+    assert agent.audio_queue.qsize() == 2
 
     worker = asyncio.create_task(agent._audio_playback_worker())
     try:
-        await asyncio.wait_for(agent.audio_queue.join(), timeout=2.0)
-        await asyncio.sleep(0)  # let the spawned publish task(s) run
+        await asyncio.wait_for(agent.audio_queue.join(), timeout=2)
+        await asyncio.gather(*tasks)
     finally:
         worker.cancel()
-        try:
+        with contextlib.suppress(asyncio.CancelledError):
             await worker
-        except asyncio.CancelledError:
-            pass
 
     agent.audio_source.capture_frame.assert_awaited_once()
-
-    progress_calls = [
-        call
+    agent.audio_source.wait_for_playout.assert_awaited_once()
+    events = [
+        AudioPlaybackLifecycle.model_validate(call.args[1])
         for call in agent.publish.await_args_list
-        if call.args[0] == Topics.AUDIO_PLAYBACK_PROGRESS
+        if call.args[0] == Topics.AUDIO_PLAYBACK_LIFECYCLE
     ]
-    assert len(progress_calls) == 2
-    real_payload, completed_payload = (call.args[1] for call in progress_calls)
-    assert real_payload["completed"] is False
-    assert real_payload["character_offset"] == 5
-    assert completed_payload["completed"] is True
-    assert completed_payload["character_offset"] == 20
-    assert completed_payload["word_index"] == 4
-    assert completed_payload["utterance_id"] == "turn-1"
+    assert [event.state for event in events] == ["STARTED", "PLAYING", "COMPLETED"]
+    assert [event.seq for event in events] == [0, 1, 2]
 
 
 @pytest.mark.asyncio
-async def test_playback_worker_skips_audio_capture_for_a_marker_frame():
-    """A marker carries empty PCM by design -- the worker must not attempt
-    to feed it to `audio_source.capture_frame` at all (that call would be
-    meaningless for zero-length audio and is reserved for real frames)."""
+async def test_audio_playback_progress_never_carries_terminal_completion():
     agent = _make_agent()
-    agent.audio_source = SimpleNamespace(capture_frame=AsyncMock())
+    agent.audio_source = MagicMock()
+    agent.audio_source.capture_frame = AsyncMock()
 
-    await agent.audio_queue.put((b"", 16000, 1, "turn-1", 0, 0, True))
-
+    await agent._on_nats_audio(
+        b"\x00\x00" * 4,
+        metadata={"turn_id": "turn-1", "character_offset": 4, "word_index": 1},
+    )
     worker = asyncio.create_task(agent._audio_playback_worker())
     try:
-        await asyncio.wait_for(agent.audio_queue.join(), timeout=2.0)
+        await asyncio.wait_for(agent.audio_queue.join(), timeout=2)
         await asyncio.sleep(0)
     finally:
         worker.cancel()
-        try:
+        with contextlib.suppress(asyncio.CancelledError):
             await worker
-        except asyncio.CancelledError:
-            pass
 
-    agent.audio_source.capture_frame.assert_not_awaited()
-
-
-# --- _maybe_publish_playback_progress unit behavior -------------------------
-
-
-@pytest.mark.asyncio
-async def test_completed_progress_bypasses_the_offset_dedupe_gate():
-    """The non-completed de-dupe gate (skip a repeated/lower offset) exists
-    to collapse several PCM chunks sharing one unchanged mid-utterance
-    offset -- it must not also swallow the one completion event, even when
-    its offset does not exceed the last one already reported."""
-    agent = _make_agent()
-    agent._last_progress_turn_id = "turn-1"
-    agent._last_progress_offset = 50  # already past the completion's own offset
-
-    agent._maybe_publish_playback_progress("turn-1", 30, 6, completed=True)
-    await asyncio.sleep(0)
-
-    agent.publish.assert_awaited_once()
-    payload = agent.publish.await_args.args[1]
-    assert payload["completed"] is True
-    assert payload["character_offset"] == 30
+    progress = [
+        call.args[1]
+        for call in agent.publish.await_args_list
+        if call.args[0] == Topics.AUDIO_PLAYBACK_PROGRESS
+    ]
+    assert progress
+    assert all(item["completed"] is False for item in progress)
 
 
 @pytest.mark.asyncio
-async def test_completed_progress_with_no_offset_falls_back_to_last_known():
-    """A bodiless completion marker (no offset of its own) must still
-    publish, using the last real offset this turn already reported --
-    exactly the length actually delivered -- rather than being dropped."""
+async def test_flush_stop_interrupts_wrong_take_and_next_frame_gets_new_utterance():
     agent = _make_agent()
-    agent._last_progress_turn_id = "turn-1"
-    agent._last_progress_offset = 17
+    agent._active_turn_id = "turn-1"
+    agent._active_utterance_id = "utterance-1"
+    agent._active_utterance_turn_id = "turn-1"
+    agent._lifecycle_active_by_turn["turn-1"] = "utterance-1"
+    agent._lifecycle_attempts["turn-1"] = 1
+    agent._lifecycle_position[("utterance-1", "turn-1")] = (2, 8)
+    agent._flush_downstream_audio = AsyncMock()
+    tasks = []
 
-    agent._maybe_publish_playback_progress("turn-1", None, None, completed=True)
-    await asyncio.sleep(0)
+    def spawn(coro):
+        task = asyncio.create_task(coro)
+        tasks.append(task)
+        return task
 
-    agent.publish.assert_awaited_once()
-    payload = agent.publish.await_args.args[1]
-    assert payload["completed"] is True
-    assert payload["character_offset"] == 17
-    assert payload["word_index"] == 0
+    agent.spawn = MagicMock(side_effect=spawn)
+    await agent._on_audio_stop({"turn_id": "turn-1", "flush": True})
+    await agent._on_nats_audio(
+        b"\x00\x00" * 4,
+        metadata={"turn_id": "turn-1", "character_offset": 16, "word_index": 4},
+    )
+    await asyncio.gather(*tasks)
+
+    lifecycle = [
+        AudioPlaybackLifecycle.model_validate(call.args[1])
+        for call in agent.publish.await_args_list
+        if call.args[0] == Topics.AUDIO_PLAYBACK_LIFECYCLE
+    ]
+    retry_frame = agent.audio_queue.get_nowait()
+    assert [event.state for event in lifecycle] == ["INTERRUPTED"]
+    assert lifecycle[0].utterance_id == "utterance-1"
+    assert lifecycle[0].heard_offset == 8
+    assert lifecycle[0].flushed is True
+    assert retry_frame[3] == "turn-1:1"
+    assert retry_frame[4] == "turn-1"
 
 
 @pytest.mark.asyncio
-async def test_non_completed_progress_with_no_offset_still_does_nothing():
-    """Companion to the fallback test above: only `completed=True` gets the
-    fallback -- an ordinary mid-utterance frame with no offset metadata must
-    stay a no-op, matching the pre-fix behavior for that path."""
+async def test_scoped_stop_preserves_the_identity_of_the_frame_actually_playing():
     agent = _make_agent()
+    agent._active_turn_id = "new-turn"
+    agent._active_utterance_id = "old-utterance"
+    agent._active_utterance_turn_id = "old-turn"
+    lifecycle_key = ("old-utterance", "old-turn")
+    agent._lifecycle_started[lifecycle_key] = None
+    agent._lifecycle_seq[lifecycle_key] = 2
+    agent._lifecycle_position[("old-utterance", "old-turn")] = (3, 12)
+    agent._flush_downstream_audio = AsyncMock()
+    tasks = []
 
-    agent._maybe_publish_playback_progress("turn-1", None, None, completed=False)
-    await asyncio.sleep(0)
+    def spawn(coro):
+        task = asyncio.create_task(coro)
+        tasks.append(task)
+        return task
 
-    agent.publish.assert_not_awaited()
+    agent.spawn = MagicMock(side_effect=spawn)
+    await agent._on_audio_stop({"turn_id": "new-turn", "flush": True})
+    await asyncio.gather(*tasks)
+
+    lifecycle = [
+        AudioPlaybackLifecycle.model_validate(call.args[1])
+        for call in agent.publish.await_args_list
+        if call.args[0] == Topics.AUDIO_PLAYBACK_LIFECYCLE
+    ]
+    assert len(lifecycle) == 1
+    assert lifecycle[0].state == "INTERRUPTED"
+    assert lifecycle[0].turn_id == "old-turn"
+    assert lifecycle[0].utterance_id == "old-utterance"
+    assert lifecycle[0].heard_offset == 12
+    # The flush belongs to new-turn; cutting old-turn's audio is a real
+    # interruption of that reply, or the brain would never resolve it.
+    assert lifecycle[0].flushed is False
+    assert lifecycle_key not in agent._lifecycle_started
+    assert lifecycle_key not in agent._lifecycle_seq
+    assert lifecycle_key not in agent._lifecycle_position
+
+
+@pytest.mark.asyncio
+async def test_first_frame_source_failure_emits_failed_without_claiming_heard_audio():
+    agent = _make_agent()
+    agent.audio_source = MagicMock()
+    agent.audio_source.capture_frame = AsyncMock(
+        side_effect=RuntimeError("source down")
+    )
+    tasks = []
+
+    def spawn(coro):
+        task = asyncio.create_task(coro)
+        tasks.append(task)
+        return task
+
+    agent.spawn = MagicMock(side_effect=spawn)
+    await agent._on_nats_audio(
+        b"\x00\x00" * 4,
+        metadata={"turn_id": "turn-1", "character_offset": 20, "word_index": 5},
+    )
+    worker = asyncio.create_task(agent._audio_playback_worker())
+    try:
+        await asyncio.wait_for(agent.audio_queue.join(), timeout=2)
+        await asyncio.gather(*tasks)
+    finally:
+        worker.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await worker
+
+    event = next(
+        AudioPlaybackLifecycle.model_validate(call.args[1])
+        for call in agent.publish.await_args_list
+        if call.args[0] == Topics.AUDIO_PLAYBACK_LIFECYCLE
+    )
+    assert event.state == "FAILED"
+    assert event.seq == 0
+    assert event.heard_offset == 0
+    assert event.streamed_offset == 20
+    assert agent.lifecycle_protocol_errors == 0
+
+
+@pytest.mark.asyncio
+async def test_an_unscoped_confirmed_stop_is_never_marked_flushed():
+    agent = _make_agent()
+    agent._active_utterance_id = "utterance-1"
+    agent._active_utterance_turn_id = "turn-1"
+    agent._flush_downstream_audio = AsyncMock()
+    tasks = []
+    agent.spawn = MagicMock(side_effect=lambda c: tasks.append(asyncio.create_task(c)))
+
+    await agent._on_audio_stop({"turn_id": None, "reason": "confirmed_command"})
+    await asyncio.gather(*tasks)
+
+    (event,) = [
+        AudioPlaybackLifecycle.model_validate(call.args[1])
+        for call in agent.publish.await_args_list
+        if call.args[0] == Topics.AUDIO_PLAYBACK_LIFECYCLE
+    ]
+    assert event.state == "INTERRUPTED"
+    assert event.flushed is False
+
+
+@pytest.mark.asyncio
+async def test_a_frame_after_the_terminal_does_not_resurrect_progress_state():
+    agent = _make_agent()
+    agent.spawn = MagicMock(side_effect=lambda c: c.close())
+    key = ("utterance-1", "turn-1")
+
+    agent._emit_playing_lifecycle("utterance-1", "turn-1", 8, 2)
+    agent._emit_lifecycle(
+        utterance_id="utterance-1",
+        turn_id="turn-1",
+        state="INTERRUPTED",
+        words_played=2,
+        words_streamed=2,
+        heard_offset=8,
+        streamed_offset=8,
+    )
+    agent._emit_playing_lifecycle("utterance-1", "turn-1", 12, 3)
+
+    assert agent._lifecycle_terminal[key] == "INTERRUPTED"
+    assert key not in agent._lifecycle_position
+    assert key not in agent._lifecycle_started
+    assert key not in agent._lifecycle_seq
+    # STARTED + PLAYING + INTERRUPTED; the late frame emits nothing.
+    assert agent.spawn.call_count == 3
+
+
+@pytest.mark.asyncio
+async def test_lifecycle_state_stays_bounded_over_many_unfinished_replies():
+    from app.agents import transport_agent
+
+    agent = _make_agent()
+    agent.spawn = MagicMock(side_effect=lambda c: c.close())
+    n = transport_agent.LIFECYCLE_MAX_ENTRIES + 300
+    for i in range(n):
+        # Never terminated: a lost trailer on every reply.
+        agent._emit_playing_lifecycle(f"u{i}", f"t{i}", 4, 1)
+    for i in range(n):
+        agent._emit_lifecycle(
+            utterance_id=f"done{i}",
+            turn_id=f"done{i}",
+            state="COMPLETED",
+            words_played=1,
+            words_streamed=1,
+            heard_offset=4,
+            streamed_offset=4,
+        )
+
+    cap = transport_agent.LIFECYCLE_MAX_ENTRIES
+    assert len(agent._lifecycle_position) == cap
+    assert len(agent._lifecycle_started) == cap
+    assert len(agent._lifecycle_seq) == cap
+    assert len(agent._lifecycle_terminal) == cap
+    # Oldest go first: the newest unfinished reply is still tracked.
+    assert (f"u{n - 1}", f"t{n - 1}") in agent._lifecycle_position
+    assert ("u0", "t0") not in agent._lifecycle_position

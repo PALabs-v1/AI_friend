@@ -61,6 +61,25 @@ def test_sync_is_fast_forward_only():
     assert "merge -q --ff-only origin/brain-v3" in out
 
 
+def test_run_starts_the_job_in_its_own_process_group():
+    # stop kills the group; without setsid the pool workers outlive a stop.
+    out = _run("run", "job1", "--", "true").stdout
+    assert "setsid nohup bash /data/aif-v3/run-logs/job1.sh" in out
+
+
+def test_stop_signals_the_group_and_the_whole_tree_then_records_an_exit():
+    out = _run("stop", "job1").stdout
+    assert "kill -TERM -- -$p" in out
+    assert "pgrep -d , -P" in out  # tree collected before any signal
+    assert out.index("pgrep") < out.index("kill -TERM")
+    assert "kill -KILL $tree" in out
+    assert "echo 143 > /data/aif-v3/run-logs/job1.log.exit" in out
+
+
+def test_stop_refuses_unsafe_names():
+    assert _run("stop", "x;rm").returncode == 2
+
+
 def test_usage_on_unknown_command():
     result = _run("bogus")
     assert result.returncode == 2

@@ -43,7 +43,7 @@ jobs:
 
       - name: Start NATS (JetStream enabled)
         run: |
-          nats-server -js -p 4222 -m 8222 > /tmp/nats.log 2>&1 &
+          bash scripts/ci/start_nats_mesh.sh native
           for i in $(seq 1 20); do
             if curl -sf http://localhost:8222/healthz > /dev/null; then
               echo "✅ NATS is ready"
@@ -81,7 +81,7 @@ jobs:
           NATS_URL: nats://localhost:4222
         run: |
           cd backend
-          python scripts/bootstrap/setup_nats_streams.py
+          NATS_USER=nats_provisioner NATS_PASSWORD="$NATS_PROVISIONER_PASSWORD" python scripts/bootstrap/setup_nats_streams.py
 
       - name: Backend lint (ruff)
         run: |
