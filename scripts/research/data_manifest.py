@@ -24,7 +24,7 @@ from collections import defaultdict
 from datetime import UTC, datetime
 from pathlib import Path
 
-GENERATED = {"MANIFEST.tsv", "INDEX.md", "COLLECT_LOG.tsv", "README.md"}
+GENERATED = {"MANIFEST.tsv", "INDEX.md", "README.md"}
 
 
 def sha256(path: Path) -> str:
@@ -145,21 +145,21 @@ def build_index(root: Path, rows: list[dict[str, str]]) -> None:
         f"| **total** | **{len(rows):,}** | **{human(sum(int(r['bytes']) for r in rows))}** |"
     )
 
-    runs = sorted(p.parent for p in root.glob("brainbench/*/*/manifest.json"))
+    runs = sorted(p.parent for p in root.glob("results/brainbench/*/manifest.json"))
     if runs:
         lines += [
             "",
             "## BrainBench runs",
             "",
-            "| Host | Run | Code | Mode | Suites | Horizons | Started (UTC) | Ended (UTC) | Cells ok | Report |",
-            "|---|---|---|---|---|---|---|---|---:|---|",
+            "| Run | Code | Mode | Suites | Horizons | Started (UTC) | Ended (UTC) | Cells ok | Report |",
+            "|---|---|---|---|---|---|---|---:|---|",
         ]
         for run_dir in runs:
             try:
                 cols = run_row(run_dir)
             except (OSError, ValueError, KeyError) as exc:
                 cols = [run_dir.name, f"unreadable manifest: {exc}"] + [""] * 7
-            lines.append("| " + " | ".join([run_dir.parent.name, *cols]) + " |")
+            lines.append("| " + " | ".join(cols) + " |")
     (root / "INDEX.md").write_text("\n".join(lines) + "\n")
 
 
