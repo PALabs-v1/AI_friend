@@ -317,7 +317,10 @@ def test_self_directed_candidates_have_a_stricter_importance_floor(tmp_path):
 async def test_foreground_pipeline_turn_finishes_while_consolidation_is_in_flight(
     tmp_path, monkeypatch
 ):
-    """The measured foreground budget is 500 ms; tick dispatch cannot await consolidation."""
+    """Tick dispatch cannot await consolidation: a foreground turn completes
+    while consolidation is still blocked. Proven by ordering, not by a
+    wall-clock race: the 500 ms budget (DR-024) is reported here and gated by
+    the latency evals, since a shared CI runner missed it on a cold turn."""
     from app.agents.subconscious_agent import SubconsciousAgent
     from evals.brainbench.adapters import build_cognitive_service
 
@@ -352,13 +355,17 @@ async def test_foreground_pipeline_turn_finishes_while_consolidation_is_in_fligh
 
     started = time.perf_counter()
     try:
-        outputs = await asyncio.wait_for(foreground_turn(), timeout=0.5)
+        # Consolidation is released only after this returns, so a starved
+        # foreground never finishes; the timeout only bounds that failure.
+        outputs = await asyncio.wait_for(foreground_turn(), timeout=10.0)
+        consolidation_still_blocked = not agent._consolidation_task.done()
     finally:
         release.set()
         if agent._consolidation_task is not None:
             await agent._consolidation_task
     elapsed = time.perf_counter() - started
     assert outputs
+    assert consolidation_still_blocked
     print(f"foreground_turn_elapsed_s={elapsed:.6f} budget_s=0.500000")
     assert elapsed < 0.5
 
@@ -433,3 +440,86 @@ def test_thought_history_stays_bounded_and_evicts_closed_thoughts_first(tmp_path
     assert "closed" not in kept
     assert ids[-1] in kept
     assert ids[0] not in kept
+
+
+@pytest.mark.parametrize(
+    ("hour", "start", "end", "inside"),
+    [
+        (23, 22, 6, True),  # wraps midnight
+        (5, 22, 6, True),
+        (6, 22, 6, False),  # end is exclusive
+        (12, 22, 6, False),
+        (3, 1, 5, True),  # a window that does not wrap
+        (12, 1, 5, False),  # was quiet all day: `hour >= 1 or hour < 5`
+        (0, 0, 0, False),  # start == end: no default window
+        (12, 0, 0, False),
+    ],
+)
+def test_quiet_hour_window_bounds(hour, start, end, inside):
+    from app.state.agent_state import in_hour_window
+
+    assert in_hour_window(hour, start, end) is inside
+
+
+def test_quiet_hours_follow_the_users_timezone_not_the_hosts(tmp_path, monkeypatch):
+    """Regression: the default window was read in the host's local time, so a
+    UTC container put an Asia/Kolkata user's quiet hours at 03:30-11:30 Kolkata time."""
+    service = StateService(graph_store=MagicMock(), db_path=str(tmp_path / "tz.db"))
+    at = datetime(2025, 1, 1, 17, tzinfo=UTC).timestamp()  # 22:30 in Kolkata
+    monkeypatch.setattr(Config, "USER_TIMEZONE", "Asia/Kolkata")
+    assert service.is_quiet_hour(at)
+    monkeypatch.setattr(Config, "USER_TIMEZONE", "UTC")
+    assert not service.is_quiet_hour(at)
+
+
+def test_recorded_activity_hour_uses_the_users_timezone(tmp_path, monkeypatch):
+    """The learned active hours and the default window must share one clock,
+    or a learned hour would be compared against a shifted default."""
+    monkeypatch.setattr(Config, "USER_TIMEZONE", "Asia/Kolkata")
+    service = StateService(graph_store=MagicMock(), db_path=str(tmp_path / "hours.db"))
+    at = datetime(2025, 1, 1, 17, tzinfo=UTC)
+    with clock.use_clock(clock.ManualClock(at)):
+        service.record_user_interaction()
+    assert service.current_state.user_interaction_hours[-1] == 22
+
+
+def test_unknown_user_timezone_falls_back_to_host_time(tmp_path, monkeypatch):
+    service = StateService(graph_store=MagicMock(), db_path=str(tmp_path / "bad.db"))
+    at = datetime(2025, 1, 1, 23).timestamp()  # host-local 23:00
+    monkeypatch.setattr(Config, "USER_TIMEZONE", "Not/A_Zone")
+    assert service.is_quiet_hour(at)
+    monkeypatch.setattr(Config, "PROACTIVE_QUIET_START_HOUR", 0)
+    monkeypatch.setattr(Config, "PROACTIVE_QUIET_END_HOUR", 0)
+    assert not service.is_quiet_hour(at)
+
+
+@pytest.mark.parametrize(("utc_hour", "eligible"), [(12, True), (23, False)])
+def test_eligibility_gate_uses_the_pinned_clock_hour(
+    tmp_path, monkeypatch, utc_hour, eligible
+):
+    """The gate is a pure function of the injected clock and USER_TIMEZONE,
+    so it gives the same answer on any runner at any time of day."""
+    monkeypatch.setattr(Config, "USER_TIMEZONE", "UTC")
+    monkeypatch.setattr(Config, "PROACTIVE_ENABLED", True)
+    monkeypatch.setattr(Config, "PROACTIVE_DEBUG_THRESHOLD_OVERRIDE", None)
+    monkeypatch.setattr(Config, "PROACTIVE_MIN_ENERGY", 0.0)
+    monkeypatch.setattr(Config, "PROACTIVE_MIN_TURN_PROBABILITY", 0.0)
+    now = datetime(2025, 1, 1, utc_hour, tzinfo=UTC)
+    service = StateService(graph_store=MagicMock(), db_path=str(tmp_path / "gate.db"))
+    service.redis_client = None
+    service.current_state.last_user_interaction = (
+        now.timestamp() - Config.PROACTIVE_IDLE_THRESHOLD_SECONDS - 1
+    )
+    service.current_state.energy = 1.0
+    with clock.use_clock(clock.ManualClock(now)):
+        assert service.check_proactive_eligibility() is eligible
+
+
+def test_rest_phase_night_is_the_users_night(monkeypatch):
+    from app.agents.subconscious_agent import is_rest_phase
+
+    at = datetime(2025, 1, 1, 17, tzinfo=UTC).timestamp()  # 22:30 in Kolkata
+    monkeypatch.setattr(Config, "USER_TIMEZONE", "Asia/Kolkata")
+    assert is_rest_phase(at, at - 3600, fatigue=0.0)
+    monkeypatch.setattr(Config, "USER_TIMEZONE", "UTC")
+    assert not is_rest_phase(at, at - 3600, fatigue=0.0)

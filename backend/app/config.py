@@ -291,9 +291,16 @@ class AppSettings(BaseSettings):
     PROACTIVE_MIN_TURN_PROBABILITY: float = 0.5
     PROACTIVE_DEBUG_THRESHOLD_OVERRIDE: str | None = None
     # Quiet hours are a conservative fallback until the brain has enough of
-    # the user's own turn timestamps to infer active hours.
+    # the user's own turn timestamps to infer active hours. The window is
+    # [start, end) in USER_TIMEZONE and may wrap midnight; start == end means
+    # no default window.
     PROACTIVE_QUIET_START_HOUR: int = 22
     PROACTIVE_QUIET_END_HOUR: int = 6
+    # IANA zone of the user (e.g. "Asia/Kolkata") for every hour-of-day
+    # decision: quiet hours, the recorded activity hours, night fatigue.
+    # Empty means the host's local time, which in a UTC container is not
+    # the user's night.
+    USER_TIMEZONE: str = ""
     PROACTIVE_ACTIVITY_HISTORY_MINIMUM: int = 8
     PROACTIVE_USEFUL_IMPORTANCE_MIN: float = 0.45
     PROACTIVE_SELF_DIRECTED_IMPORTANCE_MIN: float = 0.75

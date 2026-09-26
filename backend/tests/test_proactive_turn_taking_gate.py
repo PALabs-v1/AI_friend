@@ -14,8 +14,12 @@ unchanged.
 
 import time
 
+import pytest
+
 from app.config import Config
 from app.state.agent_state import StateService
+
+pytestmark = pytest.mark.usefixtures("no_quiet_hours")
 
 
 def _eligible_service(**overrides):

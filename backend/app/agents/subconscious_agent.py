@@ -3,7 +3,6 @@ import json
 import logging
 import time
 import uuid
-from datetime import datetime
 from typing import Any
 
 from app import clock
@@ -16,7 +15,7 @@ from app.contracts import ChatInput, ChatInputMetadata, Topics
 from app.llm import build_llm_client
 from app.measure_trace import trace as _measure_trace
 from app.state import proactive_queue
-from app.state.agent_state import StateService
+from app.state.agent_state import StateService, in_hour_window, user_hour
 from app.state.graph_db import GraphDB
 
 logger = logging.getLogger(__name__)
@@ -44,9 +43,7 @@ def is_rest_phase(
     idle_s = now - last_user_interaction
     if idle_s < idle_threshold_s:
         return False
-    hour = datetime.fromtimestamp(now).hour
-    is_night = hour >= 22 or hour < 6
-    return is_night or fatigue > 0.8
+    return in_hour_window(user_hour(now), 22, 6) or fatigue > 0.8
 
 
 class SubconsciousAgent(BaseAgent):

@@ -541,6 +541,18 @@ def mock_memory_store():
     return store
 
 
+@pytest.fixture
+def no_quiet_hours(monkeypatch):
+    """Empty the default quiet-hour window (start == end) for a test about
+    something else. W9's gate reads the user's hour of day, so any test that
+    expects eligibility at the real wall clock passed in daytime and failed
+    whenever CI ran at night. Quiet-hour behaviour has its own tests."""
+    from app.config import Config
+
+    monkeypatch.setattr(Config, "PROACTIVE_QUIET_START_HOUR", 0)
+    monkeypatch.setattr(Config, "PROACTIVE_QUIET_END_HOUR", 0)
+
+
 @pytest.fixture(autouse=True)
 def enforce_test_config():
     """AI Friend Core: Ensure deterministic configuration for cognitive tests."""

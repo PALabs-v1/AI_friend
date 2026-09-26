@@ -20,8 +20,10 @@ import sqlite3
 import time
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, tzinfo
+from functools import lru_cache
 from typing import TYPE_CHECKING, Any, cast
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import redis
 
@@ -66,6 +68,37 @@ if not current or tonumber(current) < incoming then
 end
 return current
 """
+
+
+@lru_cache(maxsize=8)
+def _zone(name: str) -> tzinfo | None:
+    """The configured user zone; None (host local time) when unset or unknown."""
+    if not name:
+        return None
+    try:
+        return ZoneInfo(name)
+    except (ZoneInfoNotFoundError, ValueError):
+        logger.warning("[State] Unknown USER_TIMEZONE %r; using host local time", name)
+        return None
+
+
+def user_hour(timestamp: float) -> int:
+    """Hour of day at `timestamp` for the user (Config.USER_TIMEZONE).
+
+    Every hour-of-day decision goes through here, so the recorded activity
+    hours, the quiet-hour default and night fatigue all agree on one clock.
+    """
+    return datetime.fromtimestamp(timestamp, _zone(Config.USER_TIMEZONE)).hour
+
+
+def in_hour_window(hour: int, start: int, end: int) -> bool:
+    """`hour` in [start, end), wrapping midnight when start > end; empty if equal."""
+    if start == end:
+        return False
+    if start < end:
+        return start <= hour < end
+    return hour >= start or hour < end
+
 
 # Bounds on the proactive state every snapshot and state.broadcast carries.
 _MAX_INTERACTION_HOURS = 168
@@ -1541,7 +1574,7 @@ class StateService:
     def record_user_interaction(self):
         """Mark that the user just interacted. Called by BrainAgent on every chat.input."""
         self.current_state.last_user_interaction = clock.time()
-        hour = datetime.fromtimestamp(self.current_state.last_user_interaction).hour
+        hour = user_hour(self.current_state.last_user_interaction)
         self.current_state.user_interaction_hours.append(hour)
         del self.current_state.user_interaction_hours[:-_MAX_INTERACTION_HOURS]
 
@@ -2248,8 +2281,7 @@ class StateService:
                     "benevolence", "competence", "integrity"
                 )
             # Evolve fatigue
-            hour = datetime.fromtimestamp(now).hour
-            is_night = hour >= 22 or hour < 6
+            is_night = in_hour_window(user_hour(now), 22, 6)
             try:
                 import cognitive_rust
 
@@ -2517,10 +2549,9 @@ class StateService:
     def is_quiet_hour(self, timestamp: float | None = None) -> bool:
         """Infer quiet hours from user turn times, with a night default."""
         now = clock.time() if timestamp is None else timestamp
-        hour = datetime.fromtimestamp(now).hour
-        quiet = (
-            hour >= Config.PROACTIVE_QUIET_START_HOUR
-            or hour < Config.PROACTIVE_QUIET_END_HOUR
+        hour = user_hour(now)
+        quiet = in_hour_window(
+            hour, Config.PROACTIVE_QUIET_START_HOUR, Config.PROACTIVE_QUIET_END_HOUR
         )
         hours = self.current_state.user_interaction_hours
         if len(hours) >= Config.PROACTIVE_ACTIVITY_HISTORY_MINIMUM:

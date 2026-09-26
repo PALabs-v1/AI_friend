@@ -331,6 +331,7 @@ def test_arbitration_trace_uses_selector_scores(monkeypatch):
     )
 
 
+@pytest.mark.usefixtures("no_quiet_hours")
 @pytest.mark.asyncio
 async def test_real_affect_trust_proactive_and_decision_emit(tmp_path, monkeypatch):
     state = StateService(db_path=str(tmp_path / "state.db"), redis_host="127.0.0.1")

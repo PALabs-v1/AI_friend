@@ -477,6 +477,7 @@ async def test_sqlite_migration_adds_the_column_to_a_pre_existing_database(
     assert reread.current_state.last_proactive_attempt > 0.0
 
 
+@pytest.mark.usefixtures("no_quiet_hours")
 @pytest.mark.asyncio
 async def test_check_proactive_eligibility_reads_the_persisted_field(tmp_path):
     """`check_proactive_eligibility`'s cooldown gate must key off the same
