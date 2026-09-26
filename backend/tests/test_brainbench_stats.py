@@ -5,6 +5,8 @@ doesn't have.
 """
 
 import pytest
+from hypothesis import example, given, settings
+from hypothesis import strategies as st
 
 from evals.brainbench.stats import (
     SuiteOutcome,
@@ -102,6 +104,34 @@ def test_cliffs_delta_identical_distributions_is_zero():
 def test_cliffs_delta_empty_inputs_returns_zero():
     assert cliffs_delta([], [1.0]) == 0.0
     assert cliffs_delta([1.0], []) == 0.0
+
+
+def _pairwise_cliffs_delta(a, b):
+    """The definition, pair by pair: the reference the fast version must match."""
+    if not a or not b:
+        return 0.0
+    gt = sum(1 for x in a for y in b if y > x)
+    lt = sum(1 for x in a for y in b if y < x)
+    return (gt - lt) / (len(a) * len(b))
+
+
+_values = st.lists(
+    st.one_of(
+        st.sampled_from([0.0, 1.0, 0.5, -1.0]),  # ties, like 0/1 metrics
+        st.floats(allow_infinity=False, width=32),  # includes NaN
+        st.integers(-5, 5),
+    ),
+    max_size=40,
+)
+
+
+@settings(max_examples=300, deadline=None)
+@given(_values, _values)
+@example([0.0, 1.0], [float("nan"), 0.5])  # NaN in b must count as neither
+@example([float("nan"), 0.5], [0.0, 1.0])  # NaN in a must count as neither
+@example([0.5, 0.5], [0.5, 1.0, 0.0])  # ties
+def test_cliffs_delta_matches_the_pairwise_definition_exactly(a, b):
+    assert cliffs_delta(a, b) == _pairwise_cliffs_delta(a, b)
 
 
 def test_cohens_d_no_difference_no_variance_is_zero():

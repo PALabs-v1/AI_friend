@@ -174,13 +174,16 @@ def cliffs_delta(a: list[float], b: list[float]) -> float:
     """
     if not a or not b:
         return 0.0
-    gt = lt = 0
-    for x in a:
-        for y in b:
-            if y > x:
-                gt += 1
-            elif y < x:
-                lt += 1
+    # Counted by binary search over sorted b: O((n + m) log m) instead of
+    # comparing every pair, which took hours on full-panel barge-in groups.
+    # A NaN compares neither greater nor less than anything, so it adds to
+    # neither count but stays in the denominator, exactly as pairwise did.
+    xs = np.asarray(a, dtype=float)
+    ys = np.sort(np.asarray(b, dtype=float))
+    xs = xs[~np.isnan(xs)]
+    ys = ys[~np.isnan(ys)]
+    gt = int((len(ys) - np.searchsorted(ys, xs, side="right")).sum())
+    lt = int(np.searchsorted(ys, xs, side="left").sum())
     return (gt - lt) / (len(a) * len(b))
 
 
