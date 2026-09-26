@@ -207,6 +207,14 @@ Running record of pre-existing problems found during the Brain V3 cycle (Objecti
 - **Operational note**: a production deploy picks up the new path on restart. The first start migrates each container's legacy `/app/state_cache.db` into `/app/data`. Nothing needs running by hand.
 - **Status**: fixed (commit to follow in this change).
 
+## F-017: W9 thought history made every state broadcast up to 200x larger, into a durable stream
+
+- **Severity**: high for a long-running install (chat history silently aged out of JetStream), no effect on a short one
+- **Where**: `backend/app/state/agent_state.py` `persist_state` (W9, merged `7f960cf0`); stream policy `backend/app/nats_streams.py:43-68`
+- **Evidence**: the brain persists on every 60 s tick (`backend/app/cognitive/core.py:407` -> `handle_system_tick` -> `persist_state`), and each persist broadcasts the whole snapshot on `state.broadcast`. `state.>` is in `AI_MESSAGES`: file storage, 7-day max age, 1 GiB max bytes, `DiscardPolicy.OLD`. W9 added the thought history (capped at 256 `GoalRecord`s) to that snapshot as a full `model_dump`, about 580 bytes a goal. Measured at the cap: 149 KiB a broadcast (V2: 0.7 KiB), about 1.4 GB a week, over the stream's cap, so the oldest messages, chat included, were discarded after about 5 days instead of 7. Each persist also serialized the list three times and wrote three separate SQLite transactions. Found because the wave-A BrainBench proactive panel ran 2-4x slower per cell than V2, growing with horizon.
+- **Fix**: `8f10bf93`. Defaults omitted from the goal payload (149 -> 65 KiB at the cap, round-trips to equal records), one serialization per persist shared by Redis, SQLite and the broadcast (which also fixes a thought recorded mid-persist reaching only some stores), and one SQLite transaction for the state row and both W9 side tables. Behavior-neutral: probe-cell outcomes byte-identical at 1w and 1m.
+- **Status**: mitigated, not closed. 65 KiB a minute is still about 650 MB a week of `AI_MESSAGES`' 1 GiB. The full fix is to send the goal list only when it changes, or to move `state.>` to its own short-lived stream. Either changes semantics: `apply_external_state` replaces the receiver's list wholesale, so an omitted list would let the subconscious keep provisional records it now loses each tick, and moving the subject is the destructive stream migration `nats_streams.py` defers. Decision for Aniket, with a W9 follow-up.
+
 ## Real-model resource baseline (not a finding, recorded for Phase 8)
 
 BrainBench resources suite, `llm_augmented`, home-gpu `llama3.2:3b` (RTX 2060 SUPER), seed 1015 `private_minimalist` `1m`, 33 turns: turn latency P50 2.47 s, P95 3.22 s, P99 4.17 s, max 4.37 s (model time dominates; architecture-only overhead is about 3 ms per turn). Memory rows and vectors grew 5 -> 32 (about one per turn, linear), vocabulary 248 -> 422, run directory 0.56 -> 1.55 MB, peak RSS 164 -> 173 MiB.
