@@ -105,6 +105,7 @@ async def test_brain_agent_passes_workspace_to_process_event(tmp_path):
     agent.last_audio_progress = None
     agent._active_response_turn_id = None
     agent._active_action_intent = None
+    agent._reply_contexts = {}
     agent._turn_state_lock = asyncio.Lock()
 
     async def consume_stream(generator, **kwargs):
@@ -220,9 +221,9 @@ async def test_external_action_dispatcher_receives_typed_intent():
 
     chunks = [
         chunk
-        async for chunk in ActionService(
-            external_action_dispatcher=dispatcher
-        ).execute(plan)
+        async for chunk in ActionService(external_action_dispatcher=dispatcher).execute(
+            plan
+        )
     ]
 
     assert chunks == [{"type": "done", "data": ""}]
@@ -247,9 +248,9 @@ async def test_external_action_dispatch_failure_emits_error_and_done():
 
     chunks = [
         chunk
-        async for chunk in ActionService(
-            external_action_dispatcher=dispatcher
-        ).execute(plan)
+        async for chunk in ActionService(external_action_dispatcher=dispatcher).execute(
+            plan
+        )
     ]
 
     assert chunks == [
