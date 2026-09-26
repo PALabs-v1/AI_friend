@@ -97,6 +97,55 @@ def _validate_optional_timestamp(value: Any, name: str) -> None:
         raise ValueError(f"{name} is not a parseable ISO timestamp") from error
 
 
+def _validate_memory_write(
+    content: Any,
+    raw_content: Any,
+    *,
+    importance: Any,
+    emotion: Any,
+    valence: Any,
+    certainty: Any,
+    valid_from: Any,
+    valid_until: Any,
+    metadata: Any,
+) -> dict[str, Any]:
+    """Reject a write add_memory cannot store faithfully; return a private
+    copy of its metadata (the caller's dict is never mutated)."""
+    if not isinstance(content, str) or not content.strip():
+        raise ValueError("memory content must be a non-empty string")
+    if len(content) > _MAX_MEMORY_CONTENT_CHARS:
+        raise ValueError("memory content exceeds the supported size")
+    if raw_content is not None and (
+        not isinstance(raw_content, str) or len(raw_content) > _MAX_MEMORY_CONTENT_CHARS
+    ):
+        raise ValueError("raw memory content must be a bounded string")
+    _finite_bounded_number(importance, "importance", 0.0, 1.0)
+    _finite_bounded_number(emotion, "emotion", 0.0, 1.0)
+    _finite_bounded_number(valence, "valence", -1.0, 1.0)
+    _finite_bounded_number(certainty, "certainty", 0.0, 1.0)
+    _validate_optional_timestamp(valid_from, "valid_from")
+    _validate_optional_timestamp(valid_until, "valid_until")
+    if metadata is None:
+        metadata = {}
+    if not isinstance(metadata, dict):
+        raise TypeError("memory metadata must be an object")
+    metadata = dict(metadata)
+    _validate_metadata_tree(metadata)
+    if len(orjson.dumps(metadata)) > _MAX_METADATA_SERIALIZED_CHARS:
+        raise ValueError("memory metadata is too large")
+    return metadata
+
+
+def _validated_embedding(vector: Any) -> list[float]:
+    """The schema's vector(768), as finite floats, or a ValueError."""
+    if not isinstance(vector, (list, tuple)) or len(vector) != _EMBEDDING_DIMENSION:
+        raise ValueError(f"memory embedding must contain {_EMBEDDING_DIMENSION} values")
+    values = [float(value) for value in vector]
+    if not all(math.isfinite(value) for value in values):
+        raise ValueError("memory embedding values must be finite")
+    return values
+
+
 def _decode_memory_metadata(value: Any) -> dict[str, Any]:
     """Parse a stored metadata object or fail the retrieval visibly."""
     if value is None:
@@ -1559,29 +1608,17 @@ class MemoryStore:
         existing caller's behavior byte-for-byte.
         """
         try:
-            if not isinstance(content, str) or not content.strip():
-                raise ValueError("memory content must be a non-empty string")
-            if len(content) > _MAX_MEMORY_CONTENT_CHARS:
-                raise ValueError("memory content exceeds the supported size")
-            if raw_content is not None and (
-                not isinstance(raw_content, str)
-                or len(raw_content) > _MAX_MEMORY_CONTENT_CHARS
-            ):
-                raise ValueError("raw memory content must be a bounded string")
-            _finite_bounded_number(importance, "importance", 0.0, 1.0)
-            _finite_bounded_number(emotion, "emotion", 0.0, 1.0)
-            _finite_bounded_number(valence, "valence", -1.0, 1.0)
-            _finite_bounded_number(certainty, "certainty", 0.0, 1.0)
-            _validate_optional_timestamp(valid_from, "valid_from")
-            _validate_optional_timestamp(valid_until, "valid_until")
-            if metadata is None:
-                metadata = {}
-            if not isinstance(metadata, dict):
-                raise TypeError("memory metadata must be an object")
-            metadata = dict(metadata)
-            _validate_metadata_tree(metadata)
-            if len(orjson.dumps(metadata)) > _MAX_METADATA_SERIALIZED_CHARS:
-                raise ValueError("memory metadata is too large")
+            metadata = _validate_memory_write(
+                content,
+                raw_content,
+                importance=importance,
+                emotion=emotion,
+                valence=valence,
+                certainty=certainty,
+                valid_from=valid_from,
+                valid_until=valid_until,
+                metadata=metadata,
+            )
 
             import uuid
 
@@ -1629,23 +1666,11 @@ class MemoryStore:
                         contradicts_id = contradiction.get("id")
                         break
 
-            vector = (
+            vector = _validated_embedding(
                 embedding
                 if embedding is not None
                 else await self.get_embedding(content)
             )
-            if (
-                not isinstance(vector, (list, tuple))
-                or len(vector) != _EMBEDDING_DIMENSION
-            ):
-                raise ValueError(
-                    f"memory embedding must contain {_EMBEDDING_DIMENSION} values"
-                )
-            vector = [float(value) for value in vector]
-            if not all(math.isfinite(value) for value in vector):
-                raise ValueError("memory embedding values must be finite")
-            if not vector:
-                return False
 
             vector_str = str(vector)
             async with self.pool.acquire() as conn:
