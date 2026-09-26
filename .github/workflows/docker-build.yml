@@ -57,6 +57,17 @@ jobs:
         echo "POSTGRES_PASSWORD=dummy" >> .env
         echo "NEO4J_AUTH=neo4j/dummy" >> .env
         echo "DATABASE_URL=postgresql://dummy" >> .env
+        # W10a: compose refuses to interpolate without the per-agent NATS passwords
+        echo "NATS_PROVISIONER_PASSWORD=ci_dummy_provisioner" >> .env
+        echo "NATS_SIGNALING_PASSWORD=ci_dummy_signaling" >> .env
+        echo "NATS_BRAIN_PASSWORD=ci_dummy_brain" >> .env
+        echo "NATS_SUBCONSCIOUS_PASSWORD=ci_dummy_subconscious" >> .env
+        echo "NATS_SURFACING_PASSWORD=ci_dummy_surfacing" >> .env
+        echo "NATS_SYSTEM_PASSWORD=ci_dummy_system" >> .env
+        echo "NATS_TRANSPORT_PASSWORD=ci_dummy_transport" >> .env
+        echo "NATS_STT_PASSWORD=ci_dummy_stt" >> .env
+        echo "NATS_VISION_PASSWORD=ci_dummy_vision" >> .env
+        echo "NATS_VOICE_PASSWORD=ci_dummy_voice" >> .env
 
         # Verify the compose files parse correctly together
         docker compose -f docker-compose.infra.yml -f docker-compose.prod.yml config
