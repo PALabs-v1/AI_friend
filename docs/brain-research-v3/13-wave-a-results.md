@@ -66,9 +66,9 @@ are negative and Holm-significant. V2's control reached more useful moments
 by reaching out 17 times as often and annoying the user 18 times a day.
 W9 trades half the useful outreach for 1% of the annoyance. That follows
 DR-016 (importance decides urgency). Whether the rate is right, about one
-initiation a day at a year and one every eight days in the first week, is a
-product call for Aniket, noted since W9 merged and now measured on the full
-panel.
+initiation a day at a year and one every eight days in the first week, was
+a product call for Aniket. **Confirmed 2026-09-27: keep this rate** (see
+DR-016's addendum).
 
 (V2 broadcast's "131 useful a day" is not a better number: it is 1,215
 initiations a day, a fraction of which happen to land on a due commitment.)
@@ -107,10 +107,10 @@ which is a direct consequence of the stricter gate:
 - Outreach is rarer, far better targeted and mostly off the night.
 - Every reply now gets a terminal outcome.
 
-Two items carry forward:
+Two items carried forward:
 1. **The outreach rate (product call).** Wave A halves absolute useful
-   outreach against the V2 control. Aniket to confirm DR-016's intended
-   rate, or ask W9 for a looser importance gate measured against this run.
+   outreach against the V2 control. Resolved 2026-09-27: Aniket kept the
+   rate as measured, over a looser gate for the first weeks or overall.
 2. **Unheard text in history**: W5, next in the plan.
 
 ## Method note: the comparison tool
