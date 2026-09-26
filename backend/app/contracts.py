@@ -22,6 +22,8 @@ from typing import Any, ClassVar, Literal
 
 from pydantic import BaseModel, Field, field_validator
 
+ProactiveCategory = Literal["useful_to_user", "self_directed"]
+
 
 class Topics(str, Enum):
     CHAT_INPUT = "chat.input"
@@ -118,6 +120,9 @@ class ChatInputMetadata(BaseModel):
     source: str = "whisper"
     confidence: float = 0.9
     utterance_id: str | None = None
+    importance: float | None = Field(default=None, ge=0.0, le=1.0)
+    category: ProactiveCategory | None = None
+    goal_id: str | None = None
 
 
 class ChatInput(BaseModel):
@@ -175,6 +180,8 @@ class ChatOutput(BaseModel):
     turn_id: str | None = None
     affect: ChatOutputAffect | None = None
     expression: SpeechExpressionWire | None = None
+    importance: float | None = Field(default=None, ge=0.0, le=1.0)
+    category: ProactiveCategory | None = None
 
     # The deprecated prosody block (confidence, intensity, speaking_rate,
     # pause_bias, paralinguistic_tags) was removed here. Prosody has a single

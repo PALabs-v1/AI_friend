@@ -23,6 +23,13 @@ pub const PAYLOAD_FORMAT_RAW_PCM: &str = "binary/raw-pcm";
 
 pub type JsonMap = BTreeMap<String, serde_json::Value>;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ProactiveCategory {
+    UsefulToUser,
+    SelfDirected,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct LatencyHop {
     pub agent: String,
@@ -49,6 +56,12 @@ pub struct ChatInputMetadata {
     pub confidence: f64,
     #[serde(default)]
     pub utterance_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub importance: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub category: Option<ProactiveCategory>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub goal_id: Option<String>,
 }
 
 fn default_whisper_source() -> String {
@@ -65,6 +78,9 @@ impl Default for ChatInputMetadata {
             source: default_whisper_source(),
             confidence: default_confidence(),
             utterance_id: None,
+            importance: None,
+            category: None,
+            goal_id: None,
         }
     }
 }
@@ -184,6 +200,10 @@ pub struct ChatOutput {
     // same pattern `user_distance` above already uses for the same reason.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub expression: Option<SpeechExpressionWire>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub importance: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub category: Option<ProactiveCategory>,
     // The deprecated prosody block (confidence, intensity, speaking_rate,
     // pause_bias, paralinguistic_tags) was removed. Prosody has one source:
     // `vad_to_prosody` derives it from `affect` above. Nothing read these, and
@@ -347,7 +367,6 @@ pub struct AgentVoiceModulation {
     pub timestamp: f64,
 }
 
-
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PlaybackVisemes {
     pub target_level: f64,
@@ -402,7 +421,9 @@ pub fn vad_to_prosody(affect: Option<&ChatOutputAffect>) -> Prosody {
     let rate = 1.0 + rate_input.tanh();
 
     // Pm = 1.0 + tanh(0.05 * valence + 0.15 * arousal - 0.10 * dominance - fatigue_pitch_drop + dist_pitch_mod)
-    let pitch_input = (0.05 * affect.valence) + (0.15 * affect.arousal) - (0.10 * affect.dominance) - fatigue_pitch_drop
+    let pitch_input = (0.05 * affect.valence) + (0.15 * affect.arousal)
+        - (0.10 * affect.dominance)
+        - fatigue_pitch_drop
         + dist_pitch_mod;
     let pitch = 1.0 + pitch_input.tanh();
 
@@ -425,7 +446,9 @@ fn clamp_round(value: f64, min: f64, max: f64) -> f64 {
 }
 
 pub fn silence_pcm(ms: u32, sample_rate: u32) -> Vec<u8> {
-    let samples = ((ms as u64).saturating_mul(sample_rate as u64) + 999) / 1000;
+    let samples = (ms as u64)
+        .saturating_mul(sample_rate as u64)
+        .div_ceil(1000);
     let bytes = samples.saturating_mul(2);
     vec![0; bytes as usize]
 }
@@ -503,7 +526,11 @@ mod tests {
 
         assert_eq!(
             parsed.trajectory,
-            vec![(0, 0.95, 1.1, 0.1), (50, 0.96, 1.08, 0.12), (100, 0.97, 1.05, 0.13)]
+            vec![
+                (0, 0.95, 1.1, 0.1),
+                (50, 0.96, 1.08, 0.12),
+                (100, 0.97, 1.05, 0.13)
+            ]
         );
 
         let round_tripped: SpeechExpressionWire =
@@ -591,5 +618,19 @@ mod tests {
 
         assert!(close_prosody.volume < far_prosody.volume);
         assert!(close_prosody.pitch < far_prosody.pitch);
+    }
+
+    #[test]
+    fn chat_output_preserves_proactive_importance_and_category() {
+        let output: ChatOutput = serde_json::from_str(
+            r#"{"proactive":true,"importance":0.9,"category":"self_directed"}"#,
+        )
+        .unwrap();
+
+        assert_eq!(output.importance, Some(0.9));
+        assert_eq!(output.category, Some(ProactiveCategory::SelfDirected));
+        let encoded = serde_json::to_value(output).unwrap();
+        assert_eq!(encoded["importance"], 0.9);
+        assert_eq!(encoded["category"], "self_directed");
     }
 }

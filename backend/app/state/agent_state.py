@@ -11,6 +11,7 @@ State updates: ALMA mood-pull + exponential decay (Gebhard, 2005)
 """
 
 import asyncio
+import hashlib
 import json
 import logging
 import math
@@ -25,9 +26,20 @@ from typing import TYPE_CHECKING, Any, cast
 import redis
 
 from .. import clock
+from ..cognitive.goals import GoalRecord, review_due_goals
 from ..config import Config
 from ..errors import StateConflictError
 from ..persona import PersonaProfile
+
+_PROACTIVE_WATERMARK_MAX_SCRIPT = """
+local current = redis.call('GET', KEYS[1])
+local incoming = tonumber(ARGV[1])
+if not current or tonumber(current) < incoming then
+    redis.call('SET', KEYS[1], ARGV[1])
+    return ARGV[1]
+end
+return current
+"""
 from ..utils.background_tasks import spawn_background
 from .person_model import PersonModel
 
@@ -88,6 +100,7 @@ class AgentState:
     # Proactive outreach cooldown timestamp. Initialized to 0.0 so a fresh agent
     # reads the cooldown as already satisfied.
     last_proactive_attempt: float = 0.0
+    user_interaction_hours: list[int] = field(default_factory=list)
     fatigue: float = 0.0  # Metabolic fatigue cycle F(t)
     user_mental_model: "UserMentalModel" = field(
         default_factory=_default_user_mental_model
@@ -532,6 +545,7 @@ class StateService:
                 "adrenaline_halflife_s"
             ],
         )
+        self.proactive_goals: list[GoalRecord] = []
         self.last_speculative_intent = None  # Transient sensory state
         # A2: serializes short-term affect mutation so the fire-and-forget
         # System-2 semantic-drift task cannot clobber a fresher appraisal.
@@ -812,6 +826,18 @@ class StateService:
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS agent_user_activity_hours (
+                    agent_name TEXT PRIMARY KEY,
+                    hours_json TEXT NOT NULL DEFAULT '[]'
+                )
+            """)
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS agent_proactive_goals (
+                    agent_name TEXT PRIMARY KEY,
+                    goals_json TEXT NOT NULL DEFAULT '[]'
+                )
+            """)
             # `CREATE TABLE IF NOT EXISTS` does not add a column to a table
             # that already exists from before this field did. Migrated
             # separately by checking pragma_table_info first.
@@ -878,6 +904,28 @@ class StateService:
                     self.current_state.last_proactive_attempt = float(
                         data.get("last_proactive_attempt", 0.0)
                     )
+                    raw_hours = data.get("user_interaction_hours", "[]")
+                    try:
+                        hours = json.loads(raw_hours)
+                    except (TypeError, json.JSONDecodeError):
+                        hours = []
+                    if isinstance(hours, list):
+                        self.current_state.user_interaction_hours = [
+                            int(hour) % 24
+                            for hour in hours[-168:]
+                            if isinstance(hour, int) and not isinstance(hour, bool)
+                        ]
+                    raw_goals = data.get("proactive_goals", "[]")
+                    try:
+                        goals = json.loads(raw_goals)
+                    except (TypeError, json.JSONDecodeError):
+                        goals = []
+                    if isinstance(goals, list):
+                        self.proactive_goals = [
+                            GoalRecord.model_validate(goal)
+                            for goal in goals
+                            if isinstance(goal, dict)
+                        ]
                     self.current_state.interaction_count = int(
                         data.get("interaction_count", 0)
                     )
@@ -902,6 +950,15 @@ class StateService:
                     self.current_state.baseline_dominance = float(
                         data.get("baseline_dominance", 0.5)
                     )
+                    watermark = await asyncio.to_thread(
+                        self.redis_client.get,
+                        f"proactive-watermark:{agent_name}",
+                    )
+                    if watermark is not None:
+                        self.current_state.last_proactive_attempt = max(
+                            self.current_state.last_proactive_attempt,
+                            float(watermark),
+                        )
                     logger.debug("[State] Hydrated successfully from Redis.")
                     return
             except Exception as e:
@@ -947,6 +1004,36 @@ class StateService:
                     self.current_state.baseline_valence = row["baseline_valence"]
                     self.current_state.baseline_arousal = row["baseline_arousal"]
                     self.current_state.baseline_dominance = row["baseline_dominance"]
+                    activity_row = conn.execute(
+                        "SELECT hours_json FROM agent_user_activity_hours WHERE agent_name = ?",
+                        (agent_name,),
+                    ).fetchone()
+                    if activity_row:
+                        try:
+                            hours = json.loads(activity_row[0])
+                        except (TypeError, json.JSONDecodeError):
+                            hours = []
+                        if isinstance(hours, list):
+                            self.current_state.user_interaction_hours = [
+                                int(hour) % 24
+                                for hour in hours[-168:]
+                                if isinstance(hour, int) and not isinstance(hour, bool)
+                            ]
+                    goals_row = conn.execute(
+                        "SELECT goals_json FROM agent_proactive_goals WHERE agent_name = ?",
+                        (agent_name,),
+                    ).fetchone()
+                    if goals_row:
+                        try:
+                            goals = json.loads(goals_row[0])
+                        except (TypeError, json.JSONDecodeError):
+                            goals = []
+                        if isinstance(goals, list):
+                            self.proactive_goals = [
+                                GoalRecord.model_validate(goal)
+                                for goal in goals
+                                if isinstance(goal, dict)
+                            ]
                     logger.debug("[State] Hydrated successfully from SQLite.")
                     return
         except Exception as e:
@@ -1064,6 +1151,19 @@ class StateService:
             if incoming_revision is not None:
                 incoming_revision = int(incoming_revision)
                 if incoming_revision < self.current_state.revision:
+                    # Proactive attempts are a monotonic cooldown watermark.
+                    # The subconscious owns the attempt until the next brain
+                    # tick; an older snapshot must never erase that mark.
+                    try:
+                        incoming_attempt = float(
+                            data.get("last_proactive_attempt", 0.0)
+                        )
+                    except (TypeError, ValueError):
+                        incoming_attempt = 0.0
+                    self.current_state.last_proactive_attempt = max(
+                        self.current_state.last_proactive_attempt,
+                        incoming_attempt,
+                    )
                     logger.debug(
                         "[State] %s: stale state.broadcast rejected "
                         "(incoming revision %d < current %d, writer=%r)",
@@ -1117,12 +1217,20 @@ class StateService:
                     "last_user_interaction", self.current_state.last_user_interaction
                 )
             )
-            self.current_state.last_proactive_attempt = float(
-                data.get(
-                    "last_proactive_attempt",
-                    self.current_state.last_proactive_attempt,
-                )
+            try:
+                incoming_attempt = float(data.get("last_proactive_attempt", 0.0))
+            except (TypeError, ValueError):
+                incoming_attempt = 0.0
+            self.current_state.last_proactive_attempt = max(
+                self.current_state.last_proactive_attempt, incoming_attempt
             )
+            interaction_hours = data.get("user_interaction_hours")
+            if isinstance(interaction_hours, list):
+                self.current_state.user_interaction_hours = [
+                    int(hour) % 24
+                    for hour in interaction_hours[-168:]
+                    if isinstance(hour, int) and not isinstance(hour, bool)
+                ]
             self.current_state.interaction_count = int(
                 data.get("interaction_count", self.current_state.interaction_count)
             )
@@ -1144,6 +1252,13 @@ class StateService:
             known_concepts = data.get("known_concepts")
             if isinstance(known_concepts, list):
                 self.current_state.user_mental_model.known_concepts = known_concepts
+            proactive_goals = data.get("proactive_goals")
+            if isinstance(proactive_goals, list):
+                self.proactive_goals = [
+                    GoalRecord.model_validate(goal)
+                    for goal in proactive_goals
+                    if isinstance(goal, dict)
+                ]
             self.current_state.baseline_valence = float(
                 data.get("baseline_valence", self.current_state.baseline_valence)
             )
@@ -1199,6 +1314,9 @@ class StateService:
                 "fatigue": self.current_state.fatigue,
                 "last_user_interaction": self.current_state.last_user_interaction,
                 "last_proactive_attempt": self.current_state.last_proactive_attempt,
+                "user_interaction_hours": list(
+                    self.current_state.user_interaction_hours
+                ),
                 "interaction_count": self.current_state.interaction_count,
                 "inferred_valence": self.current_state.user_mental_model.inferred_valence,
                 "inferred_arousal": self.current_state.user_mental_model.inferred_arousal,
@@ -1216,6 +1334,14 @@ class StateService:
                     # Called directly it blocks the loop for a network round
                     # trip mid-conversation. redis-py holds a connection pool
                     # and is thread-safe for commands.
+                    if snapshot["last_proactive_attempt"] > 0:
+                        await asyncio.to_thread(
+                            self.redis_client.eval,
+                            _PROACTIVE_WATERMARK_MAX_SCRIPT,
+                            1,
+                            f"proactive-watermark:{agent_name}",
+                            str(snapshot["last_proactive_attempt"]),
+                        )
                     await asyncio.to_thread(
                         self.redis_client.hset,
                         f"state:{agent_name}",
@@ -1234,6 +1360,12 @@ class StateService:
                             ),
                             "last_proactive_attempt": str(
                                 snapshot["last_proactive_attempt"]
+                            ),
+                            "user_interaction_hours": json.dumps(
+                                snapshot["user_interaction_hours"]
+                            ),
+                            "proactive_goals": json.dumps(
+                                [goal.model_dump() for goal in self.proactive_goals]
                             ),
                             "interaction_count": str(snapshot["interaction_count"]),
                             "inferred_valence": str(snapshot["inferred_valence"]),
@@ -1277,6 +1409,14 @@ class StateService:
             )
             try:
                 await asyncio.to_thread(self._write_state_row, sqlite_params)
+                await asyncio.to_thread(
+                    self._write_user_activity_hours,
+                    agent_name,
+                    snapshot["user_interaction_hours"],
+                )
+                await asyncio.to_thread(
+                    self._write_proactive_goals, agent_name, self.proactive_goals
+                )
             except Exception as e:
                 logger.error(f"Failed to persist state to SQLite: {e}")
 
@@ -1287,6 +1427,7 @@ class StateService:
                 **snapshot,
                 "implied_goals": self.current_state.user_mental_model.implied_goals,
                 "known_concepts": self.current_state.user_mental_model.known_concepts,
+                "proactive_goals": [goal.model_dump() for goal in self.proactive_goals],
                 "timestamp": clock.time(),
             }
             try:
@@ -1358,9 +1499,86 @@ class StateService:
             # whenever the INSERT raised.
             conn.close()
 
+    def _write_user_activity_hours(self, agent_name: str, hours: list[int]) -> None:
+        """Persist the bounded rhythm sample separately from affect state."""
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute(
+                """
+                INSERT INTO agent_user_activity_hours (agent_name, hours_json)
+                VALUES (?, ?)
+                ON CONFLICT(agent_name) DO UPDATE SET hours_json = excluded.hours_json
+                """,
+                (agent_name, json.dumps(hours[-168:])),
+            )
+
+    def _write_proactive_goals(self, agent_name: str, goals: list[GoalRecord]) -> None:
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute(
+                """
+                INSERT INTO agent_proactive_goals (agent_name, goals_json)
+                VALUES (?, ?)
+                ON CONFLICT(agent_name) DO UPDATE SET goals_json = excluded.goals_json
+                """,
+                (agent_name, json.dumps([goal.model_dump() for goal in goals])),
+            )
+
     def record_user_interaction(self):
         """Mark that the user just interacted. Called by BrainAgent on every chat.input."""
         self.current_state.last_user_interaction = clock.time()
+        hour = datetime.fromtimestamp(self.current_state.last_user_interaction).hour
+        self.current_state.user_interaction_hours.append(hour)
+        del self.current_state.user_interaction_hours[:-168]
+
+    def record_proactive_thought(
+        self, description: str, *, goal_id: str | None = None
+    ) -> tuple[str, float]:
+        """Record a raised thought and return its stable id and re-raise rate."""
+        normalized = " ".join(description.casefold().split())
+        stable_id = goal_id or hashlib.sha256(normalized.encode()).hexdigest()[:16]
+        now = clock.time()
+        review_due_goals(
+            self.proactive_goals,
+            now,
+            ignore_after_s=Config.PROACTIVE_IGNORE_REVIEW_SECONDS,
+        )
+        record = next(
+            (goal for goal in self.proactive_goals if goal.goal_id == stable_id), None
+        )
+        if record is None:
+            record = GoalRecord(
+                goal_id=stable_id,
+                type="proactive_thought",
+                source="subconscious",
+                description=description,
+            )
+            self.proactive_goals.append(record)
+        chance = record.re_raise_probability(Config.PROACTIVE_IGNORE_ZERO_AFTER)
+        if chance > 0:
+            record.record_proactive_raise(now)
+        return stable_id, chance
+
+    def resolve_proactive_thoughts(self, user_text: str) -> None:
+        """Record clear replies or dismissals; unresolved thoughts expire to ignored."""
+        now = clock.time()
+        review_due_goals(
+            self.proactive_goals,
+            now,
+            ignore_after_s=Config.PROACTIVE_IGNORE_REVIEW_SECONDS,
+        )
+        normalized = " ".join(user_text.casefold().split())
+        dismissal = any(
+            phrase in normalized
+            for phrase in ("stop asking", "don't ask", "do not ask", "drop this")
+        )
+        words = set(normalized.split())
+        for goal in self.proactive_goals:
+            if goal.proactive_raise_count <= len(goal.proactive_outcomes):
+                continue
+            goal_words = set(goal.description.casefold().split())
+            if dismissal:
+                goal.record_proactive_outcome("dismissed")
+            elif len(words & goal_words) >= 2:
+                goal.record_proactive_outcome("acted_on")
 
     async def apply_semantic_appraisal(self, new_pad: dict[str, float]):
         """Apply System-2 background semantic-drift results to short-term affect.
@@ -2172,6 +2390,24 @@ class StateService:
                 )
             return False
 
+        if self.is_quiet_hour(now):
+            if self._trace_enabled():
+                self._trace_proactive(
+                    fired=False,
+                    reason="quiet_hours",
+                    idle_s=idle_duration,
+                    idle_threshold_s=threshold,
+                    cooldown_remaining_s=cooldown_remaining,
+                    cooldown_s=cooldown,
+                    energy=self.current_state.energy,
+                    energy_min=getattr(Config, "PROACTIVE_MIN_ENERGY", 0.2),
+                    probability=None,
+                    probability_min=getattr(
+                        Config, "PROACTIVE_MIN_TURN_PROBABILITY", 0.5
+                    ),
+                )
+            return False
+
         min_energy = getattr(Config, "PROACTIVE_MIN_ENERGY", 0.2)
         if self.current_state.energy < min_energy:
             logger.debug(
@@ -2260,6 +2496,60 @@ class StateService:
                 probability_min=min_turn_probability,
             )
         return True
+
+    def is_quiet_hour(self, timestamp: float | None = None) -> bool:
+        """Infer quiet hours from user turn times, with a night default."""
+        now = clock.time() if timestamp is None else timestamp
+        hour = datetime.fromtimestamp(now).hour
+        quiet = (
+            hour >= Config.PROACTIVE_QUIET_START_HOUR
+            or hour < Config.PROACTIVE_QUIET_END_HOUR
+        )
+        hours = self.current_state.user_interaction_hours
+        if len(hours) >= Config.PROACTIVE_ACTIVITY_HISTORY_MINIMUM:
+            observed = [hours.count(index) for index in range(24)]
+            active_counts = sorted(count for count in observed if count)
+            if active_counts:
+                median_activity = active_counts[len(active_counts) // 2]
+                quiet = observed[hour] < max(1, int(median_activity * 0.5))
+        return quiet
+
+    def proactive_candidate_eligible(
+        self,
+        *,
+        importance: float,
+        category: str,
+        description: str,
+        goal_id: str | None = None,
+    ) -> bool:
+        """Apply per-category importance and thought-history gates after generation."""
+        if category not in {"useful_to_user", "self_directed"}:
+            return False
+        threshold = (
+            Config.PROACTIVE_SELF_DIRECTED_IMPORTANCE_MIN
+            if category == "self_directed"
+            else Config.PROACTIVE_USEFUL_IMPORTANCE_MIN
+        )
+        if not isinstance(importance, (int, float)) or not math.isfinite(importance):
+            return False
+        if not threshold <= importance <= 1.0:
+            return False
+        normalized = " ".join(description.casefold().split())
+        stable_id = goal_id or hashlib.sha256(normalized.encode()).hexdigest()[:16]
+        review_due_goals(
+            self.proactive_goals,
+            clock.time(),
+            ignore_after_s=Config.PROACTIVE_IGNORE_REVIEW_SECONDS,
+        )
+        goal = next(
+            (item for item in self.proactive_goals if item.goal_id == stable_id), None
+        )
+        return not (
+            goal
+            and importance
+            * goal.re_raise_probability(Config.PROACTIVE_IGNORE_ZERO_AFTER)
+            < threshold
+        )
 
     def mark_proactive_attempt(self):
         """Record that a proactive generation was initiated.
@@ -2351,6 +2641,7 @@ class StateService:
 
     def get_context_snapshot(self) -> dict[str, Any]:
         return {
+            "timestamp": clock.time(),
             "emotion": self.get_emotion_label(),
             # Surfaced so `StateUpdate.from_snapshot` (contracts.py) carries
             # revision/writer_id on the `state.update` subject for cross-process tracing.
@@ -2366,6 +2657,13 @@ class StateService:
             "attachment": self.current_state.attachment,
             "interaction_count": self.current_state.interaction_count,
             "active_goals": self.current_state.active_goals,
+            "user_interaction_hours": list(self.current_state.user_interaction_hours),
+            "proactive_goals": [goal.model_dump() for goal in self.proactive_goals],
+            "unresolved_thoughts": [
+                goal.model_dump()
+                for goal in self.proactive_goals
+                if goal.proactive_raise_count > len(goal.proactive_outcomes)
+            ],
             # PAD aliases for new consumers
             "valence": self.current_state.mood,
             "arousal": self.current_state.arousal,

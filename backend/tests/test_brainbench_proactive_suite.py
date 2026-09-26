@@ -18,14 +18,53 @@ from app.config import Config
 from app.state.agent_state import StateService
 from evals.brainbench.adapters import build_cognitive_service
 from evals.brainbench.proactive_suite import (
+    _active_goal_context,
     _broadcast_lowered_marked_attempt,
+    _useful_initiation,
+    category_distribution,
+    category_usefulness,
     cooldown_integrity,
+    importance_distribution,
     initiation_timing,
     initiation_usefulness,
+    re_raise_decay,
     run_proactive_suite,
 )
 from evals.brainbench.stats import SuiteOutcome
 from evals.lifesim.generate import build
+
+
+def test_disclosed_plan_context_uses_readable_details_and_usefulness_oracle():
+    now = datetime(2025, 1, 1, 9)
+    values = {
+        ("plan:p001", "what"): "submit the grant application",
+        ("plan:p001", "when"): "2025-01-01T15:00:00",
+        ("plan:p001", "status"): "planned",
+    }
+
+    def value_at(entity, attribute, _at):
+        value = values.get((entity, attribute))
+        return SimpleNamespace(value=value) if value is not None else None
+
+    sim = SimpleNamespace(timeline=SimpleNamespace(value_at=value_at))
+
+    context = _active_goal_context(sim, {"plan:p001"}, now)
+
+    assert context == [
+        "plan:p001: submit the grant application; due_in_hours=6.0 (2025-01-01T15:00:00)"
+    ]
+    assert _active_goal_context(sim, {"plan:p001"}, now + timedelta(hours=3)) == [
+        "plan:p001: submit the grant application; due_in_hours=3.0 (2025-01-01T15:00:00)"
+    ]
+    assert _useful_initiation(
+        sim,
+        {"plan:p001"},
+        now,
+        "Would a check-in about the grant submission help?",
+    )
+    assert not _useful_initiation(
+        sim, {"plan:p001"}, now, "Is there anything else on your mind?"
+    )
 
 
 def _outcome(
@@ -108,7 +147,8 @@ def test_proactive_scoring_reports_rates_and_absent_denominators():
         "useful_rate": pytest.approx(2 / 3),
     }
     empty = _outcome("empty")
-    assert initiation_timing([empty])["night_fraction"] is None
+    assert initiation_timing([empty])["initiations"] == 0
+    assert initiation_timing([empty])["night_fraction"] == 0.0
     assert (
         initiation_timing([empty])["median_initiations_per_idle_hour_after_threshold"]
         is None
@@ -123,6 +163,42 @@ def test_reset_instrumentation_requires_a_lowering_of_a_marked_value():
     assert _broadcast_lowered_marked_attempt(200.0, 100.0, 200.0)
     assert not _broadcast_lowered_marked_attempt(100.0, 50.0, 200.0)
     assert not _broadcast_lowered_marked_attempt(200.0, 100.0, None)
+
+
+def test_proactive_scoring_captures_importance_categories_and_ignore_decay():
+    outcome = SuiteOutcome(
+        probe_key="measured",
+        persona_seed=1000,
+        suite="proactive",
+        categories=("broadcast", "2h-12h"),
+        mode="llm_augmented",
+        metrics={
+            "importance_sum": 1.0,
+            "importance_count": 2.0,
+            "importance_min": 0.3,
+            "importance_max": 0.7,
+            "useful_to_user_category_count": 3.0,
+            "self_directed_category_count": 1.0,
+            "useful_to_user_useful": 2.0,
+            "self_directed_useful": 0.0,
+            "ignored_thought_raises": 6.0,
+            "ignored_thought_count": 3.0,
+        },
+    )
+
+    assert importance_distribution([outcome]) == {
+        "mean": 0.5,
+        "min": 0.3,
+        "max": 0.7,
+        "count": 2.0,
+        "non_degenerate": 1.0,
+    }
+    assert category_distribution([outcome])["self_directed_share"] == 0.25
+    assert category_usefulness([outcome]) == {
+        "useful_to_user_useful_rate": pytest.approx(2 / 3),
+        "self_directed_useful_rate": 0.0,
+    }
+    assert re_raise_decay([outcome])["raises_per_ignored_thought"] == 2.0
 
 
 def test_short_replay_crosses_idle_and_cooldown_thresholds_and_restores_callback(
@@ -181,6 +257,9 @@ def test_short_replay_crosses_idle_and_cooldown_thresholds_and_restores_callback
     original_evaluate = SubconsciousEngine.evaluate_and_think
 
     async def check_broadcasts_before_proactive_branch(self, snapshot, eligible):
+        observations[active_arm]["activity_hours"] = snapshot.get(
+            "user_interaction_hours", []
+        )
         if active_arm == "broadcast":
             tick_timestamp = observations["broadcast"]["tick_timestamps"][-1]
             assert any(
@@ -248,6 +327,8 @@ def test_short_replay_crosses_idle_and_cooldown_thresholds_and_restores_callback
 
     broadcast = asyncio.run(run_arm("broadcast"))
     none = asyncio.run(run_arm("none"))
+    assert observations["broadcast"]["activity_hours"]
+    assert observations["none"]["activity_hours"]
     assert observations["broadcast"]["ticks"] == 239
     assert observations["broadcast"]["applied"] == observations["broadcast"]["emitted"]
     assert observations["none"]["ticks"] == 239
@@ -263,7 +344,7 @@ def test_short_replay_crosses_idle_and_cooldown_thresholds_and_restores_callback
 def test_reset_instrumentation_tracks_a_mark_across_an_empty_gap(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
-    """The reset counter includes tick broadcasts after the subprocess marks."""
+    """A stale raw broadcast no longer resets the merged attempt watermark."""
     start = datetime(2025, 1, 1)
     turns = [
         SimpleNamespace(turn_id="t1", t=start, text="hello"),
@@ -330,7 +411,7 @@ def test_reset_instrumentation_tracks_a_mark_across_an_empty_gap(
     outcomes = asyncio.run(replay())
     assert outcomes[0].metrics["initiations"] >= 0
     assert outcomes[1].metrics["initiations"] >= 0
-    assert outcomes[1].metrics["last_proactive_attempt_resets"] > 0
+    assert outcomes[1].metrics["last_proactive_attempt_resets"] == 0
 
 
 @pytest.mark.asyncio

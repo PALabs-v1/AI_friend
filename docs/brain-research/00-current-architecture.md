@@ -91,7 +91,7 @@ Measured with the retrieval ablation (E2): every ACT-R term except the cue
 boost changes hit@3 by ≤ 0.01 at V1's scale — recency, frequency, spacing,
 importance, both emotion terms, the goal buffer. By reading:
 `GlobalControls.learning_gain`, `CapabilityLimitationModel.evaluate_directive`,
-`PersonModel` trust updates, `BackgroundScheduler.enqueue`, planning/
+`PersonModel` trust updates, planning/
 simulation/adapter-gate/provider-negotiator services, `TemporalMemoryStore`.
 
 The full, evidence-linked problem list is `01-problems.md`.

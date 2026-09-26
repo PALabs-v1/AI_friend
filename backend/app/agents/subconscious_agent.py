@@ -1,4 +1,5 @@
 import asyncio
+import json
 import logging
 import time
 import uuid
@@ -7,7 +8,7 @@ from typing import Any
 
 from app import clock
 from app.agents.base import BaseAgent, install_shutdown_signal_handlers
-from app.cognitive.subconscious import SubconsciousEngine
+from app.cognitive.subconscious import ProactiveThought, SubconsciousEngine
 from app.cognitive.trace import emit
 from app.cognitive.trace import enabled as trace_enabled
 from app.config import Config
@@ -200,15 +201,21 @@ class SubconsciousAgent(BaseAgent):
         self._monologue_task = asyncio.create_task(self._continuous_monologue_loop())
         logger.info(f"🧠 {self.name} Online | Subconscious Mesh Interface Active.")
 
-    async def _deliver_thought(self, thought: str) -> None:
+    async def _deliver_thought(self, thought: ProactiveThought) -> None:
         """Publish one proactive thought as a real `chat.input` turn -- the
         same path a live thought or a replayed, queued one both go through,
         so there is exactly one implementation of "how a thought becomes an
         utterance" to keep correct."""
         msg = ChatInput(
-            text=thought,
+            text=thought.text,
             utterance_id=str(uuid.uuid4()),
-            metadata=ChatInputMetadata(source="subconscious", confidence=1.0),
+            metadata=ChatInputMetadata(
+                source="subconscious",
+                confidence=1.0,
+                importance=thought.importance,
+                category=thought.category,
+                goal_id=thought.goal_id,
+            ),
         )
         await self.publish(Topics.CHAT_INPUT, msg.model_dump())
 
@@ -223,10 +230,18 @@ class SubconsciousAgent(BaseAgent):
 
         if connected and not was_connected:
             pending = proactive_queue.pop_all(self.state_service.db_path)
-            for thought in pending:
+            for encoded in pending:
+                try:
+                    thought = ProactiveThought(**json.loads(encoded))
+                except (ValueError, TypeError):
+                    thought = ProactiveThought(
+                        text=encoded,
+                        importance=0.0,
+                        category="useful_to_user",
+                    )
                 logger.info(
                     "[Subconscious] Delivering queued thought on reconnect: '%s'",
-                    thought,
+                    thought.text,
                 )
                 await self._deliver_thought(thought)
 
@@ -389,9 +404,31 @@ class SubconsciousAgent(BaseAgent):
         state_snap = self.state_service.get_context_snapshot()
         eligible = self.state_service.check_proactive_eligibility()
 
-        thought = await self.engine.evaluate_and_think(state_snap, eligible)
+        candidate = await self.engine.evaluate_and_think(state_snap, eligible)
 
-        if thought:
+        if candidate:
+            accepted = self.state_service.proactive_candidate_eligible(
+                importance=candidate.importance,
+                category=candidate.category,
+                description=candidate.text,
+                goal_id=candidate.goal_id,
+            )
+            # Generation itself consumes the window, including a candidate
+            # rejected by importance, so one low-value thought cannot cost an
+            # LLM call on every system tick.
+            self.state_service.mark_proactive_attempt()
+            await self.state_service.persist_state()
+            if not accepted:
+                return
+            goal_id, _ = self.state_service.record_proactive_thought(
+                candidate.text, goal_id=candidate.goal_id
+            )
+            candidate = ProactiveThought(
+                text=candidate.text,
+                importance=candidate.importance,
+                category=candidate.category,
+                goal_id=goal_id,
+            )
             # Phase 3.1: a proactive thought generated while nobody is
             # connected has nowhere to go -- publishing it anyway triggers a
             # full cognitive turn, TTS and audio synthesis transport_agent
@@ -399,21 +436,30 @@ class SubconsciousAgent(BaseAgent):
             # Queuing instead costs nothing until reconnect, at which point
             # _on_session_presence replays it through this exact same path.
             if self._someone_connected:
-                logger.info(f"[Subconscious] Thought generated: '{thought}'")
-                await self._deliver_thought(thought)
+                logger.info("[Subconscious] Thought generated: '%s'", candidate.text)
+                await self._deliver_thought(candidate)
             else:
                 logger.info(
                     "[Subconscious] Thought generated while nobody is "
                     "connected; queuing for reconnect: '%s'",
-                    thought,
+                    candidate.text,
                 )
-                proactive_queue.enqueue(self.state_service.db_path, thought)
+                proactive_queue.enqueue(
+                    self.state_service.db_path,
+                    json.dumps(
+                        {
+                            "text": candidate.text,
+                            "importance": candidate.importance,
+                            "category": candidate.category,
+                            "goal_id": candidate.goal_id,
+                        }
+                    ),
+                )
 
             # Marked either way: a queued thought still consumed this tick's
             # eligibility window, and not marking it would let every tick
             # while still disconnected generate (and queue) another thought,
             # stacking up duplicates until someone reconnects.
-            self.state_service.mark_proactive_attempt()
 
         # Subconscious Memory Consolidation (ACT-R & Fact Triplet Crystallization)
         # Enforce 5-minute silence check: user must be inactive for at least 300 seconds (unless bypassed)

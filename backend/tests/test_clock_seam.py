@@ -203,7 +203,6 @@ def test_no_bare_wall_clock_calls_remain_in_seamed_modules():
         "app.state.agent_state",
         "app.state.person_model",
         "app.state.memory_store",
-        "app.cognitive.background_scheduler",
         "app.cognitive.core",
         "app.agents.subconscious_agent",
     ]

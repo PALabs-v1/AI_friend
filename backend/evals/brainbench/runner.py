@@ -83,7 +83,7 @@ SUITES: dict[str, SuiteSpec] = {
     ),
     "proactive": SuiteSpec(
         _suite_function("proactive_suite", "run_proactive_suite_for_seed"),
-        frozenset({"architecture_only"}),
+        frozenset({"architecture_only", "llm_augmented"}),
         {
             f"{sync}/{order}": {"sync": sync, "tick_order": order}
             for sync in ("broadcast", "none")

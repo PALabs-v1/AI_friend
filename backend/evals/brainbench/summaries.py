@@ -12,7 +12,15 @@ SummaryFunction = Callable[[list[SuiteOutcome], Any], dict[str, Any]]
 SUMMARY_SCORERS: dict[str, tuple[str, ...]] = {
     "attention": ("repetition_novelty_delta", "interference_collision_rate"),
     "trust": ("hostility_response", "competence_warmth_separation", "background_drift"),
-    "proactive": ("initiation_timing", "cooldown_integrity", "initiation_usefulness"),
+    "proactive": (
+        "initiation_timing",
+        "cooldown_integrity",
+        "initiation_usefulness",
+        "importance_distribution",
+        "category_distribution",
+        "category_usefulness",
+        "re_raise_decay",
+    ),
     "bargein": ("invariant_violation_rates", "outcome_accounting"),
     "resources": ("latency_percentiles", "growth_curves", "unbounded_structures"),
     "memory": ("score_probe",),

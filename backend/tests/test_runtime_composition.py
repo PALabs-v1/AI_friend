@@ -8,7 +8,6 @@ import pytest
 
 from app.agents.brain_agent import BrainAgent
 from app.cognitive.action import ActionService
-from app.cognitive.background_scheduler import BackgroundScheduler
 from app.cognitive.core import CognitiveService
 from app.cognitive.decision import ActionPlan, DecisionService
 from app.cognitive.external_action import ExternalActionDispatcher
@@ -44,7 +43,6 @@ def test_cognitive_service_composes_phase_services(cognitive_service):
     expected_types = {
         "workspace_store": SQLiteWorkspaceStore,
         "temporal_memory_store": TemporalMemoryStore,
-        "scheduler": BackgroundScheduler,
         "plan_verifier": DeterministicPlanVerifier,
         "plan_executor": DeterministicPlanExecutor,
         "episodic_simulator": EpisodicSimulator,
@@ -62,10 +60,8 @@ def test_cognitive_service_composes_phase_services(cognitive_service):
     assert cognitive_service.learning.governor is cognitive_service.learning_governor
 
 
-def test_pipeline_composition_has_scheduler_and_session_store(cognitive_service):
-    """Foreground turns need both scheduler preemption and session persistence."""
-    assert cognitive_service.pipeline.scheduler is cognitive_service.scheduler
-    assert cognitive_service.pipeline.scheduler is not None
+def test_pipeline_composition_has_session_store(cognitive_service):
+    """Foreground turns share the runtime's per-turn session store."""
     assert cognitive_service.pipeline.session_store is cognitive_service.session_store
 
 
@@ -220,9 +216,9 @@ async def test_external_action_dispatcher_receives_typed_intent():
 
     chunks = [
         chunk
-        async for chunk in ActionService(
-            external_action_dispatcher=dispatcher
-        ).execute(plan)
+        async for chunk in ActionService(external_action_dispatcher=dispatcher).execute(
+            plan
+        )
     ]
 
     assert chunks == [{"type": "done", "data": ""}]
@@ -247,9 +243,9 @@ async def test_external_action_dispatch_failure_emits_error_and_done():
 
     chunks = [
         chunk
-        async for chunk in ActionService(
-            external_action_dispatcher=dispatcher
-        ).execute(plan)
+        async for chunk in ActionService(external_action_dispatcher=dispatcher).execute(
+            plan
+        )
     ]
 
     assert chunks == [

@@ -193,7 +193,8 @@ impl WhisperModel {
             if no_speech_prob > NO_SPEECH_PROBABILITY_THRESHOLD {
                 warn!(
                     model = self.label,
-                    no_speech_prob, "dropping whisper segment likely hallucinated from non-speech audio"
+                    no_speech_prob,
+                    "dropping whisper segment likely hallucinated from non-speech audio"
                 );
                 continue;
             }
@@ -335,7 +336,10 @@ async fn ensure_ggml_file(
     let target = cache_dir.join(&file_name);
 
     if tokio::fs::try_exists(&target).await.unwrap_or(false) {
-        let size = tokio::fs::metadata(&target).await.map(|m| m.len()).unwrap_or(0);
+        let size = tokio::fs::metadata(&target)
+            .await
+            .map(|m| m.len())
+            .unwrap_or(0);
         if size > min_valid_size {
             match pin {
                 None => {
@@ -430,7 +434,10 @@ async fn ensure_ggml_file(
                      expected {expected}, got {actual}. Refusing to use it."
                 );
             }
-            info!(model = model_name, "downloaded whisper model verified (SHA256 match)");
+            info!(
+                model = model_name,
+                "downloaded whisper model verified (SHA256 match)"
+            );
         }
     }
 
@@ -483,10 +490,14 @@ mod tests {
         // correctly-downloaded, SHA256-verified VAD file was flagged "truncated" and
         // re-downloaded from HuggingFace on every single process start.
         const REAL_SILERO_V5_1_2_SIZE_BYTES: u64 = 885_098;
-        assert!(REAL_SILERO_V5_1_2_SIZE_BYTES > MIN_VALID_VAD_MODEL_BYTES);
+        const {
+            assert!(REAL_SILERO_V5_1_2_SIZE_BYTES > MIN_VALID_VAD_MODEL_BYTES);
+        }
         // And the whisper threshold must stay far above the VAD one, or this test
         // would pass for the wrong reason (both thresholds collapsing to ~0).
-        assert!(MIN_VALID_WHISPER_MODEL_BYTES > REAL_SILERO_V5_1_2_SIZE_BYTES);
+        const {
+            assert!(MIN_VALID_WHISPER_MODEL_BYTES > REAL_SILERO_V5_1_2_SIZE_BYTES);
+        }
     }
 
     #[test]
@@ -522,8 +533,12 @@ mod tests {
         tokio::fs::create_dir_all(&dir).await.unwrap();
         let a = dir.join("a.bin");
         let b = dir.join("b.bin");
-        tokio::fs::write(&a, b"identical content except one byte-A").await.unwrap();
-        tokio::fs::write(&b, b"identical content except one byte-B").await.unwrap();
+        tokio::fs::write(&a, b"identical content except one byte-A")
+            .await
+            .unwrap();
+        tokio::fs::write(&b, b"identical content except one byte-B")
+            .await
+            .unwrap();
 
         let digest_a = sha256_hex(&a).await.unwrap();
         let digest_b = sha256_hex(&b).await.unwrap();
@@ -540,17 +555,26 @@ mod tests {
     fn clean_strips_bracketed_non_speech() {
         assert_eq!(clean_transcript(" [BLANK_AUDIO] "), "");
         assert_eq!(clean_transcript("[Music] hello there"), "hello there");
-        assert_eq!(clean_transcript("hello (wind blowing) world"), "hello world");
+        assert_eq!(
+            clean_transcript("hello (wind blowing) world"),
+            "hello world"
+        );
     }
 
     #[test]
     fn clean_normalises_whitespace() {
-        assert_eq!(clean_transcript("  hello   there \n world "), "hello there world");
+        assert_eq!(
+            clean_transcript("  hello   there \n world "),
+            "hello there world"
+        );
     }
 
     #[test]
     fn clean_keeps_plain_speech_intact() {
-        assert_eq!(clean_transcript("Turn the lights off."), "Turn the lights off.");
+        assert_eq!(
+            clean_transcript("Turn the lights off."),
+            "Turn the lights off."
+        );
     }
 
     #[test]

@@ -20,6 +20,7 @@ from __future__ import annotations
 import asyncio
 import itertools
 import logging
+import re
 import statistics
 from collections.abc import Iterable
 from datetime import datetime, timedelta
@@ -81,11 +82,76 @@ def _known_commitments(sim: Any, annotations: Iterable[Any]) -> set[str]:
     return known
 
 
-def _useful_initiation(sim: Any, known_plans: set[str], at: datetime) -> bool:
+def _active_goal_context(sim: Any, known_plans: set[str], at: datetime) -> list[str]:
+    """Give the brain readable details only for plans disclosed by this time."""
+    result = []
+    for entity in sorted(known_plans):
+        what = sim.timeline.value_at(entity, "what", at)
+        when = sim.timeline.value_at(entity, "when", at)
+        details = what.value if what is not None else "a disclosed plan"
+        due = ""
+        if when is not None:
+            due_at = datetime.fromisoformat(when.value)
+            if due_at.tzinfo is None and at.tzinfo is not None:
+                due_at = due_at.replace(tzinfo=at.tzinfo)
+            elif due_at.tzinfo is not None and at.tzinfo is None:
+                due_at = due_at.replace(tzinfo=None)
+            hours = (due_at - at).total_seconds() / 3600
+            due = f"; due_in_hours={hours:.1f} ({when.value})"
+        result.append(f"{entity}: {details}{due}")
+    return result
+
+
+_PLAN_DESCRIPTION_STOPWORDS = {
+    "about",
+    "after",
+    "before",
+    "check",
+    "finish",
+    "for",
+    "from",
+    "help",
+    "have",
+    "into",
+    "make",
+    "plan",
+    "some",
+    "submit",
+    "the",
+    "their",
+    "them",
+    "this",
+    "work",
+    "would",
+}
+
+
+def _normalised_terms(text: str) -> set[str]:
+    terms = set(re.findall(r"[a-z0-9]{3,}", text.casefold()))
+    return terms - _PLAN_DESCRIPTION_STOPWORDS
+
+
+def _mentions_plan(candidate: str, entity: str, what: str) -> bool:
+    if entity in candidate:
+        return True
+    plan_terms = _normalised_terms(what)
+    if not plan_terms:
+        return False
+    overlap = len(plan_terms & _normalised_terms(candidate))
+    return overlap > 0 and overlap / len(plan_terms) >= 0.5
+
+
+def _useful_initiation(
+    sim: Any, known_plans: set[str], at: datetime, description: str
+) -> bool:
     for entity in known_plans:
         status = sim.timeline.value_at(entity, "status", at)
         when = sim.timeline.value_at(entity, "when", at)
+        what = sim.timeline.value_at(entity, "what", at)
         if status is None or status.value != "planned" or when is None:
+            continue
+        plan_text = what.value if what is not None else ""
+        if not _mentions_plan(description, entity, plan_text):
             continue
         try:
             due = datetime.fromisoformat(when.value)
@@ -163,7 +229,13 @@ async def _tick_gap(
     initiations: list[datetime] = []
     eligible_ticks = 0
     useful = irrelevant = night = cooldown_violations = 0
+    quiet = self_directed = useful_category = 0
+    importance_values: list[float] = []
+    useful_by_category = {"useful_to_user": 0, "self_directed": 0}
+    count_by_category = {"useful_to_user": 0, "self_directed": 0}
     resets = 0
+    ignored_events = 0
+    ignored_raise_sum = 0
     last_attempt_set_by_suite: float | None = None
     previous_init = prior_initiation
     for tick_index in range(1, ticks + 1):
@@ -191,28 +263,59 @@ async def _tick_gap(
             while broadcast_cursor < len(broadcasts):
                 snapshot = broadcasts[broadcast_cursor]
                 before = subconscious_state.current_state.last_proactive_attempt
-                incoming = float(snapshot.get("last_proactive_attempt", before))
+                await subconscious_state.apply_external_state(snapshot)
+                after = subconscious_state.current_state.last_proactive_attempt
                 resets += int(
                     _broadcast_lowered_marked_attempt(
-                        before, incoming, last_marked_proactive_attempt
+                        before, after, last_marked_proactive_attempt
                     )
                 )
-                await subconscious_state.apply_external_state(snapshot)
                 broadcast_cursor += 1
 
         async def run_subconscious_tick() -> None:
             nonlocal eligible_ticks, last_attempt_set_by_suite, previous_init
             nonlocal cooldown_violations, useful, irrelevant, night
             nonlocal last_marked_proactive_attempt
+            nonlocal importance_values, self_directed, useful_category, quiet
+            nonlocal ignored_events, ignored_raise_sum
             if tick_at.timestamp() - 0.0 < 300:
                 return
+            # Commitment timing advances during an idle gap. Refresh the
+            # already-disclosed set at this tick so an upcoming plan crosses
+            # the 24-hour urgency window without admitting future disclosures.
+            active_goal_context = _active_goal_context(sim, known_plans, tick_at)
+            subconscious_state.current_state.active_goals = active_goal_context
+            brain_state.current_state.active_goals = active_goal_context
             state_snapshot = subconscious_state.get_context_snapshot()
             eligible = subconscious_state.check_proactive_eligibility()
             eligible_ticks += int(eligible)
-            thought = await engine.evaluate_and_think(state_snapshot, eligible)
-            if not thought:
+            candidate = await engine.evaluate_and_think(state_snapshot, eligible)
+            if not candidate:
                 return
+            importance_values.append(candidate.importance)
+            ignored_before = {
+                goal.goal_id: goal.proactive_ignored_count
+                for goal in subconscious_state.proactive_goals
+            }
+            accepted = subconscious_state.proactive_candidate_eligible(
+                importance=candidate.importance,
+                category=candidate.category,
+                description=candidate.text,
+                goal_id=candidate.goal_id,
+            )
+            for goal in subconscious_state.proactive_goals:
+                newly_ignored = goal.proactive_ignored_count - ignored_before.get(
+                    goal.goal_id, 0
+                )
+                ignored_events += newly_ignored
+                ignored_raise_sum += newly_ignored * goal.proactive_raise_count
             subconscious_state.mark_proactive_attempt()
+            if not accepted:
+                return
+            goal_id, _ = subconscious_state.record_proactive_thought(
+                candidate.text, goal_id=candidate.goal_id
+            )
+            brain_state.record_proactive_thought(candidate.text, goal_id=goal_id)
             last_attempt_set_by_suite = (
                 subconscious_state.current_state.last_proactive_attempt
             )
@@ -222,10 +325,15 @@ async def _tick_gap(
                 spacing = (tick_at - previous_init).total_seconds()
                 cooldown_violations += int(spacing < Config.PROACTIVE_COOLDOWN_SECONDS)
             previous_init = tick_at
-            if _useful_initiation(sim, known_plans, tick_at):
+            if _useful_initiation(sim, known_plans, tick_at, candidate.text):
                 useful += 1
+                useful_by_category[candidate.category] += 1
             else:
                 irrelevant += 1
+            count_by_category[candidate.category] += 1
+            self_directed += int(candidate.category == "self_directed")
+            useful_category += int(candidate.category == "useful_to_user")
+            quiet += int(subconscious_state.is_quiet_hour(tick_at.timestamp()))
             night += int(_is_night(tick_at, chronotype))
 
         if tick_order == "brain_first":
@@ -256,6 +364,13 @@ async def _tick_gap(
         "useful_initiations": useful,
         "irrelevant_initiations": irrelevant,
         "night_initiations": night,
+        "quiet_hour_initiations": quiet,
+        "importance_values": importance_values,
+        "self_directed_initiations": self_directed,
+        "useful_to_user_initiations": useful_category,
+        "useful_to_user_category_count": count_by_category["useful_to_user"],
+        "self_directed_category_count": count_by_category["self_directed"],
+        "useful_by_category": useful_by_category,
         "cooldown_violations": cooldown_violations,
         "min_seconds_between_initiations": min(spacings) if spacings else None,
         "first_initiation_after_hours": (
@@ -263,6 +378,8 @@ async def _tick_gap(
         ),
         "capped": capped,
         "resets": resets,
+        "ignored_thought_count": ignored_events,
+        "ignored_thought_raises": ignored_raise_sum,
         "broadcast_cursor": broadcast_cursor,
         "last_marked_proactive_attempt": last_marked_proactive_attempt,
         "last_attempt_set_by_suite": last_attempt_set_by_suite,
@@ -302,7 +419,9 @@ def initiation_timing(outcomes: list[SuiteOutcome]) -> dict[str, float | int | N
         "median_initiations_per_idle_hour_after_threshold": (
             statistics.median(idle_hour_rates) if idle_hour_rates else None
         ),
-        "night_fraction": nights / initiations if initiations else None,
+        # No outreach means no nighttime outreach; keep the gated share at
+        # zero while the separate initiation count still exposes inactivity.
+        "night_fraction": nights / initiations if initiations else 0.0,
         "collision_rate": collisions / len(outcomes),
         "initiations": initiations,
     }
@@ -341,6 +460,78 @@ def initiation_usefulness(
     }
 
 
+def importance_distribution(
+    outcomes: list[SuiteOutcome],
+) -> dict[str, float | None]:
+    count = sum(float(row.metrics.get("importance_count", 0.0)) for row in outcomes)
+    total = sum(float(row.metrics.get("importance_sum", 0.0)) for row in outcomes)
+    observed_min = [
+        float(row.metrics["importance_min"])
+        for row in outcomes
+        if row.metrics.get("importance_count", 0)
+    ]
+    observed_max = [
+        float(row.metrics["importance_max"])
+        for row in outcomes
+        if row.metrics.get("importance_count", 0)
+    ]
+    return {
+        "mean": total / count if count else None,
+        "min": min(observed_min) if observed_min else None,
+        "max": max(observed_max) if observed_max else None,
+        "count": count,
+        "non_degenerate": float(
+            bool(observed_min and min(observed_min) < max(observed_max))
+        ),
+    }
+
+
+def category_distribution(outcomes: list[SuiteOutcome]) -> dict[str, float | None]:
+    useful = sum(
+        float(row.metrics.get("useful_to_user_category_count", 0.0)) for row in outcomes
+    )
+    self_directed = sum(
+        float(row.metrics.get("self_directed_category_count", 0.0)) for row in outcomes
+    )
+    total = useful + self_directed
+    return {
+        "useful_to_user_count": useful,
+        "self_directed_count": self_directed,
+        "useful_to_user_share": useful / total if total else None,
+        "self_directed_share": self_directed / total if total else None,
+    }
+
+
+def category_usefulness(outcomes: list[SuiteOutcome]) -> dict[str, float | None]:
+    result: dict[str, float | None] = {}
+    for category, prefix in (
+        ("useful_to_user", "useful_to_user"),
+        ("self_directed", "self_directed"),
+    ):
+        count = sum(
+            float(row.metrics.get(f"{prefix}_category_count", 0.0)) for row in outcomes
+        )
+        useful = sum(
+            float(row.metrics.get(f"{prefix}_useful", 0.0)) for row in outcomes
+        )
+        result[f"{category}_useful_rate"] = useful / count if count else None
+    return result
+
+
+def re_raise_decay(outcomes: list[SuiteOutcome]) -> dict[str, float | None]:
+    """Report raised thoughts per ignored thought, retaining zero as evidence."""
+    ignored = sum(
+        float(row.metrics.get("ignored_thought_count", 0.0)) for row in outcomes
+    )
+    raises = sum(
+        float(row.metrics.get("ignored_thought_raises", 0.0)) for row in outcomes
+    )
+    return {
+        "ignored_thoughts": ignored,
+        "raises_per_ignored_thought": raises / ignored if ignored else None,
+    }
+
+
 async def run_proactive_suite(
     simulation: tuple[Any, list[Any], list[Any], list[Any], list[Any]],
     service: BrainBenchService,
@@ -366,9 +557,9 @@ async def run_proactive_suite(
         raise ValueError(f"unknown proactive state-sync arm: {sync!r}")
     if tick_order not in ("brain_first", "subconscious_first"):
         raise ValueError(f"unknown system tick order: {tick_order!r}")
-    if service.mode != "architecture_only":
+    if service.mode not in {"architecture_only", "llm_augmented"}:
         raise ValueError(
-            "the proactive suite requires an architecture_only BrainBenchService"
+            "the proactive suite requires a supported BrainBenchService mode"
         )
     if len(turns) != len(annotations):
         raise ValueError("lifesim turn and annotation counts differ")
@@ -398,7 +589,7 @@ async def run_proactive_suite(
         )
     subconscious_state.current_state.last_user_interaction = sim.start.timestamp()
     subconscious_state.current_state.last_proactive_attempt = 0.0
-    engine = SubconsciousEngine(llm_client=NullLLM())
+    engine = SubconsciousEngine(llm_client=getattr(service, "llm_service", NullLLM()))
     sim_clock = clock.ManualClock(sim.start)
     original_publish_cb = brain_state.publish_cb
     broadcasts: list[dict[str, Any]] = []
@@ -432,6 +623,8 @@ async def run_proactive_suite(
             subconscious_state.current_state.last_user_interaction = (
                 first_turn.t.timestamp()
             )
+            brain_state.record_user_interaction()
+            subconscious_state.record_user_interaction()
             broadcasts_before_turn = len(broadcasts)
             first_outputs = [
                 output
@@ -469,6 +662,12 @@ async def run_proactive_suite(
                 for claim in annotations[0].claims
                 if "commitment" in annotations[0].tags and claim.entity in visible_plans
             )
+            # Lifesim's annotation is attached to the turn that disclosed the
+            # commitment; copy only those already-visible entities into the
+            # state signal consumed by the model-free brain path.
+            known_context = _active_goal_context(sim, known_plans, first_turn.t)
+            brain_state.current_state.active_goals = known_context
+            subconscious_state.current_state.active_goals = known_context
 
             for index in range(1, len(turns)):
                 previous, turn = turns[index - 1], turns[index]
@@ -508,6 +707,13 @@ async def run_proactive_suite(
 
                 sim_clock.set(turn.t)
                 brain_state.current_state.last_user_interaction = turn.t.timestamp()
+                subconscious_state.current_state.last_user_interaction = (
+                    turn.t.timestamp()
+                )
+                brain_state.resolve_proactive_thoughts(turn.text)
+                subconscious_state.resolve_proactive_thoughts(turn.text)
+                brain_state.record_user_interaction()
+                subconscious_state.record_user_interaction()
                 broadcasts_before_turn = len(broadcasts)
                 outputs = [
                     output
@@ -536,15 +742,13 @@ async def run_proactive_suite(
                     while broadcast_cursor < len(broadcasts):
                         snapshot = broadcasts[broadcast_cursor]
                         before = subconscious_state.current_state.last_proactive_attempt
-                        incoming = float(snapshot.get("last_proactive_attempt", before))
+                        await subconscious_state.apply_external_state(snapshot)
+                        after = subconscious_state.current_state.last_proactive_attempt
                         gap["resets"] += int(
                             _broadcast_lowered_marked_attempt(
-                                before,
-                                incoming,
-                                last_marked_proactive_attempt,
+                                before, after, last_marked_proactive_attempt
                             )
                         )
-                        await subconscious_state.apply_external_state(snapshot)
                         broadcast_cursor += 1
                 else:
                     subconscious_state.current_state.last_user_interaction = (
@@ -565,6 +769,12 @@ async def run_proactive_suite(
                             if isinstance(plan, str) and plan in visible_plans:
                                 known_plans.add(plan)
 
+                # Keep the next idle-gap snapshot limited to commitments
+                # disclosed up through this user turn.
+                known_context = _active_goal_context(sim, known_plans, turn.t)
+                brain_state.current_state.active_goals = known_context
+                subconscious_state.current_state.active_goals = known_context
+
                 useful_count = gap["useful_initiations"]
                 irrelevant_count = gap["irrelevant_initiations"]
                 gap_metrics: dict[str, float] = {
@@ -581,6 +791,35 @@ async def run_proactive_suite(
                     "irrelevant_initiations": float(irrelevant_count),
                     "annoyance_count": float(irrelevant_count),
                     "goal_resurfacing_reachable": 0.0,
+                    "importance_sum": float(sum(gap["importance_values"])),
+                    "importance_count": float(len(gap["importance_values"])),
+                    "importance_min": min(gap["importance_values"])
+                    if gap["importance_values"]
+                    else 0.0,
+                    "importance_max": max(gap["importance_values"])
+                    if gap["importance_values"]
+                    else 0.0,
+                    "self_directed_initiations": float(
+                        gap["self_directed_initiations"]
+                    ),
+                    "useful_to_user_initiations": float(
+                        gap["useful_to_user_initiations"]
+                    ),
+                    "self_directed_category_count": float(
+                        gap["self_directed_category_count"]
+                    ),
+                    "useful_to_user_category_count": float(
+                        gap["useful_to_user_category_count"]
+                    ),
+                    "self_directed_useful": float(
+                        gap["useful_by_category"]["self_directed"]
+                    ),
+                    "useful_to_user_useful": float(
+                        gap["useful_by_category"]["useful_to_user"]
+                    ),
+                    "quiet_hour_initiations": float(gap["quiet_hour_initiations"]),
+                    "ignored_thought_raises": float(gap["ignored_thought_raises"]),
+                    "ignored_thought_count": float(gap["ignored_thought_count"]),
                 }
                 idle_hours_after_threshold = (
                     gap_hours - Config.PROACTIVE_IDLE_THRESHOLD_SECONDS / 3600
@@ -604,7 +843,7 @@ async def run_proactive_suite(
                         suite="proactive",
                         categories=(sync, _gap_bucket(gap_hours)),
                         metrics=gap_metrics,
-                        mode="architecture_only",
+                        mode=service.mode,
                     )
                 )
     finally:
@@ -623,7 +862,7 @@ async def run_proactive_suite_for_seed(
     run_dir: Path,
     max_ticks_per_gap: int = 7 * 24 * 60,
 ) -> list[SuiteOutcome]:
-    """Build a lifesim and run one architecture-only proactive sync arm."""
+    """Build a lifesim and run one proactive sync arm in the service's mode."""
     simulation = build(seed, archetype, horizon_label)
     return await run_proactive_suite(
         simulation,

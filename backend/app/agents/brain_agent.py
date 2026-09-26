@@ -1,6 +1,7 @@
 import asyncio
 import inspect
 import logging
+import math
 import re
 import time
 import uuid
@@ -74,6 +75,17 @@ class _SupersededReply:
 # How long a cut waits for the reply's own history insert before giving up
 # (it runs under `_turn_state_lock`; the store's pool has no command timeout).
 REPLY_INSERT_WAIT_S = 2.0
+
+
+def _finite_score(value: Any) -> float | None:
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        score = float(value)
+        return min(1.0, max(0.0, score)) if math.isfinite(score) else None
+    return None
+
+
+def _proactive_category(value: Any) -> str | None:
+    return value if value in {"useful_to_user", "self_directed"} else None
 
 
 def _char_offset_after_word(text: str, word_count: int) -> int:
@@ -968,8 +980,17 @@ class BrainAgent(BaseAgent):
         # actual generation latency, the thing it was meant to mask.
         generation_start_time = time.time()
 
-        # Only update human interaction tracking if it's an actual user message
-        if not is_subconscious:
+        # Keep the brain's durable view aligned with attempts it accepts from
+        # the subconscious; user idle time still advances only on user turns.
+        if is_subconscious:
+            self.cognitive_core.state.mark_proactive_attempt()
+            goal_id = metadata.get("goal_id")
+            self.cognitive_core.state.record_proactive_thought(
+                user_text, goal_id=goal_id if isinstance(goal_id, str) else None
+            )
+            await self.cognitive_core.state.persist_state()
+        else:
+            self.cognitive_core.state.resolve_proactive_thoughts(user_text)
             self.cognitive_core.state.record_user_interaction()
 
         # Ingest the latest user voice properties (System 1 feature stream) into the raw_event
@@ -1356,6 +1377,12 @@ class BrainAgent(BaseAgent):
         )
         output_msg.expression = self._derive_expression_wire(state_snap)
         output_msg.metadata = incoming_metadata
+        output_msg.importance = _finite_score(
+            (incoming_metadata or {}).get("importance")
+        )
+        output_msg.category = _proactive_category(
+            (incoming_metadata or {}).get("category")
+        )
         output_msg.latency_metadata = incoming_latency_metadata
         await self.publish(Topics.CHAT_OUTPUT, output_msg.model_dump())
 
@@ -1630,6 +1657,10 @@ class BrainAgent(BaseAgent):
             user_distance=self.last_user_distance,
         )
         payload.expression = self._derive_expression_wire(state_snap)
+        payload.importance = _finite_score((incoming_metadata or {}).get("importance"))
+        payload.category = _proactive_category(
+            (incoming_metadata or {}).get("category")
+        )
         # P4-2: non-destructive merge -- `incoming_metadata` originates from
         # the user's own chat.input and must reach voice/transport unchanged;
         # this only adds two keys alongside it. voice-agent passes them

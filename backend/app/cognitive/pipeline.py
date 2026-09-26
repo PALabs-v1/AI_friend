@@ -3,7 +3,7 @@ import inspect
 import logging
 import math
 from collections.abc import AsyncGenerator
-from typing import TYPE_CHECKING, Any, Protocol, get_args, runtime_checkable
+from typing import Any, Protocol, get_args, runtime_checkable
 
 from ..config import Config
 from ..contracts import StateUpdate
@@ -15,9 +15,6 @@ from .memory_activation import MemoryActivation, memories_to_activations
 from .percept import PerceptEnvelope
 
 logger = logging.getLogger(__name__)
-
-if TYPE_CHECKING:
-    from .background_scheduler import BackgroundScheduler
 
 
 @runtime_checkable
@@ -87,7 +84,6 @@ class CognitivePipeline:
         llm_service=None,
         reappraisal=None,
         session_store=None,
-        scheduler: "BackgroundScheduler | None" = None,
         workspace_store=None,
         temporal_memory_store=None,
         plan_verifier=None,
@@ -113,11 +109,6 @@ class CognitivePipeline:
         # (most unit tests) just skips session persistence, same reasoning as
         # `if self.reappraisal:` elsewhere in this class.
         self.session_store = session_store
-        # Phase 04 Package B: the background scheduler this turn must
-        # preempt. Optional and additive, same reasoning as every other
-        # service on this class -- a pipeline built without one (every
-        # pre-Phase-04 caller) just never calls preempt/resume.
-        self.scheduler = scheduler
         self.workspace_store = workspace_store
         self.temporal_memory_store = temporal_memory_store
         self.plan_verifier = plan_verifier
@@ -136,9 +127,11 @@ class CognitivePipeline:
         workspace: WorkspaceSnapshotLike | None,
     ) -> WorkspaceSnapshotLike | None:
         """Persist session state and refresh the authoritative workspace view."""
-        workspace_session_id = getattr(workspace, "session_id", None) or raw_event.get(
-            "user_id"
-        ) or event_metadata.get("user_id")
+        workspace_session_id = (
+            getattr(workspace, "session_id", None)
+            or raw_event.get("user_id")
+            or event_metadata.get("user_id")
+        )
         await persist_session_state(
             self.session_store,
             session_state,
@@ -152,29 +145,6 @@ class CognitivePipeline:
                 workspace_session_id or "default"
             )
         return workspace
-
-    def _maybe_preempt_background(self) -> None:
-        """Immediately abort any in-flight background job -- a foreground
-        turn always wins (Architecture Section 19). Called once at the top
-        of every `execute()`, before any other stage."""
-        if self.scheduler is not None:
-            self.scheduler.preempt()
-
-    def _maybe_resume_background(self) -> None:
-        """Allow background work to run again once this turn is done.
-
-        Called from a single `finally` block wrapping the whole body of
-        `execute()`, so this always runs exactly once per `execute()` call
-        regardless of how it exits -- a normal return, an early return, an
-        exception from any stage, or the caller closing the generator
-        early. `BackgroundScheduler.resume_foreground_idle` is itself a
-        reference-count decrement, so an unmatched extra call here would
-        under-count a still-active nested preemption; the 1:1 pairing with
-        the single `_maybe_preempt_background()` call at the top of
-        `execute()` keeps the count exact.
-        """
-        if self.scheduler is not None:
-            self.scheduler.resume_foreground_idle()
 
     async def _resolve_turn_conflict(
         self,
@@ -789,199 +759,167 @@ class CognitivePipeline:
         """
         import time
 
-        # Phase 04 Package B: a foreground turn always preempts any
-        # in-flight background job (Architecture Section 19) -- called
-        # before any other stage so nothing here can race a background
-        # write. The `try/finally` below guarantees `_maybe_resume_background`
-        # runs on every exit from this generator -- a normal return, an early
-        # return, an exception raised by any stage, or the caller closing the
-        # generator early (`aclose()`, which resumes this frame with
-        # `GeneratorExit` at whichever `yield` is currently suspended) all
-        # unwind through the `finally`. A bare call at the end of the method
-        # body (the pre-fix-round approach) only ran on the single normal
-        # exit path and left the scheduler permanently preempted on any of
-        # the others.
-        self._maybe_preempt_background()
-        try:
-            stage_times: dict[str, Any] = {}
+        stage_times: dict[str, Any] = {}
 
-            # 1. Extraction & Metadata
-            t_start = time.perf_counter()
-            raw_event_type, event_metadata, session_state = (
-                self._extract_event_and_session(raw_event)
-            )
-            stage_times["stage_1_extraction_ms"] = (
-                time.perf_counter() - t_start
-            ) * 1000.0
+        # 1. Extraction & Metadata
+        t_start = time.perf_counter()
+        raw_event_type, event_metadata, session_state = self._extract_event_and_session(
+            raw_event
+        )
+        stage_times["stage_1_extraction_ms"] = (time.perf_counter() - t_start) * 1000.0
 
-            # VAP Turn Planning / Speculative Pre-Generation
-            should_abort, vap_signal = self._check_vap_pregeneration(
-                raw_event, raw_event_type, event_metadata, session_state
-            )
-            if should_abort:
-                return
-            if vap_signal is not None:
-                yield vap_signal
+        # VAP Turn Planning / Speculative Pre-Generation
+        should_abort, vap_signal = self._check_vap_pregeneration(
+            raw_event, raw_event_type, event_metadata, session_state
+        )
+        if should_abort:
+            return
+        if vap_signal is not None:
+            yield vap_signal
 
-            # 2. Conflict Resolution (Turn-Taking Stability)
-            conflict_result: dict[str, Any] = {}
-            async for chunk in self._resolve_turn_conflict(
-                raw_event,
-                raw_event_type,
-                event_metadata,
-                stage_times,
-                conflict_result,
-                session_state,
-            ):
-                yield chunk
-            if conflict_result["stop"]:
-                workspace = await self._persist_turn_session(
-                    raw_event, event_metadata, session_state, workspace
-                )
-                yield {"type": "pipeline_telemetry", "data": stage_times}
-                return
+        # 2. Conflict Resolution (Turn-Taking Stability)
+        conflict_result: dict[str, Any] = {}
+        async for chunk in self._resolve_turn_conflict(
+            raw_event,
+            raw_event_type,
+            event_metadata,
+            stage_times,
+            conflict_result,
+            session_state,
+        ):
+            yield chunk
+        if conflict_result["stop"]:
             workspace = await self._persist_turn_session(
                 raw_event, event_metadata, session_state, workspace
             )
-
-            # 3. Sequential Perception
-            t_start = time.perf_counter()
-            event = await self.perception.perceive(raw_event)
-            stage_times["stage_3_perception_ms"] = (
-                time.perf_counter() - t_start
-            ) * 1000.0
-            if event.metadata is None:
-                event.metadata = {}
-            event.metadata["session_state"] = session_state
-            if event_metadata.get("speculative"):
-                event.metadata["speculative"] = True
-            memory_activations = self._setup_memory_activations(
-                surfaced_memories, memory_activations, event
-            )
-
-            # 4. Appraisal (Section 1 -- OCC/Lazarus/EMA)
-            t_start = time.perf_counter()
-            state_snapshot = self.state.get_context_snapshot()
-            emotional_bias = state_snapshot.get("mood", 0.0)
-            user_voice_properties = raw_event.get("user_voice_properties")
-            appraisal_vector = self.appraisal.appraise(
-                event_content=event.raw_content,
-                event_type=event.event_type,
-                emotional_bias=emotional_bias,
-                state_snapshot=state_snapshot,
-                identity_boundaries=self.identity.immutable_core["boundaries"],
-                user_voice_properties=user_voice_properties,
-            )
-            stage_times["stage_4_appraisal_ms"] = (
-                time.perf_counter() - t_start
-            ) * 1000.0
-            yield {"type": "appraisal", "data": appraisal_vector}
-
-            # 5. State Update via Appraisal (Section 2.3 -- ALMA mood-pull)
-            state_update_result: dict[str, Any] = {}
-            async for chunk in self._update_state_from_appraisal(
-                event,
-                event_metadata,
-                raw_event,
-                appraisal_vector,
-                state_snapshot,
-                stage_times,
-                state_update_result,
-            ):
-                yield chunk
-            state_snapshot = state_update_result["state_snapshot"]
-
-            # 6. Decision (BT + MAUT)
-            t_start = time.perf_counter()
-            state_directive = self.state.get_behavioral_directive()
-            if surfaced_memories:
-                event.metadata["surfaced_memories"] = surfaced_memories
-            event.metadata["appraisal"] = appraisal_vector.to_dict()
-
-            decide_kwargs = self._build_decide_kwargs(
-                memory_activations, state_snapshot
-            )
-            plan = await self.decision.decide(event, state_snapshot, **decide_kwargs)
-
-            self._record_reappraisal_pre_response(plan, state_snapshot)
-
-            # Post-Decision ToM Application: ingest LLM-inferred parameters to state
-            tom_result: dict[str, Any] = {}
-            async for chunk in self._apply_post_decision_tom(
-                event, state_snapshot, tom_result
-            ):
-                yield chunk
-            state_snapshot = tom_result["state_snapshot"]
-
-            # 6b. Explicit ActionIntent commitment (Sections 22, 38)
-            action_intent = self._commit_action_intent(
-                plan, session_state, workspace, percept
-            )
-            yield {"type": "action_intent", "data": action_intent.model_dump()}
-
-            stage_times["stage_6_decision_ms"] = (
-                time.perf_counter() - t_start
-            ) * 1000.0
-
-            # 7. Action Preparation
-            t_start = time.perf_counter()
-            self._prepare_action_payload(plan, state_snapshot, event, state_directive)
-            stage_times["stage_7_action_prep_ms"] = (
-                time.perf_counter() - t_start
-            ) * 1000.0
-
-            self._compute_pre_llm_telemetry(stage_times, event)
-
-            # 8. Action Execution
-            t_start = time.perf_counter()
-            full_response: str = ""
-            done_chunk: dict[str, Any] | None = None
-            is_spec = plan.payload.get("speculative", False)
-            pass_result: dict[str, Any] = {"response": "", "done": None}
-            async for chunk in self._stream_action_pass(plan, is_spec, pass_result):
-                yield chunk
-            full_response = pass_result["response"]
-            done_chunk = pass_result["done"]
-            stage_times["stage_8_action_execution_ms"] = (
-                time.perf_counter() - t_start
-            ) * 1000.0
-
-            # 9. Validation & Self-Correction
-            t_start = time.perf_counter()
-            validation_result: dict[str, Any] = {}
-            async for chunk in self._validate_and_self_correct(
-                plan, is_spec, full_response, done_chunk, validation_result
-            ):
-                yield chunk
-            full_response = validation_result["full_response"]
-            done_chunk = validation_result["done_chunk"]
-            stage_times["stage_9_validation_ms"] = (
-                time.perf_counter() - t_start
-            ) * 1000.0
-
-            # 10. Learning + Episodic Memory (Section 6.1)
-            t_start = time.perf_counter()
-            reflection_event = self._check_reflection_needed(
-                event,
-                raw_event,
-                state_directive,
-                appraisal_vector,
-                state_snapshot,
-                full_response,
-            )
-            if reflection_event is not None:
-                yield reflection_event
-            stage_times["stage_10_learning_ms"] = (
-                time.perf_counter() - t_start
-            ) * 1000.0
-
-            # Yield gathered stage telemetry
             yield {"type": "pipeline_telemetry", "data": stage_times}
+            return
+        workspace = await self._persist_turn_session(
+            raw_event, event_metadata, session_state, workspace
+        )
 
-            # Yield the saved done chunk at the very end
-            yield self._emit_terminal_done_chunk(done_chunk, is_spec)
-        finally:
-            self._maybe_resume_background()
+        # 3. Sequential Perception
+        t_start = time.perf_counter()
+        event = await self.perception.perceive(raw_event)
+        stage_times["stage_3_perception_ms"] = (time.perf_counter() - t_start) * 1000.0
+        if event.metadata is None:
+            event.metadata = {}
+        event.metadata["session_state"] = session_state
+        if event_metadata.get("speculative"):
+            event.metadata["speculative"] = True
+        memory_activations = self._setup_memory_activations(
+            surfaced_memories, memory_activations, event
+        )
+
+        # 4. Appraisal (Section 1 -- OCC/Lazarus/EMA)
+        t_start = time.perf_counter()
+        state_snapshot = self.state.get_context_snapshot()
+        emotional_bias = state_snapshot.get("mood", 0.0)
+        user_voice_properties = raw_event.get("user_voice_properties")
+        appraisal_vector = self.appraisal.appraise(
+            event_content=event.raw_content,
+            event_type=event.event_type,
+            emotional_bias=emotional_bias,
+            state_snapshot=state_snapshot,
+            identity_boundaries=self.identity.immutable_core["boundaries"],
+            user_voice_properties=user_voice_properties,
+        )
+        stage_times["stage_4_appraisal_ms"] = (time.perf_counter() - t_start) * 1000.0
+        yield {"type": "appraisal", "data": appraisal_vector}
+
+        # 5. State Update via Appraisal (Section 2.3 -- ALMA mood-pull)
+        state_update_result: dict[str, Any] = {}
+        async for chunk in self._update_state_from_appraisal(
+            event,
+            event_metadata,
+            raw_event,
+            appraisal_vector,
+            state_snapshot,
+            stage_times,
+            state_update_result,
+        ):
+            yield chunk
+        state_snapshot = state_update_result["state_snapshot"]
+
+        # 6. Decision (BT + MAUT)
+        t_start = time.perf_counter()
+        state_directive = self.state.get_behavioral_directive()
+        if surfaced_memories:
+            event.metadata["surfaced_memories"] = surfaced_memories
+        event.metadata["appraisal"] = appraisal_vector.to_dict()
+
+        decide_kwargs = self._build_decide_kwargs(memory_activations, state_snapshot)
+        plan = await self.decision.decide(event, state_snapshot, **decide_kwargs)
+
+        self._record_reappraisal_pre_response(plan, state_snapshot)
+
+        # Post-Decision ToM Application: ingest LLM-inferred parameters to state
+        tom_result: dict[str, Any] = {}
+        async for chunk in self._apply_post_decision_tom(
+            event, state_snapshot, tom_result
+        ):
+            yield chunk
+        state_snapshot = tom_result["state_snapshot"]
+
+        # 6b. Explicit ActionIntent commitment (Sections 22, 38)
+        action_intent = self._commit_action_intent(
+            plan, session_state, workspace, percept
+        )
+        yield {"type": "action_intent", "data": action_intent.model_dump()}
+
+        stage_times["stage_6_decision_ms"] = (time.perf_counter() - t_start) * 1000.0
+
+        # 7. Action Preparation
+        t_start = time.perf_counter()
+        self._prepare_action_payload(plan, state_snapshot, event, state_directive)
+        stage_times["stage_7_action_prep_ms"] = (time.perf_counter() - t_start) * 1000.0
+
+        self._compute_pre_llm_telemetry(stage_times, event)
+
+        # 8. Action Execution
+        t_start = time.perf_counter()
+        full_response: str = ""
+        done_chunk: dict[str, Any] | None = None
+        is_spec = plan.payload.get("speculative", False)
+        pass_result: dict[str, Any] = {"response": "", "done": None}
+        async for chunk in self._stream_action_pass(plan, is_spec, pass_result):
+            yield chunk
+        full_response = pass_result["response"]
+        done_chunk = pass_result["done"]
+        stage_times["stage_8_action_execution_ms"] = (
+            time.perf_counter() - t_start
+        ) * 1000.0
+
+        # 9. Validation & Self-Correction
+        t_start = time.perf_counter()
+        validation_result: dict[str, Any] = {}
+        async for chunk in self._validate_and_self_correct(
+            plan, is_spec, full_response, done_chunk, validation_result
+        ):
+            yield chunk
+        full_response = validation_result["full_response"]
+        done_chunk = validation_result["done_chunk"]
+        stage_times["stage_9_validation_ms"] = (time.perf_counter() - t_start) * 1000.0
+
+        # 10. Learning + Episodic Memory (Section 6.1)
+        t_start = time.perf_counter()
+        reflection_event = self._check_reflection_needed(
+            event,
+            raw_event,
+            state_directive,
+            appraisal_vector,
+            state_snapshot,
+            full_response,
+        )
+        if reflection_event is not None:
+            yield reflection_event
+        stage_times["stage_10_learning_ms"] = (time.perf_counter() - t_start) * 1000.0
+
+        # Yield gathered stage telemetry
+        yield {"type": "pipeline_telemetry", "data": stage_times}
+
+        # Yield the saved done chunk at the very end
+        yield self._emit_terminal_done_chunk(done_chunk, is_spec)
 
     async def _stream_action_pass(self, plan, is_spec: bool, result: dict):
         """Run one generation pass, yielding what the transport should see.
