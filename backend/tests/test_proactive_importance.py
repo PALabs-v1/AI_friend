@@ -647,3 +647,32 @@ async def test_one_persist_writes_one_thought_history_everywhere(tmp_path, monke
     assert payload["proactive_goals"] == in_redis
     # The late thought is not lost: the next persist carries it.
     assert [goal.goal_id for goal in state.proactive_goals] == ["exam", "late"]
+
+
+@pytest.mark.asyncio
+async def test_every_state_broadcast_is_a_full_snapshot(tmp_path, monkeypatch):
+    """F-017: state.broadcast lives in AI_STATE, which keeps only the newest
+    message, so a consumer that was away sees only that one. Each broadcast
+    must therefore carry the whole goal list even when nothing changed since
+    the last; a delta ("unchanged") would leave a returning subconscious on
+    whatever list it had before."""
+    monkeypatch.setattr(Config, "REDIS_URL", "")
+    state = StateService(graph_store=MagicMock(), db_path=str(tmp_path / "full.db"))
+    state.record_proactive_thought("ask about the exam", goal_id="exam")
+    state.record_proactive_thought("ask about the trip", goal_id="trip")
+
+    first = await _persist_and_capture_broadcast(state)
+    second = await _persist_and_capture_broadcast(state)
+
+    for payload in (first, second):
+        assert [goal["goal_id"] for goal in payload["proactive_goals"]] == [
+            "exam",
+            "trip",
+        ]
+    receiver = StateService(
+        graph_store=MagicMock(),
+        db_path=str(tmp_path / "receiver.db"),
+        writer_id="subconscious_agent",
+    )
+    await receiver.apply_external_state(second)
+    assert receiver.proactive_goals == state.proactive_goals

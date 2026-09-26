@@ -154,3 +154,105 @@ def test_model_exists_does_not_treat_different_tags_as_equivalent():
     """The `:latest` compatibility rule must not blur into "any tag counts"
     - a model pinned to a different tag is genuinely missing."""
     assert _model_exists("llama3.2:3b", ["llama3.2:7b"]) is False
+
+
+# F-019: under default NATS auth the brain ran setup_streams with brain_agent
+# credentials, which hold no $JS.API.STREAM.* rights, so every call waited out
+# its timeout and bootstrap crash-looped. Only the provisioner provisions.
+
+
+def _record_setup_streams(monkeypatch):
+    import app.runtime_bootstrap as rb
+
+    calls = []
+
+    async def fake_setup_streams(url):
+        calls.append(url)
+
+    monkeypatch.setattr(rb, "setup_streams", fake_setup_streams)
+    return rb, calls
+
+
+@pytest.mark.parametrize("user", ["brain_agent", None])
+def test_an_agent_identity_leaves_streams_to_the_provisioner(monkeypatch, user):
+    import asyncio
+
+    rb, calls = _record_setup_streams(monkeypatch)
+    monkeypatch.delenv("NATS_PROVISIONER_USER", raising=False)
+    if user is None:
+        monkeypatch.delenv("NATS_USER", raising=False)
+    else:
+        monkeypatch.setenv("NATS_USER", user)
+    asyncio.run(rb._ensure_nats_streams())
+    assert calls == []
+
+
+@pytest.mark.parametrize(
+    ("user", "provisioner_env"),
+    [("nats_provisioner", None), ("ops_admin", "ops_admin")],
+)
+def test_the_provisioner_identity_still_provisions(monkeypatch, user, provisioner_env):
+    import asyncio
+
+    rb, calls = _record_setup_streams(monkeypatch)
+    monkeypatch.setenv("NATS_USER", user)
+    if provisioner_env is None:
+        monkeypatch.delenv("NATS_PROVISIONER_USER", raising=False)
+    else:
+        monkeypatch.setenv("NATS_PROVISIONER_USER", provisioner_env)
+    asyncio.run(rb._ensure_nats_streams())
+    assert len(calls) == 1
+
+
+def test_every_stream_setup_invocation_runs_as_the_provisioner():
+    """F-019, the deploy side: scripts/integration/deploy-cloud.sh ran
+    setup_nats_streams.py via `docker exec brain_agent`, with the brain's
+    credentials and before the brain had started. Every invocation in the
+    repo's scripts, workflows and compose files must run as the provisioner."""
+    import re
+    import subprocess
+    from pathlib import Path
+
+    import yaml
+
+    repo = Path(__file__).resolve().parents[2]
+    hits = subprocess.run(
+        [
+            "git",
+            "grep",
+            "-n",
+            "-e",
+            "setup_nats_streams.py",
+            "-e",
+            "nats_provisioner",
+            "--",
+            "scripts",
+            ".github",
+            "docker-compose*.yml",
+        ],
+        cwd=repo,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.splitlines()
+    offenders = []
+    seen_compose = False
+    for hit in hits:
+        path, _, line = hit.split(":", 2)
+        if "setup_nats_streams.py" not in line or line.lstrip().startswith("#"):
+            continue
+        if path.startswith("docker-compose"):
+            services = yaml.safe_load((repo / path).read_text())["services"]
+            runners = sorted(
+                name
+                for name, service in services.items()
+                if "setup_nats_streams.py" in str(service.get("command", ""))
+            )
+            seen_compose = True
+            ok = runners == ["nats_provisioner"]
+        else:
+            ok = "NATS_USER=nats_provisioner" in line
+        if re.search(r"docker\s+exec", line) or not ok:
+            offenders.append(hit)
+    assert seen_compose, "the compose provisioner service no longer runs setup"
+    assert offenders == []

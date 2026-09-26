@@ -279,6 +279,8 @@ class StreamConfig:
     discard: DiscardPolicy | None = DiscardPolicy.OLD
     max_age: float | None = None
     storage: StorageType | None = None
+    # Real nats-py default is -1 (unlimited); AI_STATE sets 1.
+    max_msgs_per_subject: int = -1
 
 
 nats_js_api_module.DeliverPolicy = DeliverPolicy

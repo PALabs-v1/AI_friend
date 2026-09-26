@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import os
 import time
 from pathlib import Path
 
@@ -233,6 +234,20 @@ async def _ensure_database_schema() -> None:
 
 
 async def _ensure_nats_streams() -> None:
+    # F-019: stream administration needs $JS.API.STREAM.* rights, which only
+    # the provisioner identity holds (nats-accounts.conf). An agent running
+    # this with its own scoped credentials waits out every JetStream API
+    # timeout, exhausts its retries and crash-loops, so it leaves streams to
+    # the one-shot nats_provisioner service it already depends on.
+    provisioner = os.getenv("NATS_PROVISIONER_USER", "nats_provisioner")
+    user = os.getenv("NATS_USER")
+    if user != provisioner:
+        logger.info(
+            "[Bootstrap] NATS streams skipped: running as %r, provisioned by %r.",
+            user,
+            provisioner,
+        )
+        return
     await setup_streams(Config.NATS_URL)
 
 

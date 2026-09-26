@@ -73,6 +73,7 @@ Every workstream has a spec in this directory: `W1.md`..`W11.md`, `SW.md`,
 | F-014.5 | W11 | `LearningGovernor._proposals` never pruned |
 | F-015 | W8 | M-10 measured on a real model |
 | F-016 | P6 | learned state written to the image layer in production; `StateService` ignores `REDIS_URL`; broke BrainBench cell isolation |
+| F-020 | W10 | shared `_INBOX.>` subscribe and per-stream consumer rights: any runtime user reads other agents' deliveries |
 
 F-008 and F-014 item 4 are fixed (`167db41b`, `e2b73f89`).
 

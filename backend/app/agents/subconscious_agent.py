@@ -161,11 +161,18 @@ class SubconsciousAgent(BaseAgent):
             durable=f"{self.name}_chat_input",
             deliver_policy="new",
         )
+        # F-017: state.broadcast is a full snapshot in AI_STATE, which keeps
+        # only the newest one. "last" hands a newly created durable (first
+        # boot, or the one the migration recreates) that snapshot at once;
+        # "new" left this process on persona defaults until the next tick,
+        # since broadcasts are its only source of the brain's state. A resumed
+        # durable is unaffected: it continues from its cursor, and the stream
+        # holds nothing older than the newest snapshot to replay.
         await self.subscribe(
             "state.broadcast",
             self._on_state_broadcast,
             durable=f"{self.name}_state_broadcast",
-            deliver_policy="new",
+            deliver_policy="last",
         )
         # Phase 3.1: liveness signal like state.broadcast above, not a work
         # item -- a freshly (re)started process replaying every past

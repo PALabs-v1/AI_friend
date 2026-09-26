@@ -285,7 +285,10 @@ def _live_broadcast_snapshots() -> int:
     return sum(
         1
         for obj in gc.get_objects()
-        if type(obj) is dict and "proactive_goals" in obj and "implied_goals" in obj
+        # Keys only a state snapshot carries (every broadcast is a full
+        # snapshot, F-017); goal records have none of them.
+        if type(obj) is dict
+        and {"implied_goals", "known_concepts", "revision"} <= obj.keys()
     )
 
 
@@ -302,6 +305,8 @@ def test_replay_holds_no_consumed_state_broadcasts(
     """
     simulation = _four_hour_replay(monkeypatch)
     live_at_tick: dict[int, int] = {}
+    # Other tests in the session may leave snapshots alive; measure growth.
+    before = _live_broadcast_snapshots()
 
     async def run():
         brain = StateService(
@@ -334,7 +339,8 @@ def test_replay_holds_no_consumed_state_broadcasts(
     asyncio.run(run())
     assert set(live_at_tick) == {20, 200}
     # A snapshot in flight is fine; 180 more ticks must not add retained ones.
-    assert live_at_tick[200] <= live_at_tick[20] <= 3, live_at_tick
+    # The leaking harness held one per tick: 20, then 200.
+    assert live_at_tick[200] <= live_at_tick[20] <= before + 3, (before, live_at_tick)
 
 
 def test_short_replay_crosses_idle_and_cooldown_thresholds_and_restores_callback(
