@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import math
-import time
 from typing import Any
 
 from pydantic import BaseModel, Field
+
+from .. import clock
 
 
 class PersonModel(BaseModel):
@@ -60,20 +61,16 @@ class PersonModel(BaseModel):
         if not math.isfinite(magnitude):
             return
         if kind == "rupture":
-            self.trust_benevolence = max(
-                0.0, self.trust_benevolence - magnitude * 1.5
-            )
+            self.trust_benevolence = max(0.0, self.trust_benevolence - magnitude * 1.5)
         elif kind == "repair":
-            self.trust_benevolence = min(
-                1.0, self.trust_benevolence + magnitude * 0.5
-            )
+            self.trust_benevolence = min(1.0, self.trust_benevolence + magnitude * 0.5)
 
         self.rupture_repair_history.append(
             {
                 "kind": kind,
                 "magnitude": magnitude,
                 "notes": notes,
-                "timestamp": time.time(),
+                "timestamp": clock.time(),
             }
         )
 
@@ -95,7 +92,7 @@ class PersonModel(BaseModel):
         self.disclosures.append(
             {
                 "fact_id": fact_id,
-                "timestamp": time.time(),
+                "timestamp": clock.time(),
                 "context": context,
             }
         )

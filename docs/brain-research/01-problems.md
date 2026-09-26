@@ -45,14 +45,14 @@ that fails on the old code), **DECIDED** (architecture changed by ADR),
 | V-1 | HIGH | A confirmed voice "stop" (and a rejected interruption's resume) was addressed to the *new* utterance's turn id; the voice agent and transport only honour signals for the turn they are speaking, so the old reply kept playing at 30% volume and the resume never restored it | `test_stage2_signal_targets_the_interrupted_reply` | FIXED (ADR-003) |
 | V-2 | HIGH | Self-correction publishes an unscoped confirmed `audio.stop`; the brain's own handler cancels the generation that is running the retry and the voice agent aborts the rest of the turn, so the retry is never heard | reading (`action.py:1331`, `brain_agent.py:_on_audio_stop`, `main.rs:840`) | PROPOSED (07 §5) — needs flush-without-abort semantics in the Rust voice agent |
 | V-3 | MEDIUM | `chat.input` is handled strictly serially (nats-py awaits each callback and the handler awaits the whole turn), so "preempt the in-flight turn" is unreachable from speech | reading | OPEN |
-| V-4 | MEDIUM | Proactive cooldown can reset: `mark_proactive_attempt` writes only the subconscious's local state and the next brain broadcast overwrites it | reading (`agent_state.py:983-988`, `1859`) | OPEN |
+| V-4 | MEDIUM | Proactive cooldown can reset: `mark_proactive_attempt` writes only the subconscious's local state and the next brain broadcast overwrites it | reading (`agent_state.py:983-988`, `1859`) | FIXED (W9: monotonic merge, Redis high-water persistence, and brain-side attempt marking; 0 resets across 48 BrainBench cells) |
 
 ## Security
 
 | ID | Sev | Problem | Evidence | Status |
 |---|---|---|---|---|
 | S-1 | HIGH | `generate_proactive_response` inserted raw surfaced-memory text into the system-level proactive prompt — no `AntiInjectionGate`, no `[RETRIEVED-CONTENT]` delimiters | `test_proactive_memory_injection_is_quarantined` | FIXED |
-| S-2 | LOW | The chat path sanitises retrieved memory only when `MEMORY_TRUTH_ENABLED` (default on); the flag governs truth semantics, not injection safety | reading | OPEN |
+| S-2 | LOW | The chat path sanitises retrieved memory only when `MEMORY_TRUTH_ENABLED` (default on); the flag governs truth semantics, not injection safety | `test_action_selection.py::test_build_shared_history_quarantines_text_when_flag_off`; `test_stored_injection_corpus.py` | FIXED (ADR-W10) |
 
 ## Benchmark / tooling
 
@@ -224,4 +224,3 @@ improve over three consecutive rounds. Per the working agreement the loop
 stops here without a PASS; the decision whether to continue is the
 maintainer's. The history-path behaviour itself has shown no anomaly in any
 fuzz since R4 (400 seeds, two mixes, every round).
-

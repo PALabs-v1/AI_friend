@@ -148,6 +148,23 @@ def run_init_wizard(target_env_path: Path | None = None) -> int:
     livekit_key = "LK_" + generate_secure_password(16)
     livekit_secret = generate_secure_password(32)
     session_secret = generate_secure_password(32)
+    nats_users = {
+        "PROVISIONER": "nats_provisioner",
+        "SIGNALING": "signaling",
+        "BRAIN": "brain_agent",
+        "SUBCONSCIOUS": "subconscious_agent",
+        "SURFACING": "surfacing_agent",
+        "SYSTEM": "system_agent",
+        "TRANSPORT": "transport_agent",
+        "STT": "stt_agent",
+        "VISION": "vision_agent",
+        "VOICE": "voice_agent",
+    }
+    nats_env = "\n".join(
+        f"NATS_{role}_USER={username}\n"
+        f"NATS_{role}_PASSWORD={generate_secure_password(32)}"
+        for role, username in nats_users.items()
+    )
 
     # Step 5: Audio & Hardware Operational Profile
     print("\n\033[1;34m[5/6] Operational Launch Mode\033[0m")
@@ -194,7 +211,7 @@ NEO4J_AUTH=neo4j/{neo4j_pass}
 LIVEKIT_API_KEY={livekit_key}
 LIVEKIT_API_SECRET={livekit_secret}
 LIVEKIT_KEYS="{livekit_key}: {livekit_secret}"
-LIVEKIT_URL=ws://local_sfu:7880
+LIVEKIT_URL=ws://livekit:7880
 LIVEKIT_PUBLIC_URL=ws://127.0.0.1:7880
 
 SESSION_SECRET={session_secret}
@@ -220,6 +237,7 @@ ENABLE_VISION={"true" if is_vision_enabled else "false"}
     env_content += f"""
 # --- Messaging & Mesh ---
 NATS_URL=nats://127.0.0.1:4222
+{nats_env}
 
 # --- Default Voice Settings ---
 VOICE_SAMPLE_RATE=32000

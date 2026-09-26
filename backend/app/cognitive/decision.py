@@ -25,6 +25,8 @@ from .intent_classifier import get_intent_classifier
 from .json_extract import extract_first_json_value
 from .memory_activation import MemoryActivation
 from .perception import CognitiveEvent
+from .trace import emit
+from .trace import enabled as trace_enabled
 
 logger = logging.getLogger(__name__)
 
@@ -52,7 +54,13 @@ class ActionPlan:
 
 
 # Ordered coarsest -> warmest; _bucket_relational_stance clamps into this.
-_RELATIONAL_STANCES: tuple[str, ...] = ("distant", "guarded", "neutral", "warm", "close")
+_RELATIONAL_STANCES: tuple[str, ...] = (
+    "distant",
+    "guarded",
+    "neutral",
+    "warm",
+    "close",
+)
 
 # Urgency at/above this maps a turn's interruption_policy to "reflex" --
 # naming, for conversational turns, the same class of "high-arousal signal
@@ -102,12 +110,61 @@ _REGULATION_CONSTRAINT_CLAIM = "emotion_regulation_response"
 # forbidden claims.
 _TOPIC_STOPWORDS = frozenset(
     {
-        "a", "an", "the", "do", "does", "did", "you", "your", "yours", "im",
-        "is", "are", "am", "to", "of", "in", "on", "and", "or", "have",
-        "has", "had", "that", "this", "it", "what", "how", "why", "who",
-        "when", "can", "could", "will", "would", "should", "with", "for",
-        "me", "my", "mine", "we", "us", "our", "be", "been", "being",
-        "was", "were", "not", "no", "yes", "but", "so", "just", "really",
+        "a",
+        "an",
+        "the",
+        "do",
+        "does",
+        "did",
+        "you",
+        "your",
+        "yours",
+        "im",
+        "is",
+        "are",
+        "am",
+        "to",
+        "of",
+        "in",
+        "on",
+        "and",
+        "or",
+        "have",
+        "has",
+        "had",
+        "that",
+        "this",
+        "it",
+        "what",
+        "how",
+        "why",
+        "who",
+        "when",
+        "can",
+        "could",
+        "will",
+        "would",
+        "should",
+        "with",
+        "for",
+        "me",
+        "my",
+        "mine",
+        "we",
+        "us",
+        "our",
+        "be",
+        "been",
+        "being",
+        "was",
+        "were",
+        "not",
+        "no",
+        "yes",
+        "but",
+        "so",
+        "just",
+        "really",
     }
 )
 _TOPIC_WORD_PATTERN = re.compile(r"[A-Za-z']+")
@@ -185,8 +242,7 @@ def _is_acute_distress(state_snapshot: dict[str, Any]) -> bool:
     valence = float(state_snapshot.get("mood", 0.0))
     arousal = float(state_snapshot.get("energy", 0.5))
     return (
-        valence < _DISTRESS_VALENCE_THRESHOLD
-        and arousal > _DISTRESS_AROUSAL_THRESHOLD
+        valence < _DISTRESS_VALENCE_THRESHOLD and arousal > _DISTRESS_AROUSAL_THRESHOLD
     )
 
 
@@ -839,9 +895,7 @@ class DecisionService:
                 # otherwise Stage 8 dispatches on action_type alone and an
                 # ASK selection silently realizes as ordinary chat.
                 action_type = "CLARIFY"
-                clarification_subject = _clarification_subject_from_candidate(
-                    selected
-                )
+                clarification_subject = _clarification_subject_from_candidate(selected)
             elif selected_kind == "WAIT":
                 action_type = "WAIT"
             elif selected_kind in ("REAPPRAISE", "REDIRECT_ATTENTION"):
@@ -1056,7 +1110,7 @@ class DecisionService:
         # exists at all" fallback three lines up (which would otherwise
         # silently re-admit a forbidden candidate) into a raised
         # ValueError instead of a silent constraint violation.
-        winner, score_rejected = self._candidate_selector.score_and_select(
+        selection = self._candidate_selector.score_and_select(
             survivors,
             active_goals=[goal],
             global_controls=(
@@ -1066,6 +1120,40 @@ class DecisionService:
             metacognitive_directive=metacognitive_directive,
             privacy_filter=privacy_filter,
         )
+        winner, score_rejected = selection
+
+        if trace_enabled():
+            rejection_codes = {
+                item["candidate_id"]: item["reason"]
+                for item in [*constraint_rejected, *score_rejected]
+                if "candidate_id" in item
+            }
+            emit(
+                "arbitration.decision",
+                chosen=winner.kind,
+                candidates=[
+                    {
+                        "code": candidate.kind,
+                        **(
+                            {
+                                "score": selection.effective_scores[
+                                    candidate.candidate_id
+                                ]
+                            }
+                            if candidate.candidate_id in selection.effective_scores
+                            else {}
+                        ),
+                        "eligible": candidate.candidate_id
+                        in selection.effective_scores,
+                        "reason": (
+                            "chosen"
+                            if candidate.candidate_id == winner.candidate_id
+                            else rejection_codes.get(candidate.candidate_id, "filtered")
+                        ),
+                    }
+                    for candidate in candidates
+                ],
+            )
 
         retrieval_degraded = any(
             activation.outage_flag for activation in memory_activations

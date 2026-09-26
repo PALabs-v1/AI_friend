@@ -1,0 +1,47 @@
+{
+ "suite": "memory-consistency",
+ "seconds": 1.2,
+ "checks": [
+  {
+   "name": "write_parity",
+   "passed": true,
+   "detail": "30/30 writes produced a matching row+point pair",
+   "evidence": {
+    "n": 30,
+    "written": 30,
+    "mismatches": []
+   }
+  },
+  {
+   "name": "no_duplicate_on_repeat",
+   "passed": true,
+   "detail": "1 Postgres row (recall_count=2), 1 Qdrant point",
+   "evidence": {
+    "id": "612e38f9-ceb7-4e2b-a28a-75d2052b136b",
+    "recall_count": 2
+   }
+  },
+  {
+   "name": "entity_metadata_parity",
+   "passed": true,
+   "detail": "postgres entities=['ConsistencyCheckEntity0d3e01ce'] qdrant entities=['ConsistencyCheckEntity0d3e01ce']",
+   "evidence": {
+    "postgres": [
+     "ConsistencyCheckEntity0d3e01ce"
+    ],
+    "qdrant": [
+     "ConsistencyCheckEntity0d3e01ce"
+    ]
+   }
+  },
+  {
+   "name": "promotion_consistency",
+   "passed": true,
+   "detail": "active_row=yes still_in_archive=no qdrant_point=yes",
+   "evidence": {
+    "id": "12bd36b6-b5a6-46f1-a831-410097c29318"
+   }
+  }
+ ],
+ "all_passed": true
+}

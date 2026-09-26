@@ -1,5 +1,6 @@
 import asyncio
 import base64
+import json
 import logging
 import time
 from typing import Any
@@ -10,7 +11,9 @@ from livekit.api import AccessToken, VideoGrants
 from ..config import Config
 from ..contracts import (
     AudioPlaybackBacklog,
+    AudioPlaybackLifecycle,
     AudioPlaybackProgress,
+    AudioStreamTrailer,
     PlaybackVisemes,
     SessionPresence,
     Topics,
@@ -24,6 +27,15 @@ logger = logging.getLogger("transport_agent")
 # telemetry. `VOICE_FILLER_MIN_INTERVAL_SECONDS` (1.5s) is the coarsest
 # consumer of this signal, so anything well under that is fresh enough.
 BACKLOG_TELEMETRY_INTERVAL_S = 0.2
+
+# Same bound as the brain's PlaybackLifecycleTracker (contracts.py).
+LIFECYCLE_MAX_ENTRIES = 1024
+
+
+def _cap(mapping: dict) -> None:
+    """Evict insertion-order-oldest entries until `mapping` fits the cap."""
+    while len(mapping) > LIFECYCLE_MAX_ENTRIES:
+        del mapping[next(iter(mapping))]
 
 
 class TransportAgent(BaseAgent):
@@ -57,7 +69,16 @@ class TransportAgent(BaseAgent):
             "ai-voice", self.audio_source
         )
         self.audio_queue: asyncio.Queue[
-            tuple[bytes, int, int, str | None, int | None, int | None, bool]
+            tuple[
+                bytes,
+                int,
+                int,
+                str | None,
+                str | None,
+                int | None,
+                int | None,
+                str | None,
+            ]
         ] = asyncio.Queue(
             maxsize=max(32, int(getattr(Config, "TRANSPORT_AUDIO_QUEUE_SIZE", 256)))
         )
@@ -94,6 +115,22 @@ class TransportAgent(BaseAgent):
         # stale offset from the previous one.
         self._last_progress_turn_id = None
         self._last_progress_offset = -1
+        self._active_utterance_id: str | None = None
+        self._active_utterance_turn_id: str | None = None
+        # Every lifecycle map is keyed per turn or per (utterance, turn) and
+        # capped at LIFECYCLE_MAX_ENTRIES, oldest first: a reply that never
+        # reaches a terminal (lost trailer, dropped stop) must not grow this
+        # process forever. Per-key progress state is dropped at the terminal;
+        # the terminal itself is kept (bounded) so late events stay rejected.
+        self._lifecycle_active_by_turn: dict[str, str] = {}
+        self._lifecycle_attempts: dict[str, int] = {}
+        self._lifecycle_seq: dict[tuple[str, str], int] = {}
+        self._lifecycle_terminal: dict[tuple[str, str], str] = {}
+        self._lifecycle_started: dict[tuple[str, str], None] = {}
+        self._lifecycle_position: dict[tuple[str, str], tuple[int, int]] = {}
+        self._lifecycle_dropped: dict[tuple[str, str], None] = {}
+        self._lifecycle_publish_lock = asyncio.Lock()
+        self.lifecycle_protocol_errors = 0
 
         # #173: mirrors the outbound queue above, for the opposite direction.
         # `_process_remote_audio` used to `await self.publish(...)` directly
@@ -316,6 +353,7 @@ class TransportAgent(BaseAgent):
             # P1-3: track which turn is currently flowing so a later
             # audio.stop can tell whether it names this turn or a stale one.
             turn_id = metadata.get("turn_id") if metadata else None
+            utterance_id = (metadata or {}).get("utterance_id") or turn_id
             if turn_id:
                 self._active_turn_id = turn_id
             # P4-2: pass-through values (brain_agent computes them, voice-agent
@@ -325,175 +363,168 @@ class TransportAgent(BaseAgent):
             character_offset = metadata.get("character_offset") if metadata else None
             word_index = metadata.get("word_index") if metadata else None
 
-            audio_bytes = b""
-            sample_rate = self.output_sample_rate
-            num_channels = self.output_channels
-            is_done = False
-
-            if isinstance(data, (bytes, bytearray)):
-                audio_bytes = bytes(data)
-            elif isinstance(data, dict):
-                audio_b64 = data.get("audio", "")
-                is_done = data.get("done", False)
-                sample_rate = data.get("sample_rate", sample_rate)
-                num_channels = data.get("channels", num_channels)
-                if audio_b64:
-                    audio_bytes = base64.b64decode(audio_b64)
-            else:
-                logger.warning(
-                    "Unsupported audio payload type from NATS: %s",
-                    type(data).__name__,
-                )
+            if metadata and metadata.get("audio_stream_kind") == "trailer":
+                await self._enqueue_stream_trailer(data, character_offset, word_index)
                 return
 
-            if audio_bytes:
-                # Strip WAV header if present (44 bytes)
-                if audio_bytes.startswith(b"RIFF"):
-                    pcm_data = audio_bytes[44:]
-                else:
-                    pcm_data = audio_bytes
-
-                if pcm_data:
-                    queued_frame = (
-                        pcm_data,
-                        sample_rate,
-                        num_channels,
-                        turn_id,
-                        character_offset,
-                        word_index,
-                        False,
-                    )
-                    try:
-                        self.audio_queue.put_nowait(queued_frame)
-                    except asyncio.QueueFull:
-                        # Bucket 2 (VOICE_REMEDIATION_PLAN.md): drop the NEW frame, not
-                        # the oldest one. The old policy evicted the oldest queued frame
-                        # and spliced this one in behind it -- for synthesised speech
-                        # (a fixed artifact that must arrive intact, unlike a live
-                        # stream where freshness beats completeness) that is a hard
-                        # discontinuity between non-adjacent PCM segments: an audible
-                        # click plus a hole in the speech, reported live as "grainy" /
-                        # "can't understand it."
-                        #
-                        # True backpressure (`await self.audio_queue.put(...)`) would
-                        # fix this without dropping anything, but this callback is the
-                        # direct NATS handler for audio.stream -- the comment on this
-                        # agent's `start()` ("Capture frames on a dedicated worker so
-                        # NATS callback can return fast") is the same ack-timing
-                        # constraint CLAUDE.md's finding A1 documents: `BaseAgent.subscribe`
-                        # acks only after the callback returns, so blocking here until
-                        # a real-time playback worker catches up on a 256-deep backlog
-                        # risks the same JetStream AckWait/redelivery failure mode, not
-                        # fixes it. Dropping the newest frame keeps everything already
-                        # queued in order and keeps this callback non-blocking; in
-                        # measured real sessions (2026-09-01) the queue never exceeded
-                        # 68 of 256 slots, so this path is a rare-overflow safety net,
-                        # not the common case.
-                        self.dropped_audio_frames += 1
-                        if self.dropped_audio_frames % 50 == 1:
-                            logger.warning(
-                                "Transport audio queue overloaded; dropped %s frames.",
-                                self.dropped_audio_frames,
-                            )
-
-                    self._trace(
-                        "buffer2_to_3",
-                        qsize=self.audio_queue.qsize(),
-                        dropped=self.dropped_audio_frames,
-                    )
-
-                    self._maybe_publish_playback_backlog()
-
-            if is_done:
-                logger.info("AI Utterance stream complete.")
-                # FIX-CLD-02: nothing downstream of this bridge ever
-                # published a terminal `completed=True` progress event on
-                # the normal (non-interrupted) playback path, so BrainAgent
-                # never emitted a COMPLETED OutcomeRecord for a turn that
-                # simply finished speaking (only an audio.stop interruption
-                # produced any terminal record at all). Queued as a marker
-                # frame -- not published here directly -- so it drains
-                # through the same FIFO `audio_queue` behind any real PCM
-                # this same message just enqueued above, and the worker
-                # only reports "completed" once every real frame ahead of
-                # it has actually reached `audio_source.capture_frame`, the
-                # closest observable "reached the speaker" point (see
-                # `_maybe_publish_playback_progress`'s own docstring).
-                completion_marker = (
-                    b"",
+            decoded = self._decode_audio_payload(data)
+            if decoded is None:
+                return
+            pcm_data, sample_rate, num_channels = decoded
+            if pcm_data:
+                self._enqueue_pcm(
+                    pcm_data,
                     sample_rate,
                     num_channels,
+                    self._lifecycle_utterance_for(turn_id, utterance_id),
                     turn_id,
                     character_offset,
                     word_index,
-                    True,
                 )
-                try:
-                    self.audio_queue.put_nowait(completion_marker)
-                except asyncio.QueueFull:
-                    logger.warning(
-                        "Transport audio queue full; dropping completion "
-                        "marker for turn %s.",
-                        turn_id,
-                    )
-
         except Exception as e:
             logger.error(f"Error bridging audio: {e}")
+
+    async def _enqueue_stream_trailer(self, data, character_offset, word_index) -> None:
+        """Queue the voice agent's end-of-stream marker behind the reply's PCM."""
+        try:
+            trailer = AudioStreamTrailer.model_validate(json.loads(bytes(data)))
+        except Exception as exc:
+            logger.error("Dropping invalid audio stream trailer: %s", exc)
+            return
+        turn_id = trailer.turn_id
+        utterance_id = self._lifecycle_active_by_turn.get(turn_id)
+        if utterance_id is None:
+            return
+        marker = (
+            b"",
+            self.output_sample_rate,
+            self.output_channels,
+            utterance_id,
+            turn_id,
+            character_offset if character_offset is not None else 0,
+            word_index if word_index is not None else 0,
+            "FAILED" if trailer.failed else "COMPLETED",
+        )
+        # Unlike media frames, losing this marker would leave a fully
+        # played reply unresolved. Let the bounded queue drain first.
+        await self.audio_queue.put(marker)
+
+    def _decode_audio_payload(self, data) -> tuple[bytes, int, int] | None:
+        """PCM bytes (WAV header stripped), sample rate and channel count, or
+        None for a payload type this bridge does not carry."""
+        audio_bytes = b""
+        sample_rate = self.output_sample_rate
+        num_channels = self.output_channels
+        if isinstance(data, (bytes, bytearray)):
+            audio_bytes = bytes(data)
+        elif isinstance(data, dict):
+            audio_b64 = data.get("audio", "")
+            sample_rate = data.get("sample_rate", sample_rate)
+            num_channels = data.get("channels", num_channels)
+            if audio_b64:
+                audio_bytes = base64.b64decode(audio_b64)
+        else:
+            logger.warning(
+                "Unsupported audio payload type from NATS: %s",
+                type(data).__name__,
+            )
+            return None
+        # Strip WAV header if present (44 bytes)
+        if audio_bytes.startswith(b"RIFF"):
+            audio_bytes = audio_bytes[44:]
+        return audio_bytes, sample_rate, num_channels
+
+    def _lifecycle_utterance_for(self, turn_id, utterance_id):
+        """The utterance this turn's PCM belongs to. The first take keeps the
+        voice agent's id; each take after a flush gets `<id>:<attempt>`."""
+        if not turn_id:
+            return utterance_id
+        active_utterance = self._lifecycle_active_by_turn.get(turn_id)
+        if active_utterance is None:
+            attempt = self._lifecycle_attempts.get(turn_id, 0)
+            self._lifecycle_attempts[turn_id] = attempt + 1
+            _cap(self._lifecycle_attempts)
+            active_utterance = (
+                utterance_id if attempt == 0 else f"{utterance_id or turn_id}:{attempt}"
+            )
+            self._lifecycle_active_by_turn[turn_id] = active_utterance
+            _cap(self._lifecycle_active_by_turn)
+        return active_utterance
+
+    def _enqueue_pcm(
+        self,
+        pcm_data,
+        sample_rate,
+        num_channels,
+        utterance_id,
+        turn_id,
+        character_offset,
+        word_index,
+    ) -> None:
+        queued_frame = (
+            pcm_data,
+            sample_rate,
+            num_channels,
+            utterance_id,
+            turn_id,
+            character_offset,
+            word_index,
+            None,
+        )
+        try:
+            self.audio_queue.put_nowait(queued_frame)
+        except asyncio.QueueFull:
+            # Bucket 2 (VOICE_REMEDIATION_PLAN.md): drop the NEW frame, not
+            # the oldest one. The old policy evicted the oldest queued frame
+            # and spliced this one in behind it -- for synthesised speech
+            # (a fixed artifact that must arrive intact, unlike a live
+            # stream where freshness beats completeness) that is a hard
+            # discontinuity between non-adjacent PCM segments: an audible
+            # click plus a hole in the speech, reported live as "grainy" /
+            # "can't understand it."
+            #
+            # True backpressure (`await self.audio_queue.put(...)`) would
+            # fix this without dropping anything, but this callback is the
+            # direct NATS handler for audio.stream -- the comment on this
+            # agent's `start()` ("Capture frames on a dedicated worker so
+            # NATS callback can return fast") is the same ack-timing
+            # constraint CLAUDE.md's finding A1 documents: `BaseAgent.subscribe`
+            # acks only after the callback returns, so blocking here until
+            # a real-time playback worker catches up on a 256-deep backlog
+            # risks the same JetStream AckWait/redelivery failure mode, not
+            # fixes it. Dropping the newest frame keeps everything already
+            # queued in order and keeps this callback non-blocking; in
+            # measured real sessions (2026-09-01) the queue never exceeded
+            # 68 of 256 slots, so this path is a rare-overflow safety net,
+            # not the common case.
+            self.dropped_audio_frames += 1
+            if utterance_id and turn_id:
+                self._lifecycle_dropped[(utterance_id, turn_id)] = None
+                _cap(self._lifecycle_dropped)
+            if self.dropped_audio_frames % 50 == 1:
+                logger.warning(
+                    "Transport audio queue overloaded; dropped %s frames.",
+                    self.dropped_audio_frames,
+                )
+
+        self._trace(
+            "buffer2_to_3",
+            qsize=self.audio_queue.qsize(),
+            dropped=self.dropped_audio_frames,
+        )
+
+        self._maybe_publish_playback_backlog()
 
     async def _audio_playback_worker(self):
         """Drain queued PCM frames and push to LiveKit at sink pace."""
         while True:
             try:
-                (
-                    pcm_data,
-                    sample_rate,
-                    num_channels,
-                    turn_id,
-                    character_offset,
-                    word_index,
-                    completed,
-                ) = await self.audio_queue.get()
+                item = await self.audio_queue.get()
                 try:
-                    if completed:
-                        # FIX-CLD-02: a marker frame carries no audio -- it
-                        # exists only to report, in FIFO order behind every
-                        # real frame this turn queued, that playback for
-                        # this turn has actually finished.
-                        self._maybe_publish_playback_progress(
-                            turn_id, character_offset, word_index, completed=True
-                        )
-                        continue
-                    if not pcm_data or num_channels <= 0:
-                        continue
-
-                    samples_per_channel = len(pcm_data) // (2 * num_channels)
-                    if samples_per_channel <= 0:
-                        continue
-
-                    frame = rtc.AudioFrame(
-                        data=pcm_data,
-                        sample_rate=sample_rate,
-                        num_channels=num_channels,
-                        samples_per_channel=samples_per_channel,
-                    )
-                    await self.audio_source.capture_frame(frame)
-                    self._trace(
-                        "buffer3_to_4",
-                        qsize=self.audio_queue.qsize(),
-                    )
-                    self._maybe_publish_playback_progress(
-                        turn_id, character_offset, word_index
-                    )
-                    # Reviewer finding: backlog telemetry used to be published
-                    # only on enqueue (_on_nats_audio). If a report reached
-                    # the brain at depth >= VOICE_FILLER_MAX_PLAYBACK_BACKLOG
-                    # and the queue then fully drained during silence (no new
-                    # PCM arriving to trigger another enqueue-side publish),
-                    # the brain's last-known depth stayed stuck high and
-                    # suppressed the next turn's filler for no live reason.
-                    # Publishing from the drain side too means an emptied
-                    # queue eventually reports its own zero depth.
-                    self._maybe_publish_playback_backlog()
+                    if item[-1]:
+                        await self._finish_utterance(*item[3:])
+                    else:
+                        await self._play_frame(*item[:-1])
                 finally:
                     self.audio_queue.task_done()
             except asyncio.CancelledError:
@@ -501,6 +532,117 @@ class TransportAgent(BaseAgent):
             except Exception as e:
                 logger.error(f"Transport playback worker error: {e}")
                 await asyncio.sleep(0.01)
+
+    def _release_utterance(self, utterance_id, turn_id) -> None:
+        """Forget which utterance a turn is playing once it has ended."""
+        if self._lifecycle_active_by_turn.get(turn_id or "") == (utterance_id or ""):
+            self._lifecycle_active_by_turn.pop(turn_id or "", None)
+        if self._active_utterance_id == utterance_id:
+            self._active_utterance_id = None
+            self._active_utterance_turn_id = None
+
+    async def _finish_utterance(
+        self, utterance_id, turn_id, character_offset, word_index, terminal_state
+    ) -> None:
+        """Emit a reply's terminal once its end-of-stream marker is drained;
+        COMPLETED only after LiveKit has played the last frame out."""
+        lifecycle_key = (utterance_id or "", turn_id or "")
+        heard_words, heard_offset = self._lifecycle_position.get(lifecycle_key, (0, 0))
+        streamed_words = max(heard_words, word_index or 0)
+        streamed_offset = max(heard_offset, character_offset or 0)
+        if terminal_state == "COMPLETED" and lifecycle_key in self._lifecycle_dropped:
+            terminal_state = "FAILED"
+        self._lifecycle_dropped.pop(lifecycle_key, None)
+        if terminal_state == "COMPLETED":
+            source = self.audio_source
+            try:
+                await source.wait_for_playout()
+            except Exception:
+                self._emit_lifecycle(
+                    utterance_id=utterance_id or "",
+                    turn_id=turn_id or "",
+                    state="FAILED",
+                    words_played=heard_words,
+                    words_streamed=streamed_words,
+                    heard_offset=heard_offset,
+                    streamed_offset=streamed_offset,
+                )
+                raise
+            if self._lifecycle_terminal.get(lifecycle_key) == "INTERRUPTED":
+                return
+        completed = terminal_state == "COMPLETED"
+        self._emit_lifecycle(
+            utterance_id=utterance_id or "",
+            turn_id=turn_id or "",
+            state=terminal_state,
+            words_played=streamed_words if completed else heard_words,
+            words_streamed=streamed_words,
+            heard_offset=streamed_offset if completed else heard_offset,
+            streamed_offset=streamed_offset,
+        )
+        self._release_utterance(utterance_id, turn_id)
+
+    async def _play_frame(
+        self,
+        pcm_data,
+        sample_rate,
+        num_channels,
+        utterance_id,
+        turn_id,
+        character_offset,
+        word_index,
+    ) -> None:
+        if not pcm_data or num_channels <= 0:
+            return
+
+        samples_per_channel = len(pcm_data) // (2 * num_channels)
+        if samples_per_channel <= 0:
+            return
+
+        frame = rtc.AudioFrame(
+            data=pcm_data,
+            sample_rate=sample_rate,
+            num_channels=num_channels,
+            samples_per_channel=samples_per_channel,
+        )
+        lifecycle_key = (utterance_id or "", turn_id or "")
+        try:
+            await self.audio_source.capture_frame(frame)
+        except Exception:
+            heard_words, heard_offset = self._lifecycle_position.get(
+                lifecycle_key, (0, 0)
+            )
+            self._emit_lifecycle(
+                utterance_id=utterance_id or "",
+                turn_id=turn_id or "",
+                state="FAILED",
+                words_played=heard_words,
+                words_streamed=word_index or 0,
+                heard_offset=heard_offset,
+                streamed_offset=character_offset or 0,
+            )
+            self._release_utterance(utterance_id, turn_id)
+            raise
+        self._active_utterance_id = utterance_id
+        self._active_utterance_turn_id = turn_id
+        self._emit_playing_lifecycle(
+            utterance_id, turn_id, character_offset, word_index
+        )
+        self._trace(
+            "buffer3_to_4",
+            qsize=self.audio_queue.qsize(),
+        )
+        self._maybe_publish_playback_progress(turn_id, character_offset, word_index)
+        # Reviewer finding: backlog telemetry used to be published
+        # only on enqueue (_on_nats_audio). If a report reached
+        # the brain at depth >= VOICE_FILLER_MAX_PLAYBACK_BACKLOG
+        # and the queue then fully drained during silence (no new
+        # PCM arriving to trigger another enqueue-side publish),
+        # the brain's last-known depth stayed stuck high and
+        # suppressed the next turn's filler for no live reason.
+        # Publishing from the drain side too means an emptied
+        # queue eventually reports its own zero depth.
+        self._maybe_publish_playback_backlog()
 
     def _maybe_publish_playback_backlog(self) -> None:
         """Throttled `AudioPlaybackBacklog` publish, called from both the
@@ -520,7 +662,7 @@ class TransportAgent(BaseAgent):
         self.spawn(self.publish(Topics.AUDIO_PLAYBACK_BACKLOG, backlog.model_dump()))
 
     def _maybe_publish_playback_progress(
-        self, turn_id, character_offset, word_index, completed: bool = False
+        self, turn_id, character_offset, word_index
     ) -> None:
         """P4-2: fires once a PCM frame carrying a *new* offset has actually
         reached the LiveKit audio source -- the closest observable "reached
@@ -532,24 +674,15 @@ class TransportAgent(BaseAgent):
         delay the next PCM frame -- the same reasoning voice-agent's own
         `publish_pcm` documents for its own ack.
 
-        FIX-CLD-02: `completed=True` (the turn's terminal marker frame) must
-        always publish, even when its offset does not exceed the last one
-        already reported -- the de-dupe gate below exists to collapse
-        several PCM chunks that share one unchanged mid-utterance offset,
-        not to swallow the one event that tells BrainAgent the turn is over.
-        A marker with no offset of its own (a bodiless trailer message, see
-        `_on_nats_audio`) falls back to the last real offset this turn
-        already published, which is exactly the length actually delivered.
+        Terminal state is carried on `audio.playback.lifecycle`; this legacy
+        progress topic remains nonterminal for word-offset consumers.
         """
         if character_offset is None or word_index is None:
-            if not completed:
-                return
-            character_offset = max(self._last_progress_offset, 0)
-            word_index = 0
+            return
         if turn_id != self._last_progress_turn_id:
             self._last_progress_turn_id = turn_id
             self._last_progress_offset = -1
-        if not completed and character_offset <= self._last_progress_offset:
+        if character_offset <= self._last_progress_offset:
             return
         self._last_progress_offset = max(self._last_progress_offset, character_offset)
 
@@ -557,9 +690,103 @@ class TransportAgent(BaseAgent):
             utterance_id=turn_id or "",
             character_offset=character_offset,
             word_index=word_index,
-            completed=completed,
+            completed=False,
         )
         self.spawn(self.publish(Topics.AUDIO_PLAYBACK_PROGRESS, progress.model_dump()))
+
+    def _emit_playing_lifecycle(
+        self, utterance_id, turn_id, character_offset, word_index
+    ) -> None:
+        if not turn_id or not utterance_id:
+            return
+        offset = max(0, int(character_offset or 0))
+        words = max(0, int(word_index or 0))
+        key = (utterance_id, turn_id)
+        if key in self._lifecycle_terminal:
+            # A frame of a reply that already ended (queued before its stop)
+            # must not recreate the progress state the terminal dropped.
+            return
+        self._lifecycle_position[key] = (words, offset)
+        _cap(self._lifecycle_position)
+        if key not in self._lifecycle_started:
+            self._lifecycle_started[key] = None
+            _cap(self._lifecycle_started)
+            self._emit_lifecycle(
+                utterance_id=utterance_id,
+                turn_id=turn_id,
+                state="STARTED",
+                words_played=0,
+                words_streamed=words,
+                heard_offset=0,
+                streamed_offset=offset,
+            )
+        self._emit_lifecycle(
+            utterance_id=utterance_id,
+            turn_id=turn_id,
+            state="PLAYING",
+            words_played=words,
+            words_streamed=words,
+            heard_offset=offset,
+            streamed_offset=offset,
+        )
+
+    def _emit_lifecycle(
+        self,
+        *,
+        utterance_id: str,
+        turn_id: str,
+        state: str,
+        words_played: int,
+        words_streamed: int,
+        heard_offset: int,
+        streamed_offset: int,
+        flushed: bool = False,
+    ) -> None:
+        key = (utterance_id, turn_id)
+        terminal_states = {"COMPLETED", "INTERRUPTED", "FAILED"}
+        terminal = self._lifecycle_terminal.get(key)
+        if terminal:
+            if state != terminal and state in terminal_states:
+                self.lifecycle_protocol_errors += 1
+                logger.error(
+                    "Conflicting playback terminal %s after %s for %s/%s (count=%d)",
+                    state,
+                    terminal,
+                    utterance_id,
+                    turn_id,
+                    self.lifecycle_protocol_errors,
+                )
+            return
+        seq = self._lifecycle_seq.get(key, 0)
+        if state in terminal_states:
+            self._lifecycle_terminal[key] = state
+            _cap(self._lifecycle_terminal)
+            # Nothing is emitted for this key after its terminal, so its
+            # progress state is dead weight from here on.
+            self._lifecycle_seq.pop(key, None)
+            self._lifecycle_started.pop(key, None)
+            self._lifecycle_position.pop(key, None)
+            self._lifecycle_dropped.pop(key, None)
+        else:
+            self._lifecycle_seq[key] = seq + 1
+            _cap(self._lifecycle_seq)
+        event = AudioPlaybackLifecycle(
+            utterance_id=utterance_id,
+            turn_id=turn_id,
+            seq=seq,
+            state=state,
+            words_played=words_played,
+            words_streamed=max(words_played, words_streamed),
+            heard_offset=heard_offset,
+            streamed_offset=max(heard_offset, streamed_offset),
+            flushed=flushed,
+        )
+        self.spawn(self._publish_lifecycle(event))
+
+    async def _publish_lifecycle(self, event: AudioPlaybackLifecycle) -> None:
+        # Preserve seq order without awaiting NATS from the real-time PCM loop.
+        async with self._lifecycle_publish_lock:
+            await self.publish(Topics.AUDIO_PLAYBACK_LIFECYCLE, event.model_dump())
 
     async def _on_viseme(self, data: dict) -> None:
         """Forward one viseme frame onto the room's data channel.
@@ -620,6 +847,31 @@ class TransportAgent(BaseAgent):
                 self._active_turn_id,
             )
             return
+
+        if self._active_utterance_id:
+            utterance_id = self._active_utterance_id
+            active_turn = self._active_utterance_turn_id or ""
+            words, offset = self._lifecycle_position.get(
+                (utterance_id, active_turn), (0, 0)
+            )
+            # `flushed` marks the rejected take of the flush's own turn, which
+            # the brain must not record as the reply's outcome (DR-029). A
+            # flush for one turn that cuts audio still playing for another
+            # turn is a real interruption of that other reply.
+            self._emit_lifecycle(
+                utterance_id=utterance_id,
+                turn_id=active_turn,
+                state="INTERRUPTED",
+                words_played=words,
+                words_streamed=words,
+                heard_offset=offset,
+                streamed_offset=offset,
+                flushed=bool(data.get("flush")) and active_turn == stop_turn_id,
+            )
+            if self._lifecycle_active_by_turn.get(active_turn) == utterance_id:
+                self._lifecycle_active_by_turn.pop(active_turn, None)
+            self._active_utterance_id = None
+            self._active_utterance_turn_id = None
 
         await self._flush_downstream_audio()
 

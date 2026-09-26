@@ -27,9 +27,13 @@ mkdir -p results
 # 1. Retrieval with the production embedder (about 3 regimes x 20 seeds x ~420 texts)
 python -m experiments.gpu.real_embedding_retrieval --backend ollama \
     --model nomic-embed-text --seeds 1-20 --out results/retrieval_nomic.json
-# 1b. Same, with nomic's task prefixes (hypothesis H-R3)
-python -m experiments.gpu.real_embedding_retrieval --backend ollama --prefix nomic \
-    --model nomic-embed-text --seeds 1-20 --out results/retrieval_nomic_prefixed.json
+# 1b. H-R3 needs a PAIRED delta (prefixed - unprefixed on the same seed/probe).
+#     Two separate --prefix runs cannot produce that -- each only pairs its
+#     arms against v1@sqlite, not against each other. Use --compare-prefix,
+#     which embeds every scenario both ways in one process and reports the
+#     paired bootstrap CI directly, under report["hr3_prefix_paired_delta"].
+python -m experiments.gpu.real_embedding_retrieval --backend ollama --compare-prefix \
+    --model nomic-embed-text --seeds 1-20 --out results/retrieval_nomic_prefix_compare.json
 # 2. ToM valence accuracy + affect replay
 python -m experiments.gpu.tom_valence_affect --model llama3.2:3b --repeats 3 \
     --out results/tom_valence.json
@@ -40,11 +44,19 @@ Plumbing smoke test with no model (numbers are NOT evidence):
 
 ## Expected output and how to read it
 
-`retrieval_*.json` has the same shape as `python -m evals.cognitive memory`
-output: per `backend:model/regime` cell, every arm's hit@3 / MRR /
-obsolete-win / trap rates with 95% bootstrap intervals and a paired delta
-against `v1@sqlite`, plus `embedding` and `hardware` blocks (nvidia-smi,
-torch, CUDA). The stdout headline prints V1, cosine-only and the hybrid.
+`retrieval_*.json`'s `results` key has the same shape as one experiment's
+`results` field from `python -m evals.cognitive memory` (NOT the same shape
+as that command's full output -- there is no `experiments` wrapper here,
+since this script is one implicit experiment per invocation): per
+`backend:model/regime` cell, every arm's hit@3 / MRR / obsolete-win / trap
+rates with 95% bootstrap intervals and a paired delta against `v1@sqlite`,
+plus `embedding` and `hardware` blocks (nvidia-smi, torch, CUDA). The stdout
+headline prints V1, cosine-only and the hybrid. To render a table with
+`evals.cognitive.report`, wrap the loaded JSON's `results` under a synthetic
+experiment key first: `evals.cognitive.report.memory_worst_case({"experiments": {"x": report}}, "x")`.
+With `--compare-prefix`, the output also has `hr3_prefix_paired_delta`
+(regime -> arm -> paired bootstrap delta), which is what H-R3's rule
+actually needs.
 
 Pre-registered decision rules (do not move them after seeing results):
 

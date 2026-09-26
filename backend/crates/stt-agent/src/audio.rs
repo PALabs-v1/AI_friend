@@ -20,7 +20,9 @@ pub const WHISPER_SAMPLE_RATE: u32 = 16_000;
 pub fn decode_mono_f32(bytes: &[u8], channels: usize) -> Vec<f32> {
     let channels = channels.max(1);
     let samples: Vec<i16> = bytes
-        .chunks_exact(2)
+        .as_chunks::<2>()
+        .0
+        .iter()
         .map(|chunk| i16::from_le_bytes([chunk[0], chunk[1]]))
         .collect();
 
@@ -134,9 +136,7 @@ impl ResamplerCache {
 
         let resampler = match self.resamplers.entry(source_rate) {
             Entry::Occupied(entry) => entry.into_mut(),
-            Entry::Vacant(entry) => {
-                entry.insert(new_sinc_resampler(source_rate, max_chunk_size)?)
-            }
+            Entry::Vacant(entry) => entry.insert(new_sinc_resampler(source_rate, max_chunk_size)?),
         };
 
         resampler.reset();
@@ -286,8 +286,8 @@ impl Endpointer {
                 // this covers most of a genuine drop inside half a second --
                 // but no single chunk can move the floor more than a tenth of
                 // the way down.
-                self.noise_floor =
-                    self.noise_floor * (1.0 - NOISE_FLOOR_DESCENT) + chunk_rms * NOISE_FLOOR_DESCENT;
+                self.noise_floor = self.noise_floor * (1.0 - NOISE_FLOOR_DESCENT)
+                    + chunk_rms * NOISE_FLOOR_DESCENT;
             } else {
                 self.noise_floor = self.noise_floor * 0.995 + chunk_rms * 0.005;
             }
@@ -328,9 +328,7 @@ mod tests {
     use super::*;
 
     fn tone(len: usize, amp: f32) -> Vec<f32> {
-        (0..len)
-            .map(|i| amp * (i as f32 * 0.10).sin())
-            .collect()
+        (0..len).map(|i| amp * (i as f32 * 0.10).sin()).collect()
     }
 
     #[test]
@@ -502,7 +500,10 @@ mod tests {
             ep.push(noisy, 20.0);
         }
         let noisy_floor = ep.noise_floor();
-        assert!(noisy_floor > 0.015, "floor never rose to the room: {noisy_floor}");
+        assert!(
+            noisy_floor > 0.015,
+            "floor never rose to the room: {noisy_floor}"
+        );
 
         // The room quietens and stays quiet for one second (50 x 20ms).
         let quiet = 0.001;

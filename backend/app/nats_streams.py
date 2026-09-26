@@ -6,7 +6,7 @@ from typing import cast
 
 import nats
 from nats.errors import NoRespondersError
-from nats.js.errors import BadRequestError, ServiceUnavailableError
+from nats.js.errors import BadRequestError, NotFoundError, ServiceUnavailableError
 
 from .errors import AgentError
 
@@ -58,6 +58,29 @@ STREAM_POLICIES: dict[str, dict[str, object]] = {
         "max_age": float(os.getenv("NATS_AUDIO_MAX_AGE_S") or 5 * _MINUTE),
         "max_bytes": int(os.getenv("NATS_AUDIO_MAX_BYTES") or 256 * 1024**2),
     },
+    # Snapshot tier: every state.broadcast is the brain's whole state and
+    # supersedes the one before it, so only the newest is worth keeping.
+    # It lived in AI_MESSAGES until F-017: the W9 thought history made each
+    # snapshot up to 149 KiB, published every minute, and a 7-day stream
+    # with a 1 GiB cap then discarded chat history to make room for
+    # snapshots nobody would ever read again. One message per subject keeps
+    # the stream a few hundred KiB whatever the snapshot size.
+    "AI_STATE": {
+        "storage": "file",
+        "max_age": float(os.getenv("NATS_STATE_MAX_AGE_S") or 1 * _DAY),
+        "max_bytes": int(os.getenv("NATS_STATE_MAX_BYTES") or 64 * 1024**2),
+        "max_msgs_per_subject": 1,
+    },
+}
+
+# Subjects a stream used to declare and must give up, applied on every
+# reconcile. `reconcile_existing_stream` otherwise only ever adds subjects,
+# so a subject moved to another stream would stay behind and NATS would
+# refuse to create the new stream over the overlap. AI_MESSAGES' `state.>`
+# wildcard became its three explicit state subjects when state.broadcast
+# moved to AI_STATE (F-017).
+RETIRED_SUBJECTS: dict[str, Sequence[str]] = {
+    "AI_MESSAGES": ["state.>"],
 }
 
 
@@ -65,7 +88,12 @@ CORE_STREAMS: dict[str, Sequence[str]] = {
     "AI_MESSAGES": [
         "chat.>",
         "vision.>",
-        "state.>",
+        # Explicit, not state.>: state.broadcast lives in AI_STATE, and
+        # these three are work items and a liveness signal that must not be
+        # collapsed to their newest message.
+        "state.update",
+        "state.subconscious",
+        "state.presence",
         "agent.>",
         "cmd.>",
         "voice.>",
@@ -77,6 +105,9 @@ CORE_STREAMS: dict[str, Sequence[str]] = {
         "user.>",
     ],
     "AI_AUDIO": ["audio.>"],
+    # After AI_MESSAGES: that stream must retire state.> before this one can
+    # claim state.broadcast (both setup paths walk this dict in order).
+    "AI_STATE": ["state.broadcast"],
 }
 
 
@@ -155,6 +186,12 @@ def _apply_policy_to_existing(config, stream_name: str) -> bool:
     if config.max_bytes != policy["max_bytes"]:
         config.max_bytes = policy["max_bytes"]
         changed = True
+    if (
+        "max_msgs_per_subject" in policy
+        and config.max_msgs_per_subject != policy["max_msgs_per_subject"]
+    ):
+        config.max_msgs_per_subject = policy["max_msgs_per_subject"]
+        changed = True
 
     desired_storage = (
         StorageType.MEMORY if policy["storage"] == "memory" else StorageType.FILE
@@ -170,6 +207,122 @@ def _apply_policy_to_existing(config, stream_name: str) -> bool:
         )
 
     return changed
+
+
+def subject_covers(pattern: str, subject: str) -> bool:
+    """True when every subject matching `subject` also matches `pattern`,
+    by NATS token rules: `*` is one token, `>` one or more trailing tokens.
+    A wildcard in `subject` is covered only by the same or a wider wildcard
+    in `pattern`."""
+    pattern_tokens = pattern.split(".")
+    subject_tokens = subject.split(".")
+    for index, token in enumerate(pattern_tokens):
+        if token == ">":
+            return len(subject_tokens) > index
+        if index >= len(subject_tokens):
+            return False
+        other = subject_tokens[index]
+        if other == ">":
+            return False
+        if token != "*" and (other == "*" or other != token):
+            return False
+    return len(subject_tokens) == len(pattern_tokens)
+
+
+def _patterns_overlap(a: str, b: str) -> bool:
+    """True when some subject matches both `a` and `b` (a NATS subject-set
+    intersection test, direction-free), by the same token rules as
+    `subject_covers`. A filter broader than any single target subject, like
+    `state.>` against a target set of exact subjects, still overlaps one of
+    them and must not be treated as fully orphaned by `_delete_orphaned_
+    consumers` -- unlike `subject_covers`, which asks whether one pattern
+    entirely contains the other and is right for that function's one-sided
+    "did this literal subject move" question (`_purge_moved_subjects`)."""
+    a_tokens = a.split(".")
+    b_tokens = b.split(".")
+    i = j = 0
+    while i < len(a_tokens) and j < len(b_tokens):
+        ta, tb = a_tokens[i], b_tokens[j]
+        if ta == ">" or tb == ">":
+            return True
+        if ta != "*" and tb != "*" and ta != tb:
+            return False
+        i += 1
+        j += 1
+    return i == len(a_tokens) and j == len(b_tokens)
+
+
+async def _delete_orphaned_consumers(jsm, stream_name: str, subjects: set[str]) -> None:
+    """Drop the filters the stream will no longer deliver from its consumers.
+
+    A durable consumer created while the stream still held a moved subject
+    (subconscious_agent's `state_broadcast` on AI_MESSAGES, before F-017)
+    would otherwise be left filtering on a subject that stream never
+    receives again. A consumer with no surviving filter is deleted; the
+    agent's next subscribe creates its consumer on the stream that now holds
+    the subject. A consumer that also filters on subjects the stream keeps is
+    updated to those alone, so its cursor, and its place in them, survive.
+
+    A filter broader than any one target subject (`state.>` against a target
+    set with only the exact `state.update`/`state.subconscious`/`state.
+    presence`) is left untouched, not narrowed or deleted: NATS itself keeps
+    delivering it whatever the surviving subjects turn out to be, since a
+    subject can be captured by only one stream, so the moved subject simply
+    stops arriving here on its own. Verified against a real server: such a
+    consumer keeps working, unmodified, across the stream's subject update.
+    """
+    for consumer in await jsm.consumers_info(stream_name):
+        config = consumer.config
+        filters = list(getattr(config, "filter_subjects", None) or [])
+        if config.filter_subject:
+            filters.append(config.filter_subject)
+        if not filters:
+            continue
+        kept = [f for f in filters if any(_patterns_overlap(f, s) for s in subjects)]
+        if len(kept) == len(filters):
+            continue
+        try:
+            if kept:
+                config.filter_subject = kept[0] if len(kept) == 1 else None
+                config.filter_subjects = None if len(kept) == 1 else kept
+                await jsm.add_consumer(stream_name, config=config)
+            else:
+                await jsm.delete_consumer(stream_name, consumer.name)
+        except NotFoundError:
+            # A concurrent setup caller deleted it first; the goal is met.
+            continue
+        logger.warning(
+            "Stream %s: consumer %s filtered %s; %s",
+            stream_name,
+            consumer.name,
+            filters,
+            f"kept {kept}" if kept else "deleted, no filter left in the stream",
+        )
+
+
+async def _purge_moved_subjects(jsm, stream_name: str, retired: set[str]) -> None:
+    """Drop stored messages on subjects this stream is handing to another.
+
+    Once the subject leaves the stream nothing can read them, yet they keep
+    their share of the byte cap until max_age: for F-017 that was up to
+    1 GiB of state snapshots in AI_MESSAGES. Purged after the update, once no
+    publisher can add another, and on every run: a purge before the update
+    missed a message published in between, and a process that died between
+    update and purge would otherwise leave them for good. A no-op when there
+    is nothing to drop.
+    """
+    moved = {
+        subject
+        for other, subjects in CORE_STREAMS.items()
+        if other != stream_name
+        for subject in subjects
+        if any(subject_covers(pattern, subject) for pattern in retired)
+    }
+    for subject in sorted(moved):
+        await jsm.purge_stream(stream_name, subject=subject)
+        logger.info(
+            "Stream %s: purged %s (moved to another stream)", stream_name, subject
+        )
 
 
 async def reconcile_existing_stream(
@@ -204,11 +357,17 @@ async def reconcile_existing_stream(
     that isn't already converged. Only `subjects` can legitimately differ
     between concurrent callers, so only `subjects` needs the retry.
 
+    Subjects in `RETIRED_SUBJECTS` are removed, and every concurrent caller
+    removes them from its own union, so no racing write can put one back.
+    Before a retirement lands, consumers whose filter the stream would no
+    longer cover are deleted (see `_delete_orphaned_consumers`).
+
     Returns True if the stream ended up changed by this call (even if a
     retry was needed), False if it was already synchronized. Raises
     StreamReconciliationError if the retry budget is exhausted.
     """
     desired_subjects = set(subjects)
+    retired = set(RETIRED_SUBJECTS.get(stream_name, ())) - desired_subjects
     last_seen_subjects: set[str] = set()
 
     for attempt in range(1, max_retries + 1):
@@ -217,20 +376,27 @@ async def reconcile_existing_stream(
         config = info.config
         changed = False
 
-        if not desired_subjects.issubset(current_subjects):
-            config.subjects = list(current_subjects.union(desired_subjects))
+        target_subjects = current_subjects.union(desired_subjects) - retired
+        if target_subjects != current_subjects:
+            config.subjects = sorted(target_subjects)
             changed = True
 
         changed |= _apply_policy_to_existing(config, stream_name)
 
         if not changed:
+            await _purge_moved_subjects(jsm, stream_name, retired)
             return False
 
+        if current_subjects & retired:
+            await _delete_orphaned_consumers(jsm, stream_name, target_subjects)
         await jsm.update_stream(config)
 
         verify = await jsm.stream_info(stream_name)
         last_seen_subjects = set(verify.config.subjects or [])
-        if desired_subjects.issubset(last_seen_subjects):
+        if desired_subjects.issubset(last_seen_subjects) and not (
+            last_seen_subjects & retired
+        ):
+            await _purge_moved_subjects(jsm, stream_name, retired)
             return True
 
         logger.warning(
@@ -282,6 +448,7 @@ def build_stream_config(stream_name: str, subjects: list[str]):
         storage=storage,
         max_age=cast(float, policy["max_age"]),
         max_bytes=cast(int, policy["max_bytes"]),
+        max_msgs_per_subject=cast(int, policy.get("max_msgs_per_subject", -1)),
         # Drop the oldest messages at the limit rather than refusing new
         # ones: for both tiers, rejecting a publish would stall a live
         # conversation or the audio path, which is worse than losing the
@@ -352,11 +519,13 @@ async def setup_streams(
     )
     logger.info("Connecting to NATS at %s", nats_url)
 
-    connect_kwargs: dict[str, str] = {}
     nats_user = os.getenv("NATS_USER")
     nats_password = os.getenv("NATS_PASSWORD")
-    if nats_user and nats_password:
-        connect_kwargs.update(user=nats_user, password=nats_password)
+    if not nats_user or not nats_password:
+        raise RuntimeError(
+            "NATS stream provisioning requires NATS_USER and NATS_PASSWORD"
+        )
+    connect_kwargs = {"user": nats_user, "password": nats_password}
 
     nc = await nats.connect(cast(str, nats_url), **connect_kwargs)
     try:

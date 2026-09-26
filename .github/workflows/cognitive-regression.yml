@@ -29,10 +29,14 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          # tests/test_nats_grants.py reads nats-accounts.conf at 657c483f
+          # (`git show`); a shallow clone cannot resolve that commit.
+          fetch-depth: 0
 
       - name: Start NATS (JetStream Enabled)
         run: |
-          docker run -d --name nats_mesh -p 4222:4222 -p 8222:8222 nats:latest -js -m 8222
+          bash scripts/ci/start_nats_mesh.sh docker
 
       - name: Wait for NATS Readiness
         run: |
@@ -59,7 +63,7 @@ jobs:
           cd backend
           pip install --upgrade pip
           pip install -r requirements-base.txt
-          pip install pytest pytest-asyncio PyYAML Pillow
+          pip install pytest pytest-asyncio PyYAML Pillow hypothesis==6.168.1
       - name: Build cognitive-rust extension
         run: |
           cd backend
@@ -72,7 +76,7 @@ jobs:
           NATS_URL: nats://localhost:4222
         run: |
           cd backend
-          python scripts/bootstrap/setup_nats_streams.py
+          NATS_USER=nats_provisioner NATS_PASSWORD="$NATS_PROVISIONER_PASSWORD" python scripts/bootstrap/setup_nats_streams.py
 
       - name: Run Cognitive Regression Suite
         env:

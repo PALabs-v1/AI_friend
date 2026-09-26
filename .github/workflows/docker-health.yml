@@ -100,6 +100,16 @@ jobs:
           NEO4J_AUTH=neo4j/ci_dummy
           NEO4J_PLUGINS=["apoc"]
           NATS_URL=nats://localhost:4222
+          NATS_PROVISIONER_PASSWORD=ci_dummy_provisioner
+          NATS_SIGNALING_PASSWORD=ci_dummy_signaling
+          NATS_BRAIN_PASSWORD=ci_dummy_brain
+          NATS_SUBCONSCIOUS_PASSWORD=ci_dummy_subconscious
+          NATS_SURFACING_PASSWORD=ci_dummy_surfacing
+          NATS_SYSTEM_PASSWORD=ci_dummy_system
+          NATS_TRANSPORT_PASSWORD=ci_dummy_transport
+          NATS_STT_PASSWORD=ci_dummy_stt
+          NATS_VISION_PASSWORD=ci_dummy_vision
+          NATS_VOICE_PASSWORD=ci_dummy_voice
           OLLAMA_URL=http://localhost:11434
           SOVITS_URL=http://localhost:9871
           DATABASE_URL=postgresql://ai_friend:ci_dummy@localhost:5432/ai_friend_db

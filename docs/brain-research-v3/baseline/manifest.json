@@ -1,0 +1,90 @@
+{
+  "name": "Brain V2 Local Baseline",
+  "date": "2026-09-24",
+  "git_sha": "b348c18015d8e9f2a9afc03274d9e74689aa79f8",
+  "git_branch": "brain-v3",
+  "purpose": "Objective, reproducible measurement of Brain V2 as merged (PR #216, 001069c) before any Brain V3 workstream (W1-W11) changes production code. Every later phase's regression gates diff against this.",
+  "machines": {
+    "mac": {
+      "role": "code, unit tests, no-LLM cognitive benchmark, latency",
+      "os": "macOS 27.0 (26A428)",
+      "cpu": "Apple M5",
+      "cpu_threads": 10,
+      "ram_gb": 16,
+      "gpu": "Apple M5 integrated (unused for this baseline)",
+      "python": "3.12.14",
+      "rustc": "1.98.0 (88d9e12ae 2026-08-18)",
+      "cargo": "1.98.0 (797e8a9bc 2026-08-05)",
+      "cognitive_rust_wheel": "cognitive_rust-7.1.1-cp39-abi3-macosx_11_0_arm64.whl",
+      "requirements_sha256": "3fccc63382b9f30a9e72db990f35c8a97efd71b8aee1700f45e2f9bdabd12d4a",
+      "notes": "F-001 (stale onnxruntime code signature killing cargo test with SIGKILL) fixed this session via `codesign --force --sign -`; local build artifact only, not a source change. No infra stack (Postgres/Qdrant/Neo4j) running during this run -- evals.cognitive falls back to SQLite/in-memory paths, which is what the suite is designed for (model-free, no network/DB server per its README)."
+    },
+    "home_gpu": {
+      "role": "heavy infra (pgvector, Qdrant, Neo4j, Redis, NATS), embeddings, GPU experiments, scale tests",
+      "os": "Ubuntu 24.04.4 LTS (noble)",
+      "cpu": "AMD Ryzen 5 5600G",
+      "cpu_threads": 12,
+      "ram_gb": 15,
+      "gpu": "NVIDIA GeForce RTX 2060 SUPER, 8192 MiB VRAM",
+      "gpu_driver": "595.84",
+      "python": "3.12.3",
+      "cognitive_rust_wheel": "cognitive_rust-7.1.1-cp39-abi3-manylinux_2_34_x86_64.whl",
+      "clone_path": "/data/aif-v3",
+      "notes": "Fast-forwarded from 001069c to b348c18 (docs-only diff) at the start of this run; no rebuild needed. Same run structure as the Mac, sequential rather than parallel to avoid resource contention on the weaker box."
+    }
+  },
+  "config": {
+    "ranker": "hybrid: z(cos) + 1.5*BM25 + 0.2*z(ACT-R) over a 60-candidate pool (memory_ranking.py, memory_store.py:_search_memories_hybrid)",
+    "embedder_profiles_tested": ["nomic_like", "minilm_like", "hard"],
+    "seed_sets": {
+      "tune": "1-20 (per evals/cognitive/memory_experiments.py)",
+      "heldout": "101-130"
+    },
+    "affect_turns": 200,
+    "affect_seeds": [0, 1, 2],
+    "latency_sizes": [200, 1000, 3000, 5000],
+    "latency_queries_per_size": 40
+  },
+  "commands": {
+    "memory_tune": "PYTHONPATH=. python -m evals.cognitive memory --seeds tune --workers 8 --out results/memory_tune.json",
+    "memory_heldout": "PYTHONPATH=. python -m evals.cognitive memory --seeds heldout --workers 8 --out results/memory_heldout.json",
+    "affect": "PYTHONPATH=. python -m evals.cognitive affect --turns 200 --out results/affect_200.json",
+    "latency": "PYTHONPATH=. python -m evals.cognitive latency --out results/latency.json",
+    "pytest": "CI=1 python -m pytest -q",
+    "cargo_test": "cargo test --workspace",
+    "barge_in_mutations": "PYTHONPATH=. python scripts/barge_in_mutations.py"
+  },
+  "headline_results": {
+    "mac": {
+      "pytest": "2548 passed, 995 warnings, 88.19s",
+      "cargo_test": "179 passed (21 contracts + 10 stt-agent-contracts-parity + 70 stt-agent + 78 voice-agent), 0 failed",
+      "barge_in_mutations": "38 mutations, 33 killed, 5 survived (all documented as equivalent: M12, N11, N12, N18, S5 -- same 5 as the pre-existing ADR-003 record, no regression)",
+      "memory_hit_at_3_worst_case": {
+        "v1_sqlite_baseline": 0.023,
+        "hybrid_production_all_stores": 0.699
+      },
+      "memory_obsolete_win_production": "0.61-0.99 across regimes on E3 (M-5 stale-fact-wins-retrieval confirmed quantitatively; W1 target is <=0.10)",
+      "affect_user_valence_to_mood_correlation": {
+        "production_agent_mood_input": "undefined (mood never moves off 0.00 under any script incl. hostile/positive -- correlation cannot even be computed)",
+        "oracle_appraisal_input": "+0.29 to +0.88 depending on script (what W2 should approach)",
+        "vader_lexical_input": "-0.05 to +0.87 depending on script"
+      },
+      "latency_p99_ms_at_5000_memories": {
+        "actr_v1": 34.47,
+        "hybrid": 9.32
+      }
+    },
+    "home_gpu": {
+      "pytest": "2540 passed, 8 skipped (all test_nats_accounts_enforcement.py -- no nats-server binary on PATH, environment difference not a defect), 2868 warnings, 80.18s",
+      "cargo_test": "179 passed, 0 failed -- identical to Mac",
+      "barge_in_mutations": "38 mutations, 33 killed, same 5 equivalent survivors as Mac",
+      "memory_hit_at_3_worst_case": "byte-identical to Mac (v1_sqlite 0.023, hybrid_all 0.699) -- evals.cognitive is fully deterministic/seed-controlled with no model or network dependency, confirmed across arm64 vs x86_64",
+      "latency_p50_ms_hybrid_at_5000_memories": 4.51,
+      "wall_time_full_pipeline": "~22 minutes sequential (memory tune+heldout, affect, latency, pytest, cargo test, barge-in mutations)"
+    }
+  },
+  "raw_json_locations": {
+    "mac": "docs/brain-research-v3/results/mac/",
+    "home_gpu": "docs/brain-research-v3/results/home-gpu/"
+  }
+}

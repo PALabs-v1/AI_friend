@@ -25,23 +25,15 @@ class WorkingMemoryStore:
         db_path: str = "working_memory.db",
         max_turns: int = 8,
     ):
-        from ..config import Config
+        from .runtime_paths import redis_endpoint
 
-        r_url = getattr(Config, "REDIS_URL", "redis://127.0.0.1:6379")
-        default_host = "127.0.0.1"
-        default_port = 6379
-        if r_url.startswith("redis://"):
-            parts = r_url[8:].split(":")
-            if len(parts) > 0:
-                default_host = parts[0]
-            if len(parts) > 1:
-                try:
-                    default_port = int(parts[1].split("/")[0])
-                except ValueError:
-                    pass
-
-        r_host = redis_host or default_host
-        r_port = redis_port or default_port
+        # Same parser as StateService (F-016); an empty REDIS_URL disables
+        # Redis here too. Explicit arguments still win.
+        endpoint = (
+            (redis_host or "127.0.0.1", redis_port or 6379)
+            if redis_host or redis_port
+            else redis_endpoint()
+        )
 
         self.max_turns = max_turns
         self.db_path = db_path
@@ -54,22 +46,25 @@ class WorkingMemoryStore:
         self._sqlite_lock = threading.Lock()
 
         # 1. Attempt Redis Connection
-        try:
-            self.redis_client = redis.Redis(
-                host=r_host,
-                port=r_port,
-                db=0,
-                socket_connect_timeout=1.0,
-                decode_responses=True,
-            )
-            # Ping to confirm live connection
-            self.redis_client.ping()
-            logger.info(f"Connected to Redis Working Memory on {r_host}:{r_port}")
-        except Exception as e:
-            self.redis_client = None
-            logger.warning(
-                f"Redis Working Memory unavailable: {e}. Falling back to SQLite: {db_path}"
-            )
+        if endpoint is not None:
+            try:
+                self.redis_client = redis.Redis(
+                    host=endpoint[0],
+                    port=endpoint[1],
+                    db=0,
+                    socket_connect_timeout=1.0,
+                    decode_responses=True,
+                )
+                # Ping to confirm live connection
+                self.redis_client.ping()
+                logger.info(
+                    f"Connected to Redis Working Memory on {endpoint[0]}:{endpoint[1]}"
+                )
+            except Exception as e:
+                self.redis_client = None
+                logger.warning(
+                    f"Redis Working Memory unavailable: {e}. Falling back to SQLite: {db_path}"
+                )
 
         # 2. Setup SQLite fallback DB structure
         if self.redis_client is None and db_path != ":memory:":

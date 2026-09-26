@@ -220,7 +220,9 @@ class AppSettings(BaseSettings):
     # win when both spellings occur within the same settings source.
     AFFECT_CONTROL_ENABLED: bool = Field(
         default=True,
-        validation_alias=AliasChoices("AFFECT_CONTROL_ENABLED", "PHASE_03_AFFECT_CONTROL"),
+        validation_alias=AliasChoices(
+            "AFFECT_CONTROL_ENABLED", "PHASE_03_AFFECT_CONTROL"
+        ),
     )
 
     # Authoritative workspace instance: production turns supply an authoritative workspace instance
@@ -288,6 +290,24 @@ class AppSettings(BaseSettings):
     # turn_taking_probability formula (0.5 + 0.3*D - 0.1*F + 0.2*V).
     PROACTIVE_MIN_TURN_PROBABILITY: float = 0.5
     PROACTIVE_DEBUG_THRESHOLD_OVERRIDE: str | None = None
+    # Quiet hours are a conservative fallback until the brain has enough of
+    # the user's own turn timestamps to infer active hours. The window is
+    # [start, end) in USER_TIMEZONE and may wrap midnight; start == end means
+    # no default window.
+    PROACTIVE_QUIET_START_HOUR: int = 22
+    PROACTIVE_QUIET_END_HOUR: int = 6
+    # IANA zone of the user (e.g. "Asia/Kolkata") for every hour-of-day
+    # decision: quiet hours, the recorded activity hours, night fatigue.
+    # Empty means the host's local time, which in a UTC container is not
+    # the user's night.
+    USER_TIMEZONE: str = ""
+    PROACTIVE_ACTIVITY_HISTORY_MINIMUM: int = 8
+    PROACTIVE_USEFUL_IMPORTANCE_MIN: float = 0.45
+    PROACTIVE_SELF_DIRECTED_IMPORTANCE_MIN: float = 0.75
+    # Three ignored raises drive resurfacing probability to exactly zero;
+    # each is reviewed after a day, avoiding a fast tick-driven penalty.
+    PROACTIVE_IGNORE_ZERO_AFTER: int = 3
+    PROACTIVE_IGNORE_REVIEW_SECONDS: float = 86400.0
 
     PSYCH_ALPHA: float = 0.3
     PSYCH_BETA: float = 0.5
@@ -570,7 +590,17 @@ class AppSettings(BaseSettings):
             v_lower = v.strip().lower()
             if v_lower in {"1", "true", "t", "yes", "y", "debug", "development", "dev"}:
                 return True
-            if v_lower in {"0", "false", "f", "no", "n", "release", "production", "prod", ""}:
+            if v_lower in {
+                "0",
+                "false",
+                "f",
+                "no",
+                "n",
+                "release",
+                "production",
+                "prod",
+                "",
+            }:
                 return False
         return bool(v)
 
@@ -693,9 +723,7 @@ class AppSettings(BaseSettings):
             sources["llm_reflection_model"] = "derived_from_llm_chat_model"
 
         return {
-            "env_file": (
-                str(self._llm_env_files[-1]) if self._llm_env_files else None
-            ),
+            "env_file": (str(self._llm_env_files[-1]) if self._llm_env_files else None),
             "env_file_exists": bool(self._llm_env_files)
             and all(env_file.exists() for env_file in self._llm_env_files),
             "llm_chat_model": self.LLM_CHAT_MODEL,

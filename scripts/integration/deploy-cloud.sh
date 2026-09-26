@@ -52,11 +52,11 @@ docker compose -f docker-compose.infra.yml up -d
 echo "⏳ Waiting for NATS Mesh stabilization..."
 sleep 10
 
-# Ensure we have python dependencies for hydration
-pip install nats-py pydantic-settings > /dev/null 2>&1 || echo "⚠️ Non-critical: Local pip install failed, skipping host-side hydration."
-
+# Streams are provisioned by the one-shot nats_provisioner service, the only
+# identity with JetStream administration rights (F-019). The brain is not
+# running yet at this point, and its own credentials cannot create streams.
 echo "💧 Hydrating NATS Mesh Contracts..."
-docker exec brain_agent python scripts/bootstrap/setup_nats_streams.py
+docker compose -f docker-compose.infra.yml -f docker-compose.prod.yml run --rm nats_provisioner
 
 # 6. Finalize Deployment
 echo "🧠 Launching Cognitive Agents..."

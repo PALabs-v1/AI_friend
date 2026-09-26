@@ -1,0 +1,7 @@
+services:
+  livekit:
+    image: livekit/livekit-server
+    network_mode: host
+    ports:
+      - "7880:7880/tcp"
+      - "50000-51000:50000-51000/udp"

@@ -1,0 +1,11 @@
+{
+  "utterance_id": "utt-1",
+  "turn_id": "turn-1",
+  "seq": 0,
+  "state": "STARTED",
+  "words_played": 0,
+  "words_streamed": 4,
+  "heard_offset": 0,
+  "streamed_offset": 22,
+  "timestamp": 1.0
+}

@@ -1,0 +1,178 @@
+{
+  "description": "V2 BrainBench gate bands (evals/brainbench/gates.py)",
+  "dirty": false,
+  "git_sha": "8df188fecf984d16176345b7d994711a8fb98599",
+  "metrics": {
+    "attention.interference_collision_rate": {
+      "direction": "lower",
+      "value": 0.022813688212927757,
+      "why": "distinct same-kind events scored as near-duplicates"
+    },
+    "attention.repetition_cliffs_delta": {
+      "direction": "higher",
+      "value": -0.2580674988441979,
+      "why": "fresh turns should score more novel than repeated ones"
+    },
+    "bargein.completed_outcome_seen_violation_rate": {
+      "direction": "lower",
+      "value": 0.0,
+      "why": "barge-in lifecycle invariant `completed_outcome_seen` (ADR-003)"
+    },
+    "bargein.current_turn_harmed_violation_rate": {
+      "direction": "lower",
+      "value": 0.0,
+      "why": "barge-in lifecycle invariant `current_turn_harmed` (ADR-003)"
+    },
+    "bargein.history_matches_heard_violation_rate": {
+      "direction": "lower",
+      "value": 0.14285714285714285,
+      "why": "barge-in lifecycle invariant `history_matches_heard` (ADR-003)"
+    },
+    "bargein.hung_violation_rate": {
+      "direction": "lower",
+      "value": 0.0,
+      "why": "barge-in lifecycle invariant `hung` (ADR-003)"
+    },
+    "bargein.stale_stop_applied_violation_rate": {
+      "direction": "lower",
+      "value": 0.0,
+      "why": "barge-in lifecycle invariant `stale_stop_applied` (ADR-003)"
+    },
+    "bargein.terminal_outcomes_per_reply_violation_rate": {
+      "direction": "lower",
+      "value": 0.14285714285714285,
+      "why": "barge-in lifecycle invariant `terminal_outcomes_per_reply` (ADR-003)"
+    },
+    "bargein.unresolved_reply_rate": {
+      "direction": "lower",
+      "value": 0.5751633986928104,
+      "why": "started replies, played out or not, that never got a terminal outcome"
+    },
+    "bargein.zero_terminal_reply_rate": {
+      "direction": "lower",
+      "value": 0.5,
+      "why": "replies that never reached a terminal outcome"
+    },
+    "proactive.broadcast.annoyance_per_day": {
+      "direction": "lower",
+      "value": 1277.3654643030677,
+      "why": "outreach unrelated to any upcoming commitment"
+    },
+    "proactive.broadcast.collision_rate": {
+      "direction": "lower",
+      "value": 0.20202020202020202,
+      "why": "outreach colliding with a user turn"
+    },
+    "proactive.broadcast.cooldown_violations_per_day": {
+      "direction": "lower",
+      "value": 1283.2027603225472,
+      "why": "V-4: outreach inside the cooldown window"
+    },
+    "proactive.broadcast.night_fraction": {
+      "direction": "lower",
+      "value": 0.3650261683959232,
+      "why": "share of outreach at night"
+    },
+    "proactive.none.annoyance_per_day": {
+      "direction": "lower",
+      "value": 21.75719425442356,
+      "why": "outreach unrelated to any upcoming commitment"
+    },
+    "proactive.none.collision_rate": {
+      "direction": "lower",
+      "value": 0.0,
+      "why": "outreach colliding with a user turn"
+    },
+    "proactive.none.cooldown_violations_per_day": {
+      "direction": "lower",
+      "value": 0.0,
+      "why": "V-4: outreach inside the cooldown window"
+    },
+    "proactive.none.night_fraction": {
+      "direction": "lower",
+      "value": 0.3621621621621622,
+      "why": "share of outreach at night"
+    },
+    "resources.background_task_timeouts": {
+      "direction": "lower",
+      "value": 0.0,
+      "why": "background work that did not finish within its budget"
+    },
+    "resources.still_increasing_structures": {
+      "direction": "lower",
+      "value": 0.0,
+      "why": "in-memory structures with no cap still growing at the end"
+    },
+    "resources.workspace_transitions_per_turn": {
+      "direction": "lower",
+      "value": 1.0,
+      "why": "rows added per turn to a SQLite table nothing prunes"
+    },
+    "trust.background_mean_trust_delta": {
+      "direction": "toward_zero",
+      "value": 0.04111111111111112,
+      "why": "trust should not drift on turns that say nothing about the agent"
+    },
+    "trust.competence_leak": {
+      "direction": "toward_zero",
+      "value": null,
+      "why": "warmth-only turns should not move competence"
+    },
+    "trust.competence_turns_to_ceiling": {
+      "direction": "higher",
+      "value": 13.0,
+      "why": "F-010: competence pins at the 1.0 clamp and trust goes deaf"
+    },
+    "trust.hostile_mean_trust_delta": {
+      "direction": "lower",
+      "value": null,
+      "why": "A-3: hostility should not raise trust on average"
+    },
+    "trust.hostile_trust_rise_rate": {
+      "direction": "lower",
+      "value": null,
+      "why": "A-3: trust should not rise on hostile robot-directed turns"
+    },
+    "trust.integrity_turns_to_ceiling": {
+      "direction": "higher",
+      "value": 6.0,
+      "why": "F-010: integrity pins at the 1.0 clamp and trust goes deaf"
+    },
+    "trust.saturated_fraction": {
+      "direction": "lower",
+      "value": 0.9664179104477612,
+      "why": "share of turns with a trust component pinned at its ceiling"
+    }
+  },
+  "observed_budgets": {
+    "resources.turn_latency_p95_ms": 11.136208020616323
+  },
+  "slice": {
+    "bargein_scenarios_per_family": 3,
+    "horizon": "1m",
+    "personas": [
+      [
+        1000,
+        "steady_professional"
+      ],
+      [
+        1001,
+        "volatile_creative"
+      ],
+      [
+        1002,
+        "emotional_caregiver"
+      ]
+    ],
+    "proactive_arms": [
+      "broadcast",
+      "none"
+    ],
+    "proactive_horizon": "1w"
+  },
+  "tolerance": {
+    "absolute": 1e-06,
+    "relative": 0.01
+  },
+  "wall_seconds": 56.9
+}

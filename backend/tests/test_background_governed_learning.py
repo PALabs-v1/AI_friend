@@ -1,4 +1,4 @@
-"""Phase 04 Package B: background scheduler, due-goal review, governed
+"""Phase 04 Package B: due-goal review, governed
 learning proposals with rollback, and metacognitive/privacy-aware candidate
 selection (FINAL_HUMANOID_BRAIN_ARCHITECTURE.md Sections 11, 19, 20, 21, 38).
 """
@@ -9,11 +9,6 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from app.cognitive.action_candidate import ActionCandidate, CandidateSelector
-from app.cognitive.background_scheduler import (
-    BackgroundJob,
-    BackgroundJobKind,
-    BackgroundScheduler,
-)
 from app.cognitive.goals import GoalRecord, review_due_goals
 from app.cognitive.learning_review import (
     LearningProposal,
@@ -21,181 +16,8 @@ from app.cognitive.learning_review import (
     LearningReviewQueue,
     validate_proposal_safety,
 )
-from app.cognitive.pipeline import CognitivePipeline
 
 pytestmark = pytest.mark.asyncio
-
-
-# --- BackgroundScheduler ---------------------------------------------------
-
-
-async def test_background_scheduler_priority_and_idempotency():
-    """A job re-enqueued with the same idempotency_key and watermark must
-    never double-run, and the queue must always dequeue the highest
-    priority job first regardless of enqueue order."""
-    scheduler = BackgroundScheduler()
-    low = BackgroundJob(
-        job_id="low",
-        kind=BackgroundJobKind.DUE_GOAL_REVIEW,
-        idempotency_key="k1",
-        watermark=1.0,
-        priority=10,
-    )
-    high = BackgroundJob(
-        job_id="high",
-        kind=BackgroundJobKind.DUE_GOAL_REVIEW,
-        idempotency_key="k2",
-        watermark=1.0,
-        priority=90,
-    )
-    duplicate = BackgroundJob(
-        job_id="duplicate",
-        kind=BackgroundJobKind.DUE_GOAL_REVIEW,
-        idempotency_key="k1",
-        watermark=1.0,
-        priority=99,
-    )
-    same_key_new_watermark = BackgroundJob(
-        job_id="rerun",
-        kind=BackgroundJobKind.DUE_GOAL_REVIEW,
-        idempotency_key="k1",
-        watermark=2.0,
-        priority=5,
-    )
-
-    assert scheduler.enqueue(low) is True
-    assert scheduler.enqueue(high) is True
-    assert scheduler.enqueue(duplicate) is False
-    assert scheduler.enqueue(same_key_new_watermark) is True
-
-    async def executor(job: BackgroundJob) -> str:
-        return job.job_id
-
-    assert await scheduler.run_next(executor) == (True, "high")
-    assert await scheduler.run_next(executor) == (True, "low")
-    assert await scheduler.run_next(executor) == (True, "rerun")
-    assert await scheduler.run_next(executor) == (False, None)
-
-
-async def test_background_scheduler_budget_timeout():
-    """A job exceeding its own budget_time_s must be cleanly aborted and
-    reported, not left to run indefinitely."""
-    scheduler = BackgroundScheduler()
-    job = BackgroundJob(
-        job_id="slow",
-        kind=BackgroundJobKind.CALIBRATION_UPDATE,
-        idempotency_key="slow-key",
-        budget_time_s=0.05,
-    )
-    scheduler.enqueue(job)
-
-    async def slow_executor(_job: BackgroundJob) -> str:
-        import asyncio as _asyncio
-
-        await _asyncio.sleep(1.0)
-        return "should never be returned"
-
-    result = await scheduler.run_next(slow_executor)
-
-    assert result == (False, "budget_exceeded")
-    assert scheduler.errors[-1]["job_id"] == "slow"
-    assert scheduler.errors[-1]["error"] == "budget_exceeded"
-
-
-async def test_background_scheduler_foreground_preemption():
-    """A foreground turn calling preempt() must abort an in-flight
-    background task immediately, and the scheduler must refuse to dequeue
-    any further work until resume_foreground_idle() is called."""
-    import asyncio as _asyncio
-
-    scheduler = BackgroundScheduler()
-    job = BackgroundJob(
-        job_id="bg",
-        kind=BackgroundJobKind.EPISODIC_CLUSTERING,
-        idempotency_key="bg-key",
-        budget_time_s=5.0,
-    )
-    scheduler.enqueue(job)
-
-    async def long_executor(_job: BackgroundJob) -> str:
-        await _asyncio.sleep(5.0)
-        return "should never be returned"
-
-    run_task = _asyncio.ensure_future(scheduler.run_next(long_executor))
-    await _asyncio.sleep(0.01)
-    scheduler.preempt()
-    result = await run_task
-
-    assert result == (False, "preempted")
-    assert scheduler.is_foreground_active is True
-    assert scheduler.errors[-1]["error"] == "preempted"
-
-    scheduler.enqueue(
-        BackgroundJob(
-            job_id="bg2",
-            kind=BackgroundJobKind.RELATIONSHIP_STATISTICS,
-            idempotency_key="bg2-key",
-        )
-    )
-    assert await scheduler.run_next(long_executor) == (False, None)
-
-    scheduler.resume_foreground_idle()
-    assert scheduler.is_foreground_active is False
-
-
-def test_background_scheduler_preemption_is_reentrant():
-    """Fix round: `is_foreground_active` is backed by a depth counter, not
-    a bool -- a second, nested preempt() must not be undone by a single
-    resume. The scheduler only goes idle again once resume_foreground_idle()
-    has been called as many times as preempt() was, and an extra, unmatched
-    resume must be a no-op rather than going negative or raising."""
-    scheduler = BackgroundScheduler()
-
-    scheduler.preempt()
-    scheduler.preempt()
-    assert scheduler.is_foreground_active is True
-
-    scheduler.resume_foreground_idle()
-    assert scheduler.is_foreground_active is True
-
-    scheduler.resume_foreground_idle()
-    assert scheduler.is_foreground_active is False
-
-    scheduler.resume_foreground_idle()
-    assert scheduler.is_foreground_active is False
-
-
-async def test_pipeline_execute_resumes_background_on_exception():
-    """Fix round: `CognitivePipeline.execute` wraps its whole body in
-    try/finally so `_maybe_resume_background` runs on every exit, including
-    an exception raised deep inside a stage -- a bare call at the end of the
-    method body (the pre-fix-round approach) only ran on a clean finish and
-    left the scheduler permanently preempted on any of the others."""
-    scheduler = BackgroundScheduler()
-    state = MagicMock()
-    state.last_speculative_intent = None
-
-    perception = AsyncMock()
-    perception.perceive.side_effect = RuntimeError("boom")
-
-    pipeline = CognitivePipeline(
-        perception=perception,
-        appraisal=MagicMock(),
-        state=state,
-        decision=MagicMock(),
-        action=MagicMock(),
-        learning=AsyncMock(),
-        identity=MagicMock(),
-        scheduler=scheduler,
-    )
-
-    with pytest.raises(RuntimeError):
-        async for _ in pipeline.execute(
-            {"event_type": "USER_MESSAGE", "content": "hi"}
-        ):
-            pass
-
-    assert scheduler.is_foreground_active is False
 
 
 # --- Due-goal review --------------------------------------------------------
@@ -442,7 +264,9 @@ def test_candidate_selector_metacognitive_directive_modulation():
     assert winner_abstain.candidate_id == "wait"
 
     speak_or_ask = [
-        ActionCandidate(candidate_id="speak2", kind="SPEAK", source="policy", score=0.5),
+        ActionCandidate(
+            candidate_id="speak2", kind="SPEAK", source="policy", score=0.5
+        ),
         ActionCandidate(
             candidate_id="ask2", kind="ASK", source="memory_activation", score=0.3
         ),
@@ -453,8 +277,12 @@ def test_candidate_selector_metacognitive_directive_modulation():
     assert winner_ask.candidate_id == "ask2"
 
     speak_or_verify = [
-        ActionCandidate(candidate_id="speak3", kind="SPEAK", source="policy", score=0.5),
-        ActionCandidate(candidate_id="verify3", kind="VERIFY", source="policy", score=0.3),
+        ActionCandidate(
+            candidate_id="speak3", kind="SPEAK", source="policy", score=0.5
+        ),
+        ActionCandidate(
+            candidate_id="verify3", kind="VERIFY", source="policy", score=0.3
+        ),
     ]
     winner_verify, _ = selector.score_and_select(
         speak_or_verify, active_goals=[], metacognitive_directive="VERIFY"
@@ -544,12 +372,15 @@ def test_candidate_selector_cross_person_privacy_rejection():
 
     assert winner.candidate_id == "safe"
     assert any(
-        r["candidate_id"] == "disclose" and r["reason"] == "privacy_disclosure_violation"
+        r["candidate_id"] == "disclose"
+        and r["reason"] == "privacy_disclosure_violation"
         for r in rejected
     )
 
     with pytest.raises(ValueError):
-        selector.score_and_select(candidates, active_goals=[], privacy_filter=lambda c: False)
+        selector.score_and_select(
+            candidates, active_goals=[], privacy_filter=lambda c: False
+        )
 
 
 # --- ASCII hygiene -----------------------------------------------------------
@@ -559,7 +390,6 @@ def test_phase04_claude_files_are_ascii_only():
     """Phase 04 Package B sources must remain portable 7-bit ASCII artifacts."""
     repository_root = Path(__file__).resolve().parents[2]
     owned_files = [
-        repository_root / "backend/app/cognitive/background_scheduler.py",
         repository_root / "backend/app/cognitive/goals.py",
         repository_root / "backend/app/cognitive/learning_review.py",
         repository_root / "backend/app/cognitive/decision.py",

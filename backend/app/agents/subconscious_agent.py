@@ -1,18 +1,21 @@
 import asyncio
+import json
 import logging
 import time
 import uuid
-from datetime import datetime
 from typing import Any
 
+from app import clock
 from app.agents.base import BaseAgent, install_shutdown_signal_handlers
-from app.cognitive.subconscious import SubconsciousEngine
+from app.cognitive.subconscious import ProactiveThought, SubconsciousEngine
+from app.cognitive.trace import emit
+from app.cognitive.trace import enabled as trace_enabled
 from app.config import Config
 from app.contracts import ChatInput, ChatInputMetadata, Topics
 from app.llm import build_llm_client
 from app.measure_trace import trace as _measure_trace
 from app.state import proactive_queue
-from app.state.agent_state import StateService
+from app.state.agent_state import StateService, in_hour_window, user_hour
 from app.state.graph_db import GraphDB
 
 logger = logging.getLogger(__name__)
@@ -40,9 +43,7 @@ def is_rest_phase(
     idle_s = now - last_user_interaction
     if idle_s < idle_threshold_s:
         return False
-    hour = datetime.fromtimestamp(now).hour
-    is_night = hour >= 22 or hour < 6
-    return is_night or fatigue > 0.8
+    return in_hour_window(user_hour(now), 22, 6) or fatigue > 0.8
 
 
 class SubconsciousAgent(BaseAgent):
@@ -160,11 +161,18 @@ class SubconsciousAgent(BaseAgent):
             durable=f"{self.name}_chat_input",
             deliver_policy="new",
         )
+        # F-017: state.broadcast is a full snapshot in AI_STATE, which keeps
+        # only the newest one. "last" hands a newly created durable (first
+        # boot, or the one the migration recreates) that snapshot at once;
+        # "new" left this process on persona defaults until the next tick,
+        # since broadcasts are its only source of the brain's state. A resumed
+        # durable is unaffected: it continues from its cursor, and the stream
+        # holds nothing older than the newest snapshot to replay.
         await self.subscribe(
             "state.broadcast",
             self._on_state_broadcast,
             durable=f"{self.name}_state_broadcast",
-            deliver_policy="new",
+            deliver_policy="last",
         )
         # Phase 3.1: liveness signal like state.broadcast above, not a work
         # item -- a freshly (re)started process replaying every past
@@ -197,15 +205,21 @@ class SubconsciousAgent(BaseAgent):
         self._monologue_task = asyncio.create_task(self._continuous_monologue_loop())
         logger.info(f"🧠 {self.name} Online | Subconscious Mesh Interface Active.")
 
-    async def _deliver_thought(self, thought: str) -> None:
+    async def _deliver_thought(self, thought: ProactiveThought) -> None:
         """Publish one proactive thought as a real `chat.input` turn -- the
         same path a live thought or a replayed, queued one both go through,
         so there is exactly one implementation of "how a thought becomes an
         utterance" to keep correct."""
         msg = ChatInput(
-            text=thought,
+            text=thought.text,
             utterance_id=str(uuid.uuid4()),
-            metadata=ChatInputMetadata(source="subconscious", confidence=1.0),
+            metadata=ChatInputMetadata(
+                source="subconscious",
+                confidence=1.0,
+                importance=thought.importance,
+                category=thought.category,
+                goal_id=thought.goal_id,
+            ),
         )
         await self.publish(Topics.CHAT_INPUT, msg.model_dump())
 
@@ -220,10 +234,18 @@ class SubconsciousAgent(BaseAgent):
 
         if connected and not was_connected:
             pending = proactive_queue.pop_all(self.state_service.db_path)
-            for thought in pending:
+            for encoded in pending:
+                try:
+                    thought = ProactiveThought(**json.loads(encoded))
+                except (ValueError, TypeError):
+                    thought = ProactiveThought(
+                        text=encoded,
+                        importance=0.0,
+                        category="useful_to_user",
+                    )
                 logger.info(
                     "[Subconscious] Delivering queued thought on reconnect: '%s'",
-                    thought,
+                    thought.text,
                 )
                 await self._deliver_thought(thought)
 
@@ -287,7 +309,7 @@ class SubconsciousAgent(BaseAgent):
             "trust": data.get("trust", 0.5),
             "attachment": data.get("attachment", 0.1),
             "fatigue": data.get("fatigue", 0.0),
-            "last_user_interaction": data.get("last_user_interaction", time.time()),
+            "last_user_interaction": data.get("last_user_interaction", clock.time()),
             "interaction_count": data.get("interaction_count", 0),
             "inferred_valence": data.get("inferred_valence", 0.0),
             "inferred_arousal": data.get("inferred_arousal", 0.5),
@@ -368,7 +390,16 @@ class SubconsciousAgent(BaseAgent):
         a decision.
         """
         last_bench = getattr(self, "_last_benchmark_time", 0.0)
-        if time.time() - last_bench < 300:
+        benchmark_elapsed = clock.time() - last_bench
+        if benchmark_elapsed < 300:
+            if trace_enabled():
+                emit(
+                    "proactive.decision",
+                    fired=False,
+                    reason="benchmark_active",
+                    benchmark_elapsed_s=benchmark_elapsed,
+                    benchmark_threshold_s=300,
+                )
             logger.info(
                 "[Subconscious] Suppressing proactive system tick thought: Benchmark is active."
             )
@@ -377,9 +408,31 @@ class SubconsciousAgent(BaseAgent):
         state_snap = self.state_service.get_context_snapshot()
         eligible = self.state_service.check_proactive_eligibility()
 
-        thought = await self.engine.evaluate_and_think(state_snap, eligible)
+        candidate = await self.engine.evaluate_and_think(state_snap, eligible)
 
-        if thought:
+        if candidate:
+            accepted = self.state_service.proactive_candidate_eligible(
+                importance=candidate.importance,
+                category=candidate.category,
+                description=candidate.text,
+                goal_id=candidate.goal_id,
+            )
+            # Generation itself consumes the window, including a candidate
+            # rejected by importance, so one low-value thought cannot cost an
+            # LLM call on every system tick.
+            self.state_service.mark_proactive_attempt()
+            await self.state_service.persist_state()
+            if not accepted:
+                return
+            goal_id, _ = self.state_service.record_proactive_thought(
+                candidate.text, goal_id=candidate.goal_id
+            )
+            candidate = ProactiveThought(
+                text=candidate.text,
+                importance=candidate.importance,
+                category=candidate.category,
+                goal_id=goal_id,
+            )
             # Phase 3.1: a proactive thought generated while nobody is
             # connected has nowhere to go -- publishing it anyway triggers a
             # full cognitive turn, TTS and audio synthesis transport_agent
@@ -387,26 +440,35 @@ class SubconsciousAgent(BaseAgent):
             # Queuing instead costs nothing until reconnect, at which point
             # _on_session_presence replays it through this exact same path.
             if self._someone_connected:
-                logger.info(f"[Subconscious] Thought generated: '{thought}'")
-                await self._deliver_thought(thought)
+                logger.info("[Subconscious] Thought generated: '%s'", candidate.text)
+                await self._deliver_thought(candidate)
             else:
                 logger.info(
                     "[Subconscious] Thought generated while nobody is "
                     "connected; queuing for reconnect: '%s'",
-                    thought,
+                    candidate.text,
                 )
-                proactive_queue.enqueue(self.state_service.db_path, thought)
+                proactive_queue.enqueue(
+                    self.state_service.db_path,
+                    json.dumps(
+                        {
+                            "text": candidate.text,
+                            "importance": candidate.importance,
+                            "category": candidate.category,
+                            "goal_id": candidate.goal_id,
+                        }
+                    ),
+                )
 
             # Marked either way: a queued thought still consumed this tick's
             # eligibility window, and not marking it would let every tick
             # while still disconnected generate (and queue) another thought,
             # stacking up duplicates until someone reconnects.
-            self.state_service.mark_proactive_attempt()
 
         # Subconscious Memory Consolidation (ACT-R & Fact Triplet Crystallization)
         # Enforce 5-minute silence check: user must be inactive for at least 300 seconds (unless bypassed)
         last_interact = self.state_service.current_state.last_user_interaction
-        silence_duration = time.time() - last_interact
+        silence_duration = clock.time() - last_interact
         bypass = getattr(Config, "TESTING_CONSOLIDATION_BYPASS_SILENCE", False)
 
         if silence_duration < 300 and not bypass:
@@ -538,7 +600,7 @@ class SubconsciousAgent(BaseAgent):
 
         # Suppress proactive background tasks when benchmark is running
         if isinstance(metadata, dict) and metadata.get("benchmark_id") == "bench_pulse":
-            self._last_benchmark_time = time.time()
+            self._last_benchmark_time = clock.time()
             logger.info(
                 "[Subconscious] Benchmark pulse detected. Suppressing proactive monologue/dreaming loops."
             )
@@ -621,12 +683,12 @@ class SubconsciousAgent(BaseAgent):
 
                 # Suppress monologue and dream sequences if benchmark is active
                 last_bench = getattr(self, "_last_benchmark_time", 0.0)
-                if time.time() - last_bench < 300:
+                if clock.time() - last_bench < 300:
                     continue
 
                 # Check for silence duration
                 last_interact = self.state_service.current_state.last_user_interaction
-                silence_duration = time.time() - last_interact
+                silence_duration = clock.time() - last_interact
 
                 # Check current fatigue
                 state_snap = self.state_service.get_context_snapshot()
@@ -646,7 +708,7 @@ class SubconsciousAgent(BaseAgent):
                         )
                 else:
                     # Normal monologue (requires 30s user inactivity)
-                    now = time.time()
+                    now = clock.time()
                     if (
                         silence_duration >= 30
                         and (now - self._last_monologue_time) >= 30
@@ -666,7 +728,7 @@ class SubconsciousAgent(BaseAgent):
                 # -- both a dream and a rest-phase replay can legitimately
                 # run the same tick, so this is a separate check rather than
                 # a third branch of the if/else above.
-                now = time.time()
+                now = clock.time()
                 replay_due = (
                     now - self._last_replay_time
                 ) >= Config.REST_PHASE_REPLAY_INTERVAL_SECONDS
@@ -710,7 +772,7 @@ class SubconsciousAgent(BaseAgent):
                 logger.info(f"[Monologue] Thought generated: '{thought}'")
                 await self.publish(
                     Topics.STATE_SUBCONSCIOUS,
-                    {"thought": thought, "timestamp": time.time()},
+                    {"thought": thought, "timestamp": clock.time()},
                 )
         except asyncio.CancelledError:
             logger.info(
@@ -806,10 +868,12 @@ class SubconsciousAgent(BaseAgent):
         See `.agents/CONTEXT.md` for the concrete design this followed.
         """
         try:
-            contents = await self.memory_store.get_recent_high_importance_memory_contents(
-                limit=Config.REST_PHASE_REPLAY_LIMIT,
-                min_importance=Config.REST_PHASE_REPLAY_MIN_IMPORTANCE,
-                lookback_hours=Config.REST_PHASE_REPLAY_LOOKBACK_HOURS,
+            contents = (
+                await self.memory_store.get_recent_high_importance_memory_contents(
+                    limit=Config.REST_PHASE_REPLAY_LIMIT,
+                    min_importance=Config.REST_PHASE_REPLAY_MIN_IMPORTANCE,
+                    lookback_hours=Config.REST_PHASE_REPLAY_LOOKBACK_HOURS,
+                )
             )
             if not contents:
                 logger.info(
@@ -822,12 +886,10 @@ class SubconsciousAgent(BaseAgent):
                 len(contents),
             )
 
-            relink_candidates = (
-                await self.memory_store.get_recent_high_importance_memories_for_relinking(
-                    limit=Config.REST_PHASE_REPLAY_LIMIT,
-                    min_importance=Config.REST_PHASE_REPLAY_MIN_IMPORTANCE,
-                    lookback_hours=Config.REST_PHASE_REPLAY_LOOKBACK_HOURS,
-                )
+            relink_candidates = await self.memory_store.get_recent_high_importance_memories_for_relinking(
+                limit=Config.REST_PHASE_REPLAY_LIMIT,
+                min_importance=Config.REST_PHASE_REPLAY_MIN_IMPORTANCE,
+                lookback_hours=Config.REST_PHASE_REPLAY_LOOKBACK_HOURS,
             )
             relinked = await self.memory_store.relink_memory_entities(relink_candidates)
             logger.info(

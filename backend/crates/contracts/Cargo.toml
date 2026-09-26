@@ -7,3 +7,6 @@ license.workspace = true
 [dependencies]
 serde.workspace = true
 serde_json.workspace = true
+
+[dev-dependencies]
+proptest = { version = "1.6", default-features = false, features = ["std"] }

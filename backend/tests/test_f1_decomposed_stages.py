@@ -110,6 +110,9 @@ class _GatingSpy:
     _build_search_cache_key = staticmethod(MemoryStore._build_search_cache_key)
     _l1_cache_hit = MemoryStore._l1_cache_hit
     _refresh_stop_words_if_stale = MemoryStore._refresh_stop_words_if_stale
+    # The error path this spy's _StopAfterGating ends in emits its trace
+    # through this helper.
+    _emit_actr_search_trace = staticmethod(MemoryStore._emit_actr_search_trace)
 
     def _compute_mrl_gating(self, arousal, cortisol, limit, full_pool):
         self.seen.append(full_pool)

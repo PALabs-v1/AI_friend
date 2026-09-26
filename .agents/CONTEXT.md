@@ -17135,3 +17135,68 @@ mutations, 33 killed, 5 equivalent. Backend suite 2,540 passed, 8 skipped.
 Scores over the last four rounds 7, 6, 6, 5: stall rule applied, loop stopped
 without a PASS; continuing is the maintainer's call (01-problems, "Critic loop
 stopped").
+
+### 2026-09-26 -- Brain V3: AI_STATE stream, NATS grant audit, agents stop provisioning
+
+F-017: W9 put up to 256 thought records in every `state.broadcast`, sent every
+60 s tick into `AI_MESSAGES` (file, 7 days, 1 GiB, discard old): about 1.4 GB a
+week at the cap, so snapshots pushed chat history out of the stream.
+`state.broadcast` now lives in its own `AI_STATE` stream with
+`max_msgs_per_subject=1` (only the newest snapshot is kept) and still carries
+the full snapshot every time. `AI_MESSAGES` gave up `state.>` for its three
+explicit state subjects (`state.update`, `state.subconscious`,
+`state.presence`): those are work items and a liveness signal, so they must not
+collapse to their newest message. `RETIRED_SUBJECTS` in `nats_streams.py`
+removes `state.>` on reconcile, purges the moved subject's retained messages
+and deletes consumers whose filter left the stream (tolerating a concurrent
+setup that deleted them first), so an existing install migrates on its next
+`setup_nats_streams.py` run.
+
+Tried and dropped: sending the goal list only on change (digest plus periodic
+full copy). On a latest-only stream a consumer that was away sees only the
+newest message; a cold critic reproduced a restarted subconscious receiving a
+slim broadcast and keeping a stale list for up to 10 minutes. Full snapshots
+on a one-message stream fix the storage problem without that failure mode
+(`test_a_resumed_consumer_gets_the_latest_full_snapshot`,
+`test_every_state_broadcast_is_a_full_snapshot`). The subconscious now
+subscribes to `state.broadcast` with `deliver_policy="last"`, so a durable
+created after the migration (or on first boot) gets the retained snapshot at
+once instead of running on persona defaults until the next tick.
+
+F-018: the per-agent grants predated half the subjects the code now uses, and
+W10a made auth the default. `scripts/check_nats_grants.py` derives each
+agent's subjects from its import closure (dynamic plus static, so PEP 562 lazy
+exports count) and fails on any gap; it runs in pytest (`test_nats_grants.py`),
+and the real-server test publishes and consumes every subject as its agent.
+The signaling grant is least-privilege: its chat.output consumer on
+AI_MESSAGES, `$JS.ACK`, `chat.input` and `vision.control`, nothing else.
+A publish with a subject the scan cannot read fails the audit unless it is a
+named forwarder (`FORWARDERS`). `$JS.API.PUB.>` is gone from every user: it is
+not a NATS API, and every derived subject publishes without it.
+The audit also fails on any grant wider than the code needs (JetStream rights
+probed per stream and API kind); 29 excess grants went, `$JS.ACK.>` became
+per stream, and Python agents subscribe `_INBOX.>` only (their consumers
+deliver there; no core-NATS subscription exists). Retained snapshots are
+purged after the stream update and on every run, so one published
+mid-migration is not stranded. A consumer filtering on a subject a stream
+keeps as well as one it is losing is updated to the surviving filter, not
+deleted whole, by a bidirectional subject-overlap test rather than one-sided
+containment; a filter broader than any single target subject (`state.>`)
+is left untouched, since NATS's own subject-to-stream routing already keeps
+it correct. A `.subscribe(subject=..., ...)` call the scanner cannot read is
+now a gap, not a silent pass (mirroring the publish-side `FORWARDERS`
+handling). `AI_STATE` starting empty right after migration is documented as
+a bounded, self-closing limitation, not fixed: the two streams cannot both
+hold `state.broadcast` at once, and backfilling it risks overwriting a
+fresher snapshot on a one-message stream. Still open (F-020, W10b): every user subscribes `_INBOX.>`, so
+any agent can read the others' deliveries; the fix is per-user inbox prefixes.
+
+F-019: `bootstrap_runtime` ran `setup_streams` as `brain_agent`, which has no
+`$JS.API.STREAM.*` rights, so under default auth the brain waited out every
+timeout and crash-looped. `_ensure_nats_streams` now provisions only when
+`NATS_USER` is the provisioner (`NATS_PROVISIONER_USER`, default
+`nats_provisioner`); agents rely on the one-shot `nats_provisioner` service.
+`scripts/integration/deploy-cloud.sh` provisioned through `docker exec
+brain_agent` (brain credentials, brain not yet started) and now runs that
+service; a static test pins every `setup_nats_streams.py` invocation to the
+provisioner.

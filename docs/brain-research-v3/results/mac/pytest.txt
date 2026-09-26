@@ -1,0 +1,126 @@
+........................................................................ [  2%]
+........................................................................ [  5%]
+........................................................................ [  8%]
+........................................................................ [ 11%]
+........................................................................ [ 14%]
+........................................................................ [ 16%]
+........................................................................ [ 19%]
+........................................................................ [ 22%]
+........................................................................ [ 25%]
+........................................................................ [ 28%]
+........................................................................ [ 31%]
+........................................................................ [ 33%]
+........................................................................ [ 36%]
+........................................................................ [ 39%]
+........................................................................ [ 42%]
+........................................................................ [ 45%]
+........................................................................ [ 48%]
+........................................................................ [ 50%]
+........................................................................ [ 53%]
+........................................................................ [ 56%]
+........................................................................ [ 59%]
+........................................................................ [ 62%]
+........................................................................ [ 64%]
+........................................................................ [ 67%]
+........................................................................ [ 70%]
+........................................................................ [ 73%]
+........................................................................ [ 76%]
+........................................................................ [ 79%]
+........................................................................ [ 81%]
+........................................................................ [ 84%]
+........................................................................ [ 87%]
+........................................................................ [ 90%]
+........................................................................ [ 93%]
+........................................................................ [ 96%]
+........................................................................ [ 98%]
+............................                                             [100%]
+Saved benchmark data in: /Users/aniketsaha/.claude-worktrees/AI_friend-2527627756/10f9894b/backend/.benchmarks/Darwin-CPython-3.12-64bit/0002_True.json
+
+=============================== warnings summary ===============================
+tests/test_affect_memory_integration.py::test_subconscious_agent_silence_check_and_24h_window
+  /Users/aniketsaha/.claude-worktrees/AI_friend-2527627756/10f9894b/backend/tests/test_affect_memory_integration.py:246: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    recent_time = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+
+tests/test_affect_memory_integration.py::test_subconscious_agent_silence_check_and_24h_window
+  /Users/aniketsaha/.claude-worktrees/AI_friend-2527627756/10f9894b/backend/tests/test_affect_memory_integration.py:247: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    old_time = (datetime.utcnow() - timedelta(hours=36)).strftime("%Y-%m-%d %H:%M:%S")
+
+tests/test_background_governed_learning.py::test_background_scheduler_preemption_is_reentrant
+  tests/test_background_governed_learning.py:146: PytestWarning: The test <Function test_background_scheduler_preemption_is_reentrant> is marked with '@pytest.mark.asyncio' but it is not an async function. Please remove the asyncio mark. If the test is not marked explicitly, check for global marks applied via 'pytestmark'.
+    def test_background_scheduler_preemption_is_reentrant():
+
+tests/test_background_governed_learning.py::test_due_goal_review_expiry
+  tests/test_background_governed_learning.py:204: PytestWarning: The test <Function test_due_goal_review_expiry> is marked with '@pytest.mark.asyncio' but it is not an async function. Please remove the asyncio mark. If the test is not marked explicitly, check for global marks applied via 'pytestmark'.
+    def test_due_goal_review_expiry():
+
+tests/test_background_governed_learning.py::test_goal_record_section_11_fields_default_and_settable
+  tests/test_background_governed_learning.py:230: PytestWarning: The test <Function test_goal_record_section_11_fields_default_and_settable> is marked with '@pytest.mark.asyncio' but it is not an async function. Please remove the asyncio mark. If the test is not marked explicitly, check for global marks applied via 'pytestmark'.
+    def test_goal_record_section_11_fields_default_and_settable():
+
+tests/test_background_governed_learning.py::test_learning_proposal_immutable_core_safety_invariant
+  tests/test_background_governed_learning.py:311: PytestWarning: The test <Function test_learning_proposal_immutable_core_safety_invariant> is marked with '@pytest.mark.asyncio' but it is not an async function. Please remove the asyncio mark. If the test is not marked explicitly, check for global marks applied via 'pytestmark'.
+    def test_learning_proposal_immutable_core_safety_invariant():
+
+tests/test_background_governed_learning.py::test_learning_proposal_immutable_core_bracket_and_case_bypass_rejected
+  tests/test_background_governed_learning.py:345: PytestWarning: The test <Function test_learning_proposal_immutable_core_bracket_and_case_bypass_rejected> is marked with '@pytest.mark.asyncio' but it is not an async function. Please remove the asyncio mark. If the test is not marked explicitly, check for global marks applied via 'pytestmark'.
+    def test_learning_proposal_immutable_core_bracket_and_case_bypass_rejected():
+
+tests/test_background_governed_learning.py::test_candidate_selector_metacognitive_directive_modulation
+  tests/test_background_governed_learning.py:425: PytestWarning: The test <Function test_candidate_selector_metacognitive_directive_modulation> is marked with '@pytest.mark.asyncio' but it is not an async function. Please remove the asyncio mark. If the test is not marked explicitly, check for global marks applied via 'pytestmark'.
+    def test_candidate_selector_metacognitive_directive_modulation():
+
+tests/test_background_governed_learning.py::test_candidate_selector_abstain_is_a_true_disqualifier
+  tests/test_background_governed_learning.py:465: PytestWarning: The test <Function test_candidate_selector_abstain_is_a_true_disqualifier> is marked with '@pytest.mark.asyncio' but it is not an async function. Please remove the asyncio mark. If the test is not marked explicitly, check for global marks applied via 'pytestmark'.
+    def test_candidate_selector_abstain_is_a_true_disqualifier():
+
+tests/test_background_governed_learning.py::test_candidate_selector_hedge_attaches_marker
+  tests/test_background_governed_learning.py:500: PytestWarning: The test <Function test_candidate_selector_hedge_attaches_marker> is marked with '@pytest.mark.asyncio' but it is not an async function. Please remove the asyncio mark. If the test is not marked explicitly, check for global marks applied via 'pytestmark'.
+    def test_candidate_selector_hedge_attaches_marker():
+
+tests/test_background_governed_learning.py::test_candidate_selector_cross_person_privacy_rejection
+  tests/test_background_governed_learning.py:521: PytestWarning: The test <Function test_candidate_selector_cross_person_privacy_rejection> is marked with '@pytest.mark.asyncio' but it is not an async function. Please remove the asyncio mark. If the test is not marked explicitly, check for global marks applied via 'pytestmark'.
+    def test_candidate_selector_cross_person_privacy_rejection():
+
+tests/test_background_governed_learning.py::test_phase04_claude_files_are_ascii_only
+  tests/test_background_governed_learning.py:558: PytestWarning: The test <Function test_phase04_claude_files_are_ascii_only> is marked with '@pytest.mark.asyncio' but it is not an async function. Please remove the asyncio mark. If the test is not marked explicitly, check for global marks applied via 'pytestmark'.
+    def test_phase04_claude_files_are_ascii_only():
+
+tests/test_performance.py: 974 warnings
+tests/test_vision.py: 8 warnings
+  /Users/aniketsaha/.claude-worktrees/AI_friend-2527627756/10f9894b/backend/app/vision/appraisal.py:128: DeprecationWarning: Image.Image.getdata is deprecated and will be removed in Pillow 14 (2027-10-15). Use get_flattened_data instead.
+    return [px / 255.0 for px in img.getdata()]  # type: ignore[attr-defined]
+
+tests/test_scenarios.py::test_scenario_hostile_interaction_drift
+  /Users/aniketsaha/.claude-worktrees/AI_friend-2527627756/10f9894b/backend/app/state/self_knowledge_store.py:228: RuntimeWarning: coroutine 'AsyncMockMixin._execute_mock_call' was never awaited
+    return dict(row) if row else None
+  Enable tracemalloc to get traceback where the object was allocated.
+  See https://docs.pytest.org/en/stable/how-to/capture-warnings.html#resource-warnings for more info.
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+
+---------------------------------------------------------------------------------------------------------------- benchmark: 17 tests ----------------------------------------------------------------------------------------------------------------
+Name (time in ns)                                       Min                       Max                    Mean                  StdDev                  Median                    IQR             Outliers  OPS (Kops/s)            Rounds  Iterations
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+test_subject_metrics_record_benchmark               77.0800 (1.0)      7,227,547.5001 (467.56)       687.8123 (2.53)      34,168.9257 (361.16)        97.5000 (1.0)          20.4200 (1.01)     137;13162    1,453.8851 (0.39)      82475         100
+test_async_telemetry_queue_put_benchmark           103.6583 (1.34)       611,583.3413 (39.56)        271.3845 (1.0)        5,573.9586 (58.92)        123.9997 (1.27)         20.3166 (1.0)      116;14910    3,684.8093 (1.0)      175193          41
+test_identity_appraisal_benchmark                  665.9975 (8.64)        15,457.9902 (1.0)          772.4224 (2.85)          94.6085 (1.0)          750.0057 (7.69)         42.0114 (2.07)     8422;8422    1,294.6284 (0.35)     163266           1
+test_personality_modulation_benchmark              749.9912 (9.73)        23,333.9961 (1.51)         868.2116 (3.20)         152.2650 (1.61)         833.9994 (8.55)         42.0114 (2.07)    7206;16468    1,151.7930 (0.31)     132609           1
+test_endocrine_state_decay_benchmark               758.3498 (9.84)       116,895.8501 (7.56)         834.7471 (3.08)         594.6321 (6.29)         804.2000 (8.25)         39.5499 (1.95)      683;2575    1,197.9676 (0.33)      57281          20
+test_arbitration_layer_benchmark                   832.9953 (10.81)       26,791.0073 (1.73)       1,021.5199 (3.76)         195.5455 (2.07)         999.9931 (10.26)       125.0010 (6.15)     6679;4748      978.9334 (0.27)     121213           1
+test_decision_tree_walk_benchmark                1,583.0010 (20.54)       33,125.0048 (2.14)       1,832.1757 (6.75)         334.2558 (3.53)       1,791.9956 (18.38)        84.0082 (4.13)    3187;12002      545.7992 (0.15)     118808           1
+test_affective_prosody_mapping_benchmark         2,125.0016 (27.57)       23,582.9939 (1.53)       2,309.4210 (8.51)         324.3967 (3.43)       2,291.0099 (23.50)        82.9896 (4.08)      687;1171      433.0090 (0.12)      32259           1
+test_subconscious_threat_scan_benchmark          2,999.9937 (38.92)       41,791.9946 (2.70)       8,229.4849 (30.32)        650.0116 (6.87)       8,167.0005 (83.76)       416.0102 (20.48)    1979;1294      121.5143 (0.03)      51726           1
+test_conversation_serialization_benchmark        3,165.9874 (41.07)       22,583.0008 (1.46)       3,396.7200 (12.52)        334.3408 (3.53)       3,374.9966 (34.62)       125.0010 (6.15)      518;1985      294.4017 (0.08)      26937           1
+test_memory_semantic_retrieve_benchmark         25,291.9999 (328.13)      56,208.0095 (3.64)      26,980.2837 (99.42)      1,291.0592 (13.65)     26,875.0009 (275.64)    1,331.9950 (65.56)     2808;262       37.0641 (0.01)      15947           1
+test_vision_frame_encode_benchmark              83,249.9936 (>1000.0)    181,041.9926 (11.71)     88,402.5537 (325.75)     6,649.7303 (70.29)     86,792.0025 (890.17)    3,334.0038 (164.10)       81;99       11.3119 (0.00)        972           1
+test_reappraisal_cognitive_benchmark            87,459.0041 (>1000.0)    185,917.0006 (12.03)    119,860.4344 (441.66)    11,818.9229 (124.92)   121,083.9982 (>1000.0)  17,229.5040 (848.05)     1422;12        8.3430 (0.00)       4180           1
+test_stt_payload_parsing_benchmark              90,084.0096 (>1000.0)    320,084.0001 (20.71)    106,492.6621 (392.41)     8,232.2674 (87.01)    105,291.9979 (>1000.0)   6,541.0131 (321.95)     383;181        9.3903 (0.00)       4463           1
+test_nats_metadata_serialization_benchmark      94,125.0037 (>1000.0)  5,070,667.0008 (328.03)   128,312.8501 (472.81)   136,523.2942 (>1000.0)  121,500.0084 (>1000.0)  19,708.0008 (970.04)       23;72        7.7935 (0.00)       4336           1
+test_pipeline_step_dispatch_benchmark           97,791.9990 (>1000.0)  4,978,458.0042 (322.06)   126,899.6108 (467.60)    89,039.5524 (941.14)   124,500.0021 (>1000.0)  18,000.0061 (885.98)       34;73        7.8802 (0.00)       4510           1
+test_hybrid_segmenter_benchmark                102,374.9937 (>1000.0)  4,308,624.9934 (278.73)   112,264.8281 (413.67)    48,295.3974 (510.48)   110,624.9983 (>1000.0)   5,531.7614 (272.28)      64;305        8.9075 (0.00)       8615           1
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+Legend:
+  Outliers: 1 Standard Deviation from Mean; 1.5 IQR (InterQuartile Range) from 1st Quartile and 3rd Quartile.
+  OPS: Operations Per Second, computed as 1 / Mean
+2548 passed, 995 warnings in 88.19s (0:01:28)

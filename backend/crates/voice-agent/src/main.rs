@@ -2,13 +2,14 @@ use anyhow::{Context, Result};
 use async_nats::HeaderMap;
 use bytes::Bytes;
 use contracts::{
-    topics, vad_to_prosody, AmbientNoiseTelemetry, ChatOutput, PlaybackVisemes, HEADER_LATENCY_META, HEADER_PAYLOAD_FORMAT,
-    PAYLOAD_FORMAT_RAW_PCM,
+    topics, vad_to_prosody, AmbientNoiseTelemetry, AudioStreamTrailer, ChatOutput, PlaybackVisemes,
+    HEADER_LATENCY_META, HEADER_PAYLOAD_FORMAT, PAYLOAD_FORMAT_RAW_PCM,
 };
 use futures_util::StreamExt;
 use regex::Regex;
 use reqwest::Client;
 use serde_json::json;
+use std::collections::HashSet;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tracing::{error, info, warn};
 
@@ -64,11 +65,12 @@ fn mesh_signal_applies_to_active_turn(active: &ActiveTurn, signal_turn: Option<&
     }
 }
 
-/// P2-1, opt-in: connects with a username/password only when both are
-/// given, mirroring `BaseAgent.connect` (Python) so both halves of the mesh
-/// honour the same opt-in credential -- see nats-accounts.conf's own header
-/// for how an operator turns this on. With neither given (the default),
-/// this is `async_nats::connect(url)`, unchanged from before this existed.
+fn stop_aborts_generation(stop: &contracts::AudioStop) -> bool {
+    !stop.speculative && !stop.flush
+}
+
+/// Runtime agents require a username/password, matching the authenticated
+/// default in `nats-accounts.conf` and Python's `BaseAgent.connect`.
 /// Takes the credentials as parameters rather than reading
 /// `NATS_USER`/`NATS_PASSWORD` internally so tests can exercise both
 /// branches without mutating this process's real environment (`cargo test`
@@ -77,15 +79,16 @@ async fn connect_nats(
     url: &str,
     user: Option<String>,
     password: Option<String>,
-) -> std::result::Result<async_nats::Client, async_nats::ConnectError> {
+) -> Result<async_nats::Client> {
     match (user, password) {
-        (Some(user), Some(password)) => {
+        (Some(user), Some(password)) if !user.is_empty() && !password.is_empty() => {
             async_nats::ConnectOptions::new()
                 .user_and_password(user, password)
                 .connect(url)
                 .await
+                .context("NATS authentication failed")
         }
-        _ => async_nats::connect(url).await,
+        _ => anyhow::bail!("NATS_USER and NATS_PASSWORD are required"),
     }
 }
 
@@ -170,7 +173,9 @@ impl ReverbFilter {
         }
 
         let mut samples = framed
-            .chunks_exact(2)
+            .as_chunks::<2>()
+            .0
+            .iter()
             .map(|chunk| i16::from_le_bytes([chunk[0], chunk[1]]))
             .collect::<Vec<i16>>();
 
@@ -259,7 +264,8 @@ impl PcmSampleFramer {
     }
 
     fn process(&mut self, bytes: &[u8]) -> Vec<u8> {
-        let mut framed = Vec::with_capacity(bytes.len() + if self.pending_byte.is_some() { 1 } else { 0 });
+        let mut framed =
+            Vec::with_capacity(bytes.len() + if self.pending_byte.is_some() { 1 } else { 0 });
         if let Some(byte) = self.pending_byte.take() {
             framed.push(byte);
         }
@@ -400,6 +406,10 @@ fn reference_clip_missing(path: &str) -> bool {
     std::fs::metadata(path).is_err()
 }
 
+fn take_stream_failure(failed_turns: &mut HashSet<String>, turn_id: Option<&str>) -> bool {
+    turn_id.is_some_and(|turn_id| failed_turns.remove(turn_id))
+}
+
 fn warn_if_reference_clip_missing(env_var: &str, clip: &RefClip) {
     if reference_clip_missing(&clip.audio_path) {
         warn!(
@@ -480,7 +490,12 @@ fn select_emotion_bucket(
 fn emotion_bucket_from_expression(
     expression: &contracts::SpeechExpressionWire,
 ) -> Option<EmotionBucket> {
-    match expression.affect_label.as_deref()?.to_ascii_lowercase().as_str() {
+    match expression
+        .affect_label
+        .as_deref()?
+        .to_ascii_lowercase()
+        .as_str()
+    {
         "calm" => Some(EmotionBucket::Calm),
         "warm" => Some(EmotionBucket::Warm),
         "concerned" => Some(EmotionBucket::Concerned),
@@ -549,7 +564,8 @@ impl CircuitBreaker {
     fn record_success(&self) {
         self.consecutive_failures
             .store(0, std::sync::atomic::Ordering::SeqCst);
-        self.opened_at_ms.store(0, std::sync::atomic::Ordering::SeqCst);
+        self.opened_at_ms
+            .store(0, std::sync::atomic::Ordering::SeqCst);
     }
 
     /// A half-open trial's failure re-arms the full cooldown with a fresh
@@ -682,7 +698,10 @@ async fn main() -> Result<()> {
         while let Some(msg) = stop_sub.next().await {
             match serde_json::from_slice::<contracts::AudioStop>(&msg.payload) {
                 Ok(stop) => {
-                    if !mesh_signal_applies_to_active_turn(&active_turn_stop, stop.turn_id.as_deref()) {
+                    if !mesh_signal_applies_to_active_turn(
+                        &active_turn_stop,
+                        stop.turn_id.as_deref(),
+                    ) {
                         info!(
                             stop_turn = ?stop.turn_id,
                             "Ignoring AUDIO_STOP addressed to a turn that is no longer speaking."
@@ -694,6 +713,8 @@ async fn main() -> Result<()> {
                         if let Ok(mut guard) = attenuation_stop.lock() {
                             *guard = 0.30;
                         }
+                    } else if !stop_aborts_generation(&stop) {
+                        info!("Received AUDIO_STOP flush; preserving the active generation.");
                     } else {
                         info!("Received CONFIRMED AUDIO_STOP - aborting current voice playback.");
                         abort_flag_stop.store(true, std::sync::atomic::Ordering::SeqCst);
@@ -752,7 +773,9 @@ async fn main() -> Result<()> {
     let mut modulation_sub = client.subscribe(topics::AGENT_VOICE_MODULATION).await?;
     tokio::spawn(async move {
         while let Some(msg) = modulation_sub.next().await {
-            if let Ok(mod_payload) = serde_json::from_slice::<contracts::AgentVoiceModulation>(&msg.payload) {
+            if let Ok(mod_payload) =
+                serde_json::from_slice::<contracts::AgentVoiceModulation>(&msg.payload)
+            {
                 if !mod_payload.trajectory.is_empty() {
                     info!(
                         frames = mod_payload.trajectory.len(),
@@ -769,7 +792,6 @@ async fn main() -> Result<()> {
         }
     });
 
-
     // #165: block audio ingress until one full synthesis pass has completed, so
     // the model's weights are already resident in VRAM before the first real
     // utterance arrives — otherwise that utterance pays the 2-4s cold-start
@@ -779,7 +801,11 @@ async fn main() -> Result<()> {
     // (TTS_READINESS_PROBE_INTERVAL_SECS=0) — local dev against a mock or
     // absent SoVITS server should not have startup blocked on a synthesis call
     // that can never succeed.
-    if env_or("TTS_READINESS_PROBE_INTERVAL_SECS", "45").parse().unwrap_or(45u64) > 0 {
+    if env_or("TTS_READINESS_PROBE_INTERVAL_SECS", "45")
+        .parse()
+        .unwrap_or(45u64)
+        > 0
+    {
         match probe_synthesis(&config, &http).await {
             Ok(()) => info!("TTS warmup pass complete"),
             Err(e) => warn!("TTS warmup pass failed, continuing startup anyway: {e:#}"),
@@ -800,6 +826,7 @@ async fn main() -> Result<()> {
     // back down, audibly, every single chunk boundary during an ongoing duck.
     let mut reverb_filter = ReverbFilter::new((config.sample_rate as f32 * 0.05) as usize, 0.5);
     let mut current_attenuation_val = 1.0f64;
+    let mut failed_turns = HashSet::new();
 
     while let Some(message) = subscriber.next().await {
         match serde_json::from_slice::<ChatOutput>(&message.payload) {
@@ -817,6 +844,10 @@ async fn main() -> Result<()> {
                     // ReverbFilter::reset's doc comment for why per-chunk would be wrong
                     // and why never resetting (the previous behavior) was too.
                     reverb_filter.reset();
+                    let failed = take_stream_failure(&mut failed_turns, event.turn_id.as_deref());
+                    if let Err(err) = publish_stream_trailer(&jetstream, &event, failed).await {
+                        error!("voice-agent failed to publish stream trailer: {err:#}");
+                    }
                     continue;
                 }
 
@@ -841,6 +872,7 @@ async fn main() -> Result<()> {
                     // Drop trailing chunks after interruption until stream completion.
                     continue;
                 }
+                let trailer_event = event.clone();
                 if let Err(err) = handle_chat_output(
                     &config,
                     &http,
@@ -860,6 +892,9 @@ async fn main() -> Result<()> {
                 .await
                 {
                     error!("voice-agent failed to process chat.output: {err:#}");
+                    if let Some(turn_id) = trailer_event.turn_id {
+                        failed_turns.insert(turn_id);
+                    }
                 }
             }
             Err(err) => warn!("dropping invalid chat.output payload: {err}"),
@@ -881,7 +916,10 @@ fn load_vocalization_pcm(name: &str, sample_rate: u32) -> Vec<u8> {
                 info!("Successfully loaded vocalization {} from {}", name, path);
                 return pcm;
             } else {
-                warn!("WAV file at {} found, but missing data chunk or invalid format.", path);
+                warn!(
+                    "WAV file at {} found, but missing data chunk or invalid format.",
+                    path
+                );
             }
         }
     }
@@ -906,19 +944,16 @@ fn extract_wav_data(data: &[u8]) -> Option<Vec<u8>> {
     let mut pos = 12;
     while pos + 8 <= data.len() {
         let chunk_id = &data[pos..pos + 4];
-        let chunk_size = u32::from_le_bytes([
-            data[pos + 4],
-            data[pos + 5],
-            data[pos + 6],
-            data[pos + 7],
-        ]) as usize;
+        let chunk_size =
+            u32::from_le_bytes([data[pos + 4], data[pos + 5], data[pos + 6], data[pos + 7]])
+                as usize;
         if chunk_id == b"data" {
             let start = pos + 8;
             let end = (start + chunk_size).min(data.len());
             return Some(data[start..end].to_vec());
         }
         pos += 8 + chunk_size;
-        if chunk_size % 2 != 0 {
+        if !chunk_size.is_multiple_of(2) {
             pos += 1; // RIFF chunks are word-aligned
         }
     }
@@ -937,7 +972,8 @@ const HESITATION_FILLER_TEXT: &str = "Mm...";
 /// second real-TTS round-trip for what is deliberately always the same
 /// short phrase. Bounded by construction: there are exactly five buckets,
 /// so this can never grow past five entries.
-type HesitationCache = std::sync::Arc<tokio::sync::Mutex<std::collections::HashMap<EmotionBucket, Vec<u8>>>>;
+type HesitationCache =
+    std::sync::Arc<tokio::sync::Mutex<std::collections::HashMap<EmotionBucket, Vec<u8>>>>;
 
 /// P4-9: `<hesitate>` used to synthesize a sine+noise buzz locally --
 /// audio in neither the cloned voice nor silence, the same contradiction
@@ -949,6 +985,9 @@ type HesitationCache = std::sync::Arc<tokio::sync::Mutex<std::collections::HashM
 /// circuit breaker is open (a known-down engine) or when this specific
 /// synthesis attempt fails; a failed attempt records on the same breaker
 /// real speech does, since a TTS engine down for one is down for both.
+// The inputs are independent runtime services; keeping them explicit avoids
+// shared mutable state across voice synthesis calls.
+#[allow(clippy::too_many_arguments)]
 async fn hesitation_pcm(
     config: &VoiceConfig,
     http: &Client,
@@ -1005,7 +1044,9 @@ async fn hesitation_pcm(
             Ok(Some(chunk)) => pcm.extend_from_slice(&chunk),
             Ok(None) => break,
             Err(e) => {
-                warn!("hesitation synthesis stream failed mid-read, playing silence instead: {e:#}");
+                warn!(
+                    "hesitation synthesis stream failed mid-read, playing silence instead: {e:#}"
+                );
                 circuit_breaker.record_failure(now_ms);
                 return contracts::silence_pcm(duration_ms, sample_rate);
             }
@@ -1028,7 +1069,9 @@ fn apply_attenuation(pcm: &mut [u8], current_val: &mut f64, target_val: f64) {
         return;
     }
     let mut samples = pcm
-        .chunks_exact(2)
+        .as_chunks::<2>()
+        .0
+        .iter()
         .map(|chunk| i16::from_le_bytes([chunk[0], chunk[1]]))
         .collect::<Vec<i16>>();
 
@@ -1060,14 +1103,17 @@ fn generate_and_publish_visemes(
         return Ok(());
     }
     let samples = pcm
-        .chunks_exact(2)
+        .as_chunks::<2>()
+        .0
+        .iter()
         .map(|chunk| i16::from_le_bytes([chunk[0], chunk[1]]))
         .collect::<Vec<i16>>();
     let num_samples = samples.len();
     if num_samples == 0 {
         return Ok(());
     }
-    let sum_sq: f64 = samples.iter()
+    let sum_sq: f64 = samples
+        .iter()
         .map(|&s| {
             let norm = s as f64 / i16::MAX as f64;
             norm * norm
@@ -1094,15 +1140,20 @@ fn generate_and_publish_visemes(
 
     let jetstream = jetstream.clone();
     tokio::spawn(async move {
-        let _ = jetstream.publish(
-            topics::AUDIO_PLAYBACK_VISEMES,
-            Bytes::from(serde_json::to_vec(&viseme).unwrap()),
-        ).await;
+        let _ = jetstream
+            .publish(
+                topics::AUDIO_PLAYBACK_VISEMES,
+                Bytes::from(serde_json::to_vec(&viseme).unwrap()),
+            )
+            .await;
     });
 
     Ok(())
 }
 
+// These per-turn resources have distinct ownership and lifetimes, so keep
+// them explicit instead of hiding them in shared agent state.
+#[allow(clippy::too_many_arguments)]
 async fn handle_chat_output(
     config: &VoiceConfig,
     http: &Client,
@@ -1187,7 +1238,11 @@ async fn handle_chat_output(
                 let mut pcm = load_vocalization_pcm(&name, config.sample_rate);
                 pcm = reverb_filter.process(&pcm, reverb_wet_gain_for_distance(distance));
 
-                let target_att = if let Ok(guard) = attenuation_factor.lock() { *guard } else { 1.0 };
+                let target_att = if let Ok(guard) = attenuation_factor.lock() {
+                    *guard
+                } else {
+                    1.0
+                };
                 apply_attenuation(&mut pcm, current_attenuation_val, target_att);
                 let _ = generate_and_publish_visemes(jetstream, &pcm);
 
@@ -1210,7 +1265,11 @@ async fn handle_chat_output(
                 .await;
                 pcm = reverb_filter.process(&pcm, reverb_wet_gain_for_distance(distance));
 
-                let target_att = if let Ok(guard) = attenuation_factor.lock() { *guard } else { 1.0 };
+                let target_att = if let Ok(guard) = attenuation_factor.lock() {
+                    *guard
+                } else {
+                    1.0
+                };
                 apply_attenuation(&mut pcm, current_attenuation_val, target_att);
                 let _ = generate_and_publish_visemes(jetstream, &pcm);
 
@@ -1305,11 +1364,15 @@ async fn handle_chat_output(
                             1.0
                         };
 
-                        pcm_bytes =
-                            reverb_filter.process(&pcm_bytes, reverb_wet_gain_for_distance(distance));
+                        pcm_bytes = reverb_filter
+                            .process(&pcm_bytes, reverb_wet_gain_for_distance(distance));
                         pcm_bytes = pcm_framer.process(&pcm_bytes);
 
-                        let target_att = if let Ok(guard) = attenuation_factor.lock() { *guard } else { 1.0 };
+                        let target_att = if let Ok(guard) = attenuation_factor.lock() {
+                            *guard
+                        } else {
+                            1.0
+                        };
                         apply_attenuation(&mut pcm_bytes, current_attenuation_val, target_att);
                         let _ = generate_and_publish_visemes(jetstream, &pcm_bytes);
 
@@ -1641,7 +1704,11 @@ async fn probe_synthesis(config: &VoiceConfig, http: &Client) -> Result<()> {
     )
     .await?;
 
-    match response.chunk().await.context("reading readiness-probe response body")? {
+    match response
+        .chunk()
+        .await
+        .context("reading readiness-probe response body")?
+    {
         Some(bytes) if !bytes.is_empty() => Ok(()),
         _ => anyhow::bail!("readiness probe got an empty response body"),
     }
@@ -1693,7 +1760,9 @@ fn utterance_gain(noise_scale_factor: &std::sync::Mutex<f64>, volume: f64) -> f6
 fn scale_pcm_in_place(pcm: &mut [u8], noise_scale: f64) {
     if noise_scale != 1.0 && pcm.len() >= 2 {
         let mut samples = pcm
-            .chunks_exact(2)
+            .as_chunks::<2>()
+            .0
+            .iter()
             .map(|chunk| i16::from_le_bytes([chunk[0], chunk[1]]))
             .collect::<Vec<i16>>();
 
@@ -1768,6 +1837,40 @@ async fn publish_pcm(
     Ok(())
 }
 
+async fn publish_stream_trailer(
+    jetstream: &async_nats::jetstream::Context,
+    event: &ChatOutput,
+    failed: bool,
+) -> Result<()> {
+    let turn_id = event.turn_id.clone().unwrap_or_default();
+    let trailer = AudioStreamTrailer {
+        kind: "END_OF_STREAM".to_string(),
+        utterance_id: turn_id.clone(),
+        turn_id,
+        failed,
+    };
+    let mut meta = build_latency_metadata(event);
+    if let Some(object) = meta.as_object_mut() {
+        object.insert("audio_stream_kind".to_string(), json!("trailer"));
+    }
+    let mut headers = HeaderMap::new();
+    headers.insert(HEADER_PAYLOAD_FORMAT, "application/json");
+    headers.insert(HEADER_LATENCY_META, meta.to_string());
+    let ack = jetstream
+        .publish_with_headers(
+            topics::AUDIO_STREAM,
+            headers,
+            Bytes::from(serde_json::to_vec(&trailer)?),
+        )
+        .await?;
+    tokio::spawn(async move {
+        if let Err(err) = ack.await {
+            warn!(error = %err, "JetStream did not acknowledge the outbound audio trailer");
+        }
+    });
+    Ok(())
+}
+
 fn build_latency_metadata(event: &ChatOutput) -> serde_json::Value {
     let now = now_seconds();
     let mut meta = event
@@ -1787,6 +1890,27 @@ fn build_latency_metadata(event: &ChatOutput) -> serde_json::Value {
         // inherited -- a carried-over `latency_metadata` blob from upstream
         // must not leave a stale value here.
         obj.insert("turn_id".to_string(), json!(event.turn_id));
+        obj.insert("utterance_id".to_string(), json!(event.turn_id));
+        if event.done {
+            obj.insert(
+                "character_offset".to_string(),
+                json!(event
+                    .full_response
+                    .as_deref()
+                    .unwrap_or_default()
+                    .chars()
+                    .count()),
+            );
+            obj.insert(
+                "word_index".to_string(),
+                json!(event
+                    .full_response
+                    .as_deref()
+                    .unwrap_or_default()
+                    .split_whitespace()
+                    .count()),
+            );
+        }
         // P4-2: pass-through, not computed here -- brain_agent already knows
         // where this chunk's text ends within the true response
         // (`_char_offset_after_word`), and this process has no way to
@@ -1828,17 +1952,39 @@ mod tests {
 
     #[test]
     fn mesh_signal_with_no_turn_id_is_always_applied() {
-        let active: ActiveTurn = std::sync::Arc::new(std::sync::Mutex::new(Some(
-            "turn-1".to_string(),
-        )));
+        let active: ActiveTurn =
+            std::sync::Arc::new(std::sync::Mutex::new(Some("turn-1".to_string())));
         assert!(mesh_signal_applies_to_active_turn(&active, None));
     }
 
     #[test]
+    fn self_correction_flush_does_not_abort_the_active_generation() {
+        let stop: contracts::AudioStop =
+            serde_json::from_str(r#"{"interrupt":true,"flush":true,"turn_id":"turn-1"}"#).unwrap();
+        assert!(!stop_aborts_generation(&stop));
+    }
+
+    #[test]
+    fn failed_audio_stream_marks_its_terminal_trailer_once() {
+        let mut failed_turns = HashSet::from(["turn-1".to_string()]);
+
+        assert!(take_stream_failure(&mut failed_turns, Some("turn-1")));
+        assert!(!take_stream_failure(&mut failed_turns, Some("turn-1")));
+        assert!(!take_stream_failure(&mut failed_turns, Some("turn-2")));
+        assert!(!take_stream_failure(&mut failed_turns, None));
+    }
+
+    #[test]
+    fn ordinary_confirmed_stop_still_aborts_the_active_generation() {
+        let stop: contracts::AudioStop =
+            serde_json::from_str(r#"{"interrupt":true,"turn_id":"turn-1"}"#).unwrap();
+        assert!(stop_aborts_generation(&stop));
+    }
+
+    #[test]
     fn mesh_signal_matching_the_active_turn_is_applied() {
-        let active: ActiveTurn = std::sync::Arc::new(std::sync::Mutex::new(Some(
-            "turn-1".to_string(),
-        )));
+        let active: ActiveTurn =
+            std::sync::Arc::new(std::sync::Mutex::new(Some("turn-1".to_string())));
         assert!(mesh_signal_applies_to_active_turn(&active, Some("turn-1")));
     }
 
@@ -1847,9 +1993,8 @@ mod tests {
         // The actual failure this guards: a resume delayed in the mesh for a
         // turn that has since genuinely stopped must not restore volume for
         // whatever is speaking now.
-        let active: ActiveTurn = std::sync::Arc::new(std::sync::Mutex::new(Some(
-            "turn-2".to_string(),
-        )));
+        let active: ActiveTurn =
+            std::sync::Arc::new(std::sync::Mutex::new(Some("turn-2".to_string())));
         assert!(!mesh_signal_applies_to_active_turn(&active, Some("turn-1")));
     }
 
@@ -1961,7 +2106,9 @@ mod tests {
     /// in time must read different frames.
     #[test]
     fn prosody_now_picks_the_frame_nearest_elapsed_time() {
-        let frames: Vec<_> = (0..60).map(|i| frame(i * 50, 1.0 + i as f64 * 0.01)).collect();
+        let frames: Vec<_> = (0..60)
+            .map(|i| frame(i * 50, 1.0 + i as f64 * 0.01))
+            .collect();
         let traj = ProsodyTrajectory {
             // Backdated so `elapsed()` reads a known, already-elapsed value
             // instead of a real-time sleep.
@@ -1983,7 +2130,9 @@ mod tests {
     /// or picking the first one by default.
     #[test]
     fn prosody_now_past_the_trajectory_span_uses_the_last_frame() {
-        let frames: Vec<_> = (0..60).map(|i| frame(i * 50, 1.0 + i as f64 * 0.01)).collect();
+        let frames: Vec<_> = (0..60)
+            .map(|i| frame(i * 50, 1.0 + i as f64 * 0.01))
+            .collect();
         let traj = ProsodyTrajectory {
             received_at: std::time::Instant::now() - std::time::Duration::from_secs(30),
             frames,
@@ -2013,7 +2162,9 @@ mod tests {
     /// sanity check.
     #[test]
     fn two_points_in_the_same_trajectory_can_read_different_prosody() {
-        let frames: Vec<_> = (0..60).map(|i| frame(i * 50, 1.0 + i as f64 * 0.01)).collect();
+        let frames: Vec<_> = (0..60)
+            .map(|i| frame(i * 50, 1.0 + i as f64 * 0.01))
+            .collect();
         let early = ProsodyTrajectory {
             received_at: std::time::Instant::now(),
             frames: frames.clone(),
@@ -2023,7 +2174,10 @@ mod tests {
             frames,
         };
 
-        assert_ne!(early.prosody_now().unwrap().rate, later.prosody_now().unwrap().rate);
+        assert_ne!(
+            early.prosody_now().unwrap().rate,
+            later.prosody_now().unwrap().rate
+        );
     }
 
     #[test]
@@ -2081,7 +2235,9 @@ mod tests {
             "../../contracts/fixtures/chat_output_chunk.json"
         ))
         .unwrap();
-        event.metadata.insert("character_offset".to_string(), json!(42));
+        event
+            .metadata
+            .insert("character_offset".to_string(), json!(42));
         event.metadata.insert("word_index".to_string(), json!(7));
 
         let meta = build_latency_metadata(&event);
@@ -2121,7 +2277,9 @@ mod tests {
 
         assert_eq!(processed.len(), input_pcm.len());
         let out_samples = processed
-            .chunks_exact(2)
+            .as_chunks::<2>()
+            .0
+            .iter()
             .map(|chunk| i16::from_le_bytes([chunk[0], chunk[1]]))
             .collect::<Vec<i16>>();
 
@@ -2153,7 +2311,9 @@ mod tests {
         let second = filter.process(&[0, 30, 0], 1.0);
         assert_eq!(second.len(), 4);
         let out_samples = second
-            .chunks_exact(2)
+            .as_chunks::<2>()
+            .0
+            .iter()
             .map(|chunk| i16::from_le_bytes([chunk[0], chunk[1]]))
             .collect::<Vec<i16>>();
         // Samples 1 and 2 of this filter instance, delayed=0 for both (buffer
@@ -2215,7 +2375,9 @@ mod tests {
 
         let processed = filter.process(&sustained_tone, 1.0);
         let out_samples = processed
-            .chunks_exact(2)
+            .as_chunks::<2>()
+            .0
+            .iter()
             .map(|chunk| i16::from_le_bytes([chunk[0], chunk[1]]))
             .collect::<Vec<i16>>();
 
@@ -2268,7 +2430,9 @@ mod tests {
         // with chunk1's tail. No sample anywhere is a value neither chunk contains.
         assert_eq!(out2, chunk2_bytes);
         let out2_samples = out2
-            .chunks_exact(2)
+            .as_chunks::<2>()
+            .0
+            .iter()
             .map(|chunk| i16::from_le_bytes([chunk[0], chunk[1]]))
             .collect::<Vec<i16>>();
         assert!(out2_samples.iter().all(|&s| s == 200));
@@ -2306,7 +2470,9 @@ mod tests {
         scale_pcm_in_place(&mut scale_down_bytes, 0.7);
 
         let scaled_down_samples = scale_down_bytes
-            .chunks_exact(2)
+            .as_chunks::<2>()
+            .0
+            .iter()
             .map(|chunk| i16::from_le_bytes([chunk[0], chunk[1]]))
             .collect::<Vec<i16>>();
 
@@ -2319,7 +2485,9 @@ mod tests {
         scale_pcm_in_place(&mut scale_up_bytes, 1.4);
 
         let scaled_up_samples = scale_up_bytes
-            .chunks_exact(2)
+            .as_chunks::<2>()
+            .0
+            .iter()
             .map(|chunk| i16::from_le_bytes([chunk[0], chunk[1]]))
             .collect::<Vec<i16>>();
 
@@ -2365,7 +2533,10 @@ mod tests {
     #[test]
     fn high_valence_high_arousal_is_excited() {
         let a = affect(0.5, 0.8);
-        assert_eq!(select_emotion_bucket(Some(&a), None), EmotionBucket::Excited);
+        assert_eq!(
+            select_emotion_bucket(Some(&a), None),
+            EmotionBucket::Excited
+        );
     }
 
     #[test]
@@ -2377,7 +2548,10 @@ mod tests {
     #[test]
     fn low_valence_high_arousal_is_concerned() {
         let a = affect(-0.5, 0.7);
-        assert_eq!(select_emotion_bucket(Some(&a), None), EmotionBucket::Concerned);
+        assert_eq!(
+            select_emotion_bucket(Some(&a), None),
+            EmotionBucket::Concerned
+        );
     }
 
     #[test]
@@ -2385,7 +2559,10 @@ mod tests {
         // Negative but not aroused reads as flat, not distressed -- concern
         // needs both the valence and the arousal signal, not valence alone.
         let a = affect(-0.5, 0.2);
-        assert_eq!(select_emotion_bucket(Some(&a), None), EmotionBucket::Neutral);
+        assert_eq!(
+            select_emotion_bucket(Some(&a), None),
+            EmotionBucket::Neutral
+        );
     }
 
     #[test]
@@ -2399,7 +2576,10 @@ mod tests {
         // Aroused-but-neither-good-nor-bad (e.g. startled, alert) must not
         // read as the same settled register as truly low-arousal calm.
         let a = affect(0.0, 0.9);
-        assert_eq!(select_emotion_bucket(Some(&a), None), EmotionBucket::Neutral);
+        assert_eq!(
+            select_emotion_bucket(Some(&a), None),
+            EmotionBucket::Neutral
+        );
     }
 
     #[test]
@@ -2410,7 +2590,10 @@ mod tests {
         // to `>=`, since it would still fall through to Calm either way --
         // this specifically exercises the branch the boundary guards.
         let at_edge = affect(0.15, 0.65);
-        assert_eq!(select_emotion_bucket(Some(&at_edge), None), EmotionBucket::Neutral);
+        assert_eq!(
+            select_emotion_bucket(Some(&at_edge), None),
+            EmotionBucket::Neutral
+        );
     }
 
     // ---------------------------------------------- select_emotion_bucket (expression, Phase 3C)
@@ -2429,7 +2612,10 @@ mod tests {
         // it from the raw PAD values -- the additive-lookup contract.
         let a = affect(0.5, 0.8);
         let e = expression("calm");
-        assert_eq!(select_emotion_bucket(Some(&a), Some(&e)), EmotionBucket::Calm);
+        assert_eq!(
+            select_emotion_bucket(Some(&a), Some(&e)),
+            EmotionBucket::Calm
+        );
     }
 
     #[test]
@@ -2676,13 +2862,15 @@ mod tests {
 
     #[test]
     fn reports_missing_for_a_path_that_does_not_exist() {
-        assert!(reference_clip_missing("/definitely/does/not/exist/clip.wav"));
+        assert!(reference_clip_missing(
+            "/definitely/does/not/exist/clip.wav"
+        ));
     }
 
     #[test]
     fn reports_present_for_a_path_that_exists() {
-        let path = std::env::temp_dir()
-            .join(format!("voice_agent_test_clip_{}.wav", std::process::id()));
+        let path =
+            std::env::temp_dir().join(format!("voice_agent_test_clip_{}.wav", std::process::id()));
         std::fs::write(&path, b"fake-clip-bytes").unwrap();
 
         assert!(!reference_clip_missing(path.to_str().unwrap()));
@@ -2821,7 +3009,13 @@ mod tests {
         let config = test_voice_config(server.uri());
         let http = Client::new();
         let result = synthesize_stream_with_retry(
-            &config, &http, "hello", &config.emotion_refs.neutral, 1.0, 1.0, 1.0,
+            &config,
+            &http,
+            "hello",
+            &config.emotion_refs.neutral,
+            1.0,
+            1.0,
+            1.0,
         )
         .await;
         assert!(
@@ -2846,7 +3040,13 @@ mod tests {
         let config = test_voice_config(server.uri());
         let http = Client::new();
         let result = synthesize_stream_with_retry(
-            &config, &http, "hello", &config.emotion_refs.neutral, 1.0, 1.0, 1.0,
+            &config,
+            &http,
+            "hello",
+            &config.emotion_refs.neutral,
+            1.0,
+            1.0,
+            1.0,
         )
         .await;
         assert!(
@@ -2869,9 +3069,7 @@ mod tests {
         let server = MockServer::start().await;
         Mock::given(method("POST"))
             .and(path("/tts"))
-            .respond_with(
-                ResponseTemplate::new(400).set_body_string("Please enter valid text."),
-            )
+            .respond_with(ResponseTemplate::new(400).set_body_string("Please enter valid text."))
             .expect(1)
             .mount(&server)
             .await;
@@ -2879,7 +3077,13 @@ mod tests {
         let config = test_voice_config(server.uri());
         let http = Client::new();
         let result = synthesize_stream_with_retry(
-            &config, &http, "...", &config.emotion_refs.neutral, 1.0, 1.0, 1.0,
+            &config,
+            &http,
+            "...",
+            &config.emotion_refs.neutral,
+            1.0,
+            1.0,
+            1.0,
         )
         .await;
         assert!(
@@ -2915,7 +3119,13 @@ mod tests {
         let config = test_voice_config(server.uri());
         let http = Client::new();
         let result = synthesize_stream_with_retry(
-            &config, &http, "hello", &config.emotion_refs.neutral, 1.0, 1.0, 1.0,
+            &config,
+            &http,
+            "hello",
+            &config.emotion_refs.neutral,
+            1.0,
+            1.0,
+            1.0,
         )
         .await;
         assert!(result.is_err());
@@ -2976,7 +3186,12 @@ mod tests {
     }
 
     fn test_prosody() -> contracts::Prosody {
-        contracts::Prosody { rate: 1.0, pitch: 1.0, volume: 1.0, pause_bias: 1.0 }
+        contracts::Prosody {
+            rate: 1.0,
+            pitch: 1.0,
+            volume: 1.0,
+            pause_bias: 1.0,
+        }
     }
 
     /// P4-9: an open breaker must skip the network entirely and return
@@ -3000,12 +3215,22 @@ mod tests {
         let http = Client::new();
         let breaker = CircuitBreaker::new(1, 60_000);
         breaker.record_failure(now_millis());
-        assert!(breaker.is_open(now_millis()), "precondition: breaker must be open");
+        assert!(
+            breaker.is_open(now_millis()),
+            "precondition: breaker must be open"
+        );
         let cache = empty_hesitation_cache();
 
         let pcm = hesitation_pcm(
-            &config, &http, &breaker, &cache, EmotionBucket::Neutral,
-            &config.emotion_refs.neutral, 350, config.sample_rate, &test_prosody(),
+            &config,
+            &http,
+            &breaker,
+            &cache,
+            EmotionBucket::Neutral,
+            &config.emotion_refs.neutral,
+            350,
+            config.sample_rate,
+            &test_prosody(),
         )
         .await;
 
@@ -3032,11 +3257,21 @@ mod tests {
         let breaker = CircuitBreaker::new(3, 60_000);
         let cache = empty_hesitation_cache();
         let cached_bytes = vec![7, 7, 7, 7];
-        cache.lock().await.insert(EmotionBucket::Neutral, cached_bytes.clone());
+        cache
+            .lock()
+            .await
+            .insert(EmotionBucket::Neutral, cached_bytes.clone());
 
         let pcm = hesitation_pcm(
-            &config, &http, &breaker, &cache, EmotionBucket::Neutral,
-            &config.emotion_refs.neutral, 350, config.sample_rate, &test_prosody(),
+            &config,
+            &http,
+            &breaker,
+            &cache,
+            EmotionBucket::Neutral,
+            &config.emotion_refs.neutral,
+            350,
+            config.sample_rate,
+            &test_prosody(),
         )
         .await;
 
@@ -3065,8 +3300,15 @@ mod tests {
         let cache = empty_hesitation_cache();
 
         let pcm = hesitation_pcm(
-            &config, &http, &breaker, &cache, EmotionBucket::Neutral,
-            &config.emotion_refs.neutral, 350, config.sample_rate, &test_prosody(),
+            &config,
+            &http,
+            &breaker,
+            &cache,
+            EmotionBucket::Neutral,
+            &config.emotion_refs.neutral,
+            350,
+            config.sample_rate,
+            &test_prosody(),
         )
         .await;
 
@@ -3076,7 +3318,10 @@ mod tests {
             Some(&synthesized),
             "a successful synthesis must be cached for the next hesitation"
         );
-        assert!(!breaker.is_open(now_millis()), "a success must not leave the breaker open");
+        assert!(
+            !breaker.is_open(now_millis()),
+            "a success must not leave the breaker open"
+        );
     }
 
     /// Synthesis failing (engine reachable but erroring, within the retry
@@ -3101,8 +3346,15 @@ mod tests {
         let cache = empty_hesitation_cache();
 
         let pcm = hesitation_pcm(
-            &config, &http, &breaker, &cache, EmotionBucket::Neutral,
-            &config.emotion_refs.neutral, 350, config.sample_rate, &test_prosody(),
+            &config,
+            &http,
+            &breaker,
+            &cache,
+            EmotionBucket::Neutral,
+            &config.emotion_refs.neutral,
+            350,
+            config.sample_rate,
+            &test_prosody(),
         )
         .await;
 
@@ -3145,8 +3397,15 @@ mod tests {
         let cache = empty_hesitation_cache();
 
         let pcm = hesitation_pcm(
-            &config, &http, &breaker, &cache, EmotionBucket::Neutral,
-            &config.emotion_refs.neutral, 350, config.sample_rate, &test_prosody(),
+            &config,
+            &http,
+            &breaker,
+            &cache,
+            EmotionBucket::Neutral,
+            &config.emotion_refs.neutral,
+            350,
+            config.sample_rate,
+            &test_prosody(),
         )
         .await;
 
@@ -3177,20 +3436,14 @@ mod tests {
     /// round-trip taken moments earlier keeps the assertion meaningful on both.
     #[tokio::test]
     async fn publish_pcm_does_not_wait_for_the_jetstream_ack() {
-        let url = std::env::var("NATS_URL")
-            .unwrap_or_else(|_| "nats://127.0.0.1:4222".to_string());
+        let url = std::env::var("NATS_URL").unwrap_or_else(|_| "nats://127.0.0.1:4222".to_string());
         let Ok(client) = async_nats::connect(&url).await else {
             eprintln!("SKIP: no NATS at {url}");
             return;
         };
         let js = async_nats::jetstream::new(client);
 
-        if js.get_stream(STREAM).await.is_ok()
-            || js
-                .get_stream("AI_AUDIO")
-                .await
-                .is_ok()
-        {
+        if js.get_stream(STREAM).await.is_ok() || js.get_stream("AI_AUDIO").await.is_ok() {
             eprintln!("SKIP: a stream already covers audio.stream; refusing to touch it");
             return;
         }
@@ -3210,6 +3463,8 @@ mod tests {
             turn_id: Some("p2-2-test".to_string()),
             affect: None,
             expression: None,
+            importance: None,
+            category: None,
             timestamp: 0.0,
             full_response: None,
             generation_error: None,
@@ -3339,9 +3594,9 @@ mod tests {
         Some((guard, port))
     }
 
-    /// P2-1: `connect_nats` must actually authenticate against the real
+    /// `connect_nats` must actually authenticate against the real
     /// shipped accounts file when `NATS_USER`/`NATS_PASSWORD` are set --
-    /// the Rust half of the same opt-in mechanism
+    /// the Rust half of the same default authentication policy
     /// `test_nats_accounts_enforcement.py` proves for the Python half.
     #[tokio::test]
     async fn connect_nats_authenticates_with_correct_credentials() {
@@ -3376,21 +3631,15 @@ mod tests {
         )
         .await;
 
-        assert!(result.is_err(), "a wrong password must not be allowed to connect");
+        assert!(
+            result.is_err(),
+            "a wrong password must not be allowed to connect"
+        );
     }
 
     #[tokio::test]
-    async fn connect_nats_connects_anonymously_when_no_credentials_are_given() {
-        // No accounts server here -- an ordinary, unauthenticated local
-        // nats-server (or none at all) is the default-deployment case this
-        // opt-in feature must leave completely unchanged.
-        let url = std::env::var("NATS_URL").unwrap_or_else(|_| "nats://127.0.0.1:4222".to_string());
-        if async_nats::connect(&url).await.is_err() {
-            eprintln!("SKIP: no plain NATS at {url}");
-            return;
-        }
-
-        let result = connect_nats(&url, None, None).await;
-        assert!(result.is_ok(), "no credentials given must still connect normally");
+    async fn connect_nats_refuses_missing_credentials() {
+        let result = connect_nats("nats://127.0.0.1:4222", None, None).await;
+        assert!(result.is_err(), "agents must never connect anonymously");
     }
 }

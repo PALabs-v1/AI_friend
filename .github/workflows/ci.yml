@@ -14,6 +14,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
+      with:
+        # Full history so the format ratchet below can diff against the base.
+        fetch-depth: 0
     - name: Set up Node.js
       uses: actions/setup-node@v4
       with:
@@ -35,6 +38,24 @@ jobs:
         python -m pip install --upgrade pip
         pip install -r requirements-dev.txt
         ruff check app/ tests/ --output-format=github
+    # Ratchet, not a big-bang reformat: ~96 backend files predate format
+    # enforcement, so only Python files this change touches must be
+    # ruff-formatted. The pre-commit hook (.pre-commit-config.yaml) does the
+    # same locally at commit time; this catches commits made without it.
+    - name: Backend format check (changed files only)
+      env:
+        BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+      run: |
+        if [ -z "$BASE_SHA" ] || ! git cat-file -e "$BASE_SHA^{commit}" 2>/dev/null; then
+          BASE_SHA=$(git rev-parse HEAD~1 2>/dev/null || git rev-parse HEAD)
+        fi
+        changed=$(git diff --name-only --diff-filter=ACMR "$BASE_SHA" HEAD -- 'backend/*.py' | sed 's#^backend/##')
+        if [ -z "$changed" ]; then
+          echo "No backend Python files changed."
+          exit 0
+        fi
+        cd backend
+        echo "$changed" | xargs ruff format --check
 
   frontend-build:
     needs: [lint]
@@ -61,9 +82,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
+      with:
+        # tests/test_nats_grants.py reads nats-accounts.conf at 657c483f
+        # (`git show`) to prove the audit catches the pre-F-018 grants; a
+        # shallow clone cannot resolve that commit.
+        fetch-depth: 0
     - name: Start NATS Service
       run: |
-        docker run -d --name nats -p 4222:4222 -p 8222:8222 nats:latest -js -m 8222
+        bash scripts/ci/start_nats_mesh.sh docker
         # Wait for NATS to be ready
         for i in {1..10}; do
           if wget --no-verbose --tries=1 --spider http://localhost:8222/healthz; then
@@ -125,7 +151,7 @@ jobs:
         NATS_URL: nats://localhost:4222
       run: |
         cd backend
-        python scripts/bootstrap/setup_nats_streams.py
+        NATS_USER=nats_provisioner NATS_PASSWORD="$NATS_PROVISIONER_PASSWORD" python scripts/bootstrap/setup_nats_streams.py
     - name: Run Test Suite
       env:
         NATS_URL: nats://localhost:4222
@@ -153,7 +179,7 @@ jobs:
     - uses: actions/checkout@v4
     - name: Start NATS Service
       run: |
-        docker run -d --name nats -p 4222:4222 -p 8222:8222 nats:latest -js -m 8222
+        bash scripts/ci/start_nats_mesh.sh docker
         for i in {1..10}; do
           if wget --no-verbose --tries=1 --spider http://localhost:8222/healthz; then
             echo "NATS is ready!"
@@ -185,7 +211,7 @@ jobs:
         NATS_URL: nats://localhost:4222
       run: |
         cd backend
-        python scripts/bootstrap/setup_nats_streams.py
+        NATS_USER=nats_provisioner NATS_PASSWORD="$NATS_PROVISIONER_PASSWORD" python scripts/bootstrap/setup_nats_streams.py
     - name: Run benchmark and latency tests
       env:
         NATS_URL: nats://localhost:4222

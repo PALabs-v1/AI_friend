@@ -8,6 +8,10 @@ os.environ.setdefault("NEO4J_PASSWORD", "strong_ci_test_password")
 os.environ.setdefault("NEO4J_URI", "bolt://127.0.0.1:7687")
 os.environ.setdefault("LIVEKIT_API_KEY", "dummy_key")
 os.environ.setdefault("LIVEKIT_API_SECRET", "dummy_secret")
+# Unit tests use the in-memory NATS simulator, but the production clients now
+# correctly require an explicit identity even when no server is contacted.
+os.environ["NATS_USER"] = "test_agent"
+os.environ["NATS_PASSWORD"] = "test-only-password"
 
 # Point persona discovery at nothing for the whole suite.
 #
@@ -275,6 +279,8 @@ class StreamConfig:
     discard: DiscardPolicy | None = DiscardPolicy.OLD
     max_age: float | None = None
     storage: StorageType | None = None
+    # Real nats-py default is -1 (unlimited); AI_STATE sets 1.
+    max_msgs_per_subject: int = -1
 
 
 nats_js_api_module.DeliverPolicy = DeliverPolicy
@@ -447,6 +453,40 @@ def pytest_configure(config):
         config.option.benchmark_autosave = True
 
 
+@pytest.fixture(scope="module")
+def ollama_tags() -> dict:
+    """Gate for BrainBench's real-model replays (one per llm_augmented suite).
+
+    Opt-in only: set BRAINBENCH_REAL_LLM=1. Each replay is GPU work that
+    takes 10+ minutes on home-gpu; skipping on reachability alone meant any
+    full `pytest` run on a machine that can see home-gpu silently queued an
+    hour of model calls and looked hung. The endpoint is BRAINBENCH_LLM_URL
+    (home-gpu by default, never localhost).
+    """
+    import json
+    import subprocess
+
+    if os.environ.get("BRAINBENCH_REAL_LLM") != "1":
+        pytest.skip("real-model replay: set BRAINBENCH_REAL_LLM=1 to run")
+    url = os.environ.get("BRAINBENCH_LLM_URL", "http://100.88.246.46:11434")
+    try:
+        response = subprocess.run(
+            ["curl", "-s", "--max-time", "2", url.rstrip("/") + "/api/tags"],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=3,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        pytest.skip(f"BrainBench LLM endpoint {url} is unreachable: {exc}")
+    if response.returncode != 0:
+        pytest.skip(f"BrainBench LLM endpoint {url} is unreachable")
+    try:
+        return json.loads(response.stdout)
+    except json.JSONDecodeError as exc:
+        pytest.fail(f"Ollama responded but /api/tags was not valid JSON: {exc}")
+
+
 @pytest.fixture
 def mock_llm_service():
     """Mock for OllamaClient (Hardened for AI Friend Core)"""
@@ -501,6 +541,18 @@ def mock_memory_store():
     # The real add_memory returns True/False; None would read as a failed write.
     store.add_memory = AsyncMock(return_value=True)
     return store
+
+
+@pytest.fixture
+def no_quiet_hours(monkeypatch):
+    """Empty the default quiet-hour window (start == end) for a test about
+    something else. W9's gate reads the user's hour of day, so any test that
+    expects eligibility at the real wall clock passed in daytime and failed
+    whenever CI ran at night. Quiet-hour behaviour has its own tests."""
+    from app.config import Config
+
+    monkeypatch.setattr(Config, "PROACTIVE_QUIET_START_HOUR", 0)
+    monkeypatch.setattr(Config, "PROACTIVE_QUIET_END_HOUR", 0)
 
 
 @pytest.fixture(autouse=True)

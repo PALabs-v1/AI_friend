@@ -11,6 +11,7 @@ State updates: ALMA mood-pull + exponential decay (Gebhard, 2005)
 """
 
 import asyncio
+import hashlib
 import json
 import logging
 import math
@@ -19,11 +20,15 @@ import sqlite3
 import time
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, tzinfo
+from functools import lru_cache
 from typing import TYPE_CHECKING, Any, cast
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import redis
 
+from .. import clock
+from ..cognitive.goals import GoalRecord, review_due_goals
 from ..config import Config
 from ..errors import StateConflictError
 from ..persona import PersonaProfile
@@ -51,6 +56,124 @@ def _new_capability_model() -> "CapabilityLimitationModel":
 
 
 logger = logging.getLogger(__name__)
+
+# Redis script: keep the larger of the stored and incoming proactive-attempt
+# watermark, so a stale writer can never move the cooldown backwards (V-4).
+_PROACTIVE_WATERMARK_MAX_SCRIPT = """
+local current = redis.call('GET', KEYS[1])
+local incoming = tonumber(ARGV[1])
+if not current or tonumber(current) < incoming then
+    redis.call('SET', KEYS[1], ARGV[1])
+    return ARGV[1]
+end
+return current
+"""
+
+
+@lru_cache(maxsize=8)
+def _zone(name: str) -> tzinfo | None:
+    """The configured user zone; None (host local time) when unset or unknown."""
+    if not name:
+        return None
+    try:
+        return ZoneInfo(name)
+    except (ZoneInfoNotFoundError, ValueError):
+        logger.warning("[State] Unknown USER_TIMEZONE %r; using host local time", name)
+        return None
+
+
+def user_hour(timestamp: float) -> int:
+    """Hour of day at `timestamp` for the user (Config.USER_TIMEZONE).
+
+    Every hour-of-day decision goes through here, so the recorded activity
+    hours, the quiet-hour default and night fatigue all agree on one clock.
+    """
+    return datetime.fromtimestamp(timestamp, _zone(Config.USER_TIMEZONE)).hour
+
+
+def in_hour_window(hour: int, start: int, end: int) -> bool:
+    """`hour` in [start, end), wrapping midnight when start > end; empty if equal."""
+    if start == end:
+        return False
+    if start < end:
+        return start <= hour < end
+    return hour >= start or hour < end
+
+
+# Bounds on the proactive state every snapshot and state.broadcast carries.
+_MAX_INTERACTION_HOURS = 168
+_MAX_PROACTIVE_GOALS = 256
+
+
+def _parse_interaction_hours(raw: Any) -> list[int] | None:
+    """User turn hours from storage or a broadcast; None when absent or
+    unreadable, so the caller keeps what it has."""
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw)
+        except json.JSONDecodeError:
+            return None
+    if not isinstance(raw, list):
+        return None
+    return [
+        int(hour) % 24
+        for hour in raw[-_MAX_INTERACTION_HOURS:]
+        if isinstance(hour, int) and not isinstance(hour, bool)
+    ]
+
+
+def _goal_payload(goals: list[GoalRecord]) -> list[dict[str, Any]]:
+    """Thought history as persisted and broadcast: fields left at their
+    default are omitted, and `GoalRecord.model_validate` restores them.
+
+    The full dump is about 580 bytes a goal, mostly empty defaults, and the
+    brain broadcasts this on every tick into the file-backed AI_MESSAGES
+    stream: at the 256-goal cap that was 149 KiB a minute, about 1.4 GB over
+    the stream's 7-day window against its 1 GiB cap, so state snapshots
+    evicted chat history. Omitting defaults cuts it to under half.
+    """
+    return [goal.model_dump(exclude_defaults=True) for goal in goals]
+
+
+def _bounded_proactive_goals(goals: list[GoalRecord]) -> list[GoalRecord]:
+    """Hold the thought history to _MAX_PROACTIVE_GOALS. A closed thought (never
+    raised again) is what stops it being raised again, so closed ones go first
+    and oldest first; list order is creation order, which stays correct under
+    simulated time where created_at (wall clock) does not."""
+    excess = len(goals) - _MAX_PROACTIVE_GOALS
+    if excess <= 0:
+        return goals
+    closed = [
+        goal
+        for goal in goals
+        if goal.proactive_raise_count <= len(goal.proactive_outcomes)
+        and goal.re_raise_probability(Config.PROACTIVE_IGNORE_ZERO_AFTER) == 0.0
+    ]
+    evicted = {id(goal) for goal in closed[:excess]}
+    kept = [goal for goal in goals if id(goal) not in evicted]
+    return kept[-_MAX_PROACTIVE_GOALS:]
+
+
+def _parse_proactive_goals(raw: Any) -> list[GoalRecord] | None:
+    """Thought history from storage or a broadcast. One malformed record is
+    skipped, not allowed to abort hydration or a whole state broadcast."""
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw)
+        except json.JSONDecodeError:
+            return None
+    if not isinstance(raw, list):
+        return None
+    goals = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        try:
+            goals.append(GoalRecord.model_validate(item))
+        except ValueError as error:
+            logger.warning("Skipping malformed proactive goal record: %s", error)
+    return _bounded_proactive_goals(goals)
+
 
 # Roadmap sectionC: recognising a somatic comfort fires a phasic dopamine burst of
 # this size. Kept here rather than in somatic.py because it is a property of the
@@ -87,6 +210,7 @@ class AgentState:
     # Proactive outreach cooldown timestamp. Initialized to 0.0 so a fresh agent
     # reads the cooldown as already satisfied.
     last_proactive_attempt: float = 0.0
+    user_interaction_hours: list[int] = field(default_factory=list)
     fatigue: float = 0.0  # Metabolic fatigue cycle F(t)
     user_mental_model: "UserMentalModel" = field(
         default_factory=_default_user_mental_model
@@ -251,7 +375,7 @@ class AgentState:
         if peak <= 0.0:
             return 0.0
         half_life = max(1e-6, float(half_life))
-        elapsed = max(0.0, time.time() - released_at)
+        elapsed = max(0.0, clock.time() - released_at)
         return peak * math.exp(-math.log(2.0) * elapsed / half_life)
 
     @staticmethod
@@ -334,7 +458,7 @@ class AgentState:
         # Relative to the tonic floor, so that floor stays free to drift with
         # affect underneath a decaying burst instead of being double-counted.
         self.cortisol_phasic_peak = max(0.0, target_total - self.cortisol_tonic)
-        self.cortisol_phasic_at = time.time()
+        self.cortisol_phasic_at = clock.time()
         return self.cortisol
 
     @property
@@ -393,7 +517,7 @@ class AgentState:
 
         target_total = min(1.0, self.dopamine + amount)
         self.dopamine_phasic_peak = max(0.0, target_total - self.dopamine_tonic)
-        self.dopamine_phasic_at = time.time()
+        self.dopamine_phasic_at = clock.time()
         return self.dopamine
 
     @property
@@ -450,24 +574,50 @@ class AgentState:
 
         target_total = min(1.0, self.adrenaline + amount)
         self.adrenaline_phasic_peak = max(0.0, target_total - self.adrenaline_tonic)
-        self.adrenaline_phasic_at = time.time()
+        self.adrenaline_phasic_at = clock.time()
         return self.adrenaline
 
 
 class StateService:
     """Manages Internal State continuity and Neo4j persistence."""
 
+    @staticmethod
+    def _trace_enabled() -> bool:
+        # Runtime import avoids app.state -> app.cognitive.__init__ -> core -> app.state.
+        from ..cognitive.trace import enabled
+
+        return enabled()
+
+    @staticmethod
+    def _emit_trace(kind: str, **fields: Any) -> None:
+        from ..cognitive.trace import emit
+
+        emit(kind, **fields)
+
     def __init__(
         self,
         graph_store=None,
-        db_path="state_cache.db",
-        redis_host="127.0.0.1",
-        redis_port=6379,
+        db_path: str | None = None,
+        redis_host: str | None = None,
+        redis_port: int | None = None,
         publish_cb=None,
         persona: "PersonaProfile | None" = None,
         writer_id: str = "",
     ):
+        from .runtime_paths import redis_endpoint, runtime_state_db
+
         self.graph = graph_store
+        # F-016: resolved under the deployment's data directory, not the
+        # working directory. The subconscious gets its own file: in
+        # production both processes share the `/app/data` volume, and
+        # sharing one file would have each overwrite the other's row.
+        if db_path is None:
+            filename = (
+                "state_cache_subconscious.db"
+                if writer_id == "subconscious_agent"
+                else "state_cache.db"
+            )
+            db_path = runtime_state_db(filename, legacy_filename="state_cache.db")
         self.db_path = db_path
         self.publish_cb = publish_cb
         # Stamped onto `current_state.writer_id` on every `persist_state` call --
@@ -505,6 +655,7 @@ class StateService:
                 "adrenaline_halflife_s"
             ],
         )
+        self.proactive_goals: list[GoalRecord] = []
         self.last_speculative_intent = None  # Transient sensory state
         # A2: serializes short-term affect mutation so the fire-and-forget
         # System-2 semantic-drift task cannot clobber a fresher appraisal.
@@ -524,19 +675,27 @@ class StateService:
         # state.broadcast publish below.
         self._background_tasks: set[asyncio.Task] = set()
 
-        # Connect to Redis
-        self.redis_client: redis.Redis | None
-        try:
-            self.redis_client = redis.Redis(
-                host=redis_host,
-                port=redis_port,
-                db=0,
-                socket_connect_timeout=1.0,
-                decode_responses=True,
-            )
-            self.redis_client.ping()
-        except Exception:
-            self.redis_client = None
+        # Connect to Redis. The endpoint comes from `Config.REDIS_URL` like
+        # every other client (F-016: this one used to hardcode localhost);
+        # an empty URL disables it.
+        self.redis_client: redis.Redis | None = None
+        endpoint = (
+            (redis_host or "127.0.0.1", redis_port or 6379)
+            if redis_host or redis_port
+            else redis_endpoint()
+        )
+        if endpoint is not None:
+            try:
+                self.redis_client = redis.Redis(
+                    host=endpoint[0],
+                    port=endpoint[1],
+                    db=0,
+                    socket_connect_timeout=1.0,
+                    decode_responses=True,
+                )
+                self.redis_client.ping()
+            except Exception:
+                self.redis_client = None
 
         self._initialize_sqlite()
 
@@ -578,15 +737,96 @@ class StateService:
         self._sync_active_person_trust_locked(person)
         return person
 
-    def _sync_active_person_trust_locked(self, person: PersonModel) -> None:
+    def _affect_snapshot(
+        self, *fields: str, energy_arousal: bool = False
+    ) -> dict[str, float]:
+        """Capture selected affect dimensions for an enabled trace sink."""
+        state = self.current_state
+        values = {
+            "mood": state.mood,
+            "valence": state.valence,
+            "arousal": state.energy if energy_arousal else state.arousal,
+            "dominance": state.dominance,
+        }
+        names = fields or ("mood", "arousal", "dominance")
+        return {name: values[name] for name in names}
+
+    def _trust_snapshot(self, *fields: str) -> dict[str, float]:
+        """Capture selected trust dimensions for an enabled trace sink."""
+        state = self.current_state
+        values = {
+            "trust": state.trust,
+            "benevolence": state.trust_benevolence,
+            "competence": state.trust_competence,
+            "integrity": state.trust_integrity,
+            "attachment": state.attachment,
+        }
+        names = fields or ("benevolence", "competence", "integrity")
+        return {name: values[name] for name in names}
+
+    def _trace_update(
+        self,
+        kind: str,
+        cause: str,
+        inputs: dict[str, Any],
+        before: dict[str, float],
+        after: dict[str, float],
+        **fields: Any,
+    ) -> None:
+        """Emit a state change with deltas derived from its snapshots."""
+        self._emit_trace(
+            kind,
+            cause=cause,
+            inputs=inputs,
+            before=before,
+            after=after,
+            delta={key: after[key] - before[key] for key in before},
+            **fields,
+        )
+
+    def _trace_proactive(self, **fields: Any) -> None:
+        """Emit only proactive-decision fields available at this gate."""
+        if self._trace_enabled():
+            self._emit_trace(
+                "proactive.decision",
+                **{key: value for key, value in fields.items() if value is not None},
+            )
+
+    def _sync_active_person_trust_locked(
+        self,
+        person: PersonModel,
+        *,
+        cause: str = "active_person_sync",
+        inputs: dict[str, Any] | None = None,
+    ) -> None:
         """Mirror active per-person trust into legacy state fields.
 
         Callers hold ``_state_lock`` before invoking this helper. Integrity is
         intentionally left untouched because this package only grounds
         competence and benevolence in reliance and rupture outcomes.
         """
+        before = (
+            self._trust_snapshot("competence", "benevolence")
+            if self._trace_enabled()
+            else None
+        )
         self.current_state.trust_competence = person.trust_competence
         self.current_state.trust_benevolence = person.trust_benevolence
+        if before is not None:
+            after = self._trust_snapshot("competence", "benevolence")
+            self._trace_update(
+                "trust.update",
+                cause,
+                inputs
+                if inputs is not None
+                else {
+                    "person_benevolence": person.trust_benevolence,
+                    "person_competence": person.trust_competence,
+                },
+                before,
+                after,
+                person_id=person.person_id,
+            )
 
     async def set_active_person(self, person_id: str) -> PersonModel:
         """Select a person and synchronize their trust into legacy scalars."""
@@ -608,7 +848,17 @@ class StateService:
         async with self._state_lock:
             person = self._get_active_person_model_locked()
             person.update_trust_from_reliance(outcome_success, stake_weight)
-            self._sync_active_person_trust_locked(person)
+            if self._trace_enabled():
+                self._sync_active_person_trust_locked(
+                    person,
+                    cause="reliance_update",
+                    inputs={
+                        "outcome_success": outcome_success,
+                        "stake_weight": stake_weight,
+                    },
+                )
+            else:
+                self._sync_active_person_trust_locked(person)
 
     async def record_active_person_rupture_repair(
         self, kind: str, magnitude: float, notes: str = ""
@@ -617,7 +867,14 @@ class StateService:
         async with self._state_lock:
             person = self._get_active_person_model_locked()
             person.record_rupture_repair(kind, magnitude, notes)
-            self._sync_active_person_trust_locked(person)
+            if self._trace_enabled():
+                self._sync_active_person_trust_locked(
+                    person,
+                    cause="rupture_repair",
+                    inputs={"kind": kind, "magnitude": magnitude},
+                )
+            else:
+                self._sync_active_person_trust_locked(person)
 
     def _refresh_global_controls_locked(
         self, *, urgency: float = 0.0, prediction_error: float = 0.0
@@ -679,6 +936,18 @@ class StateService:
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS agent_user_activity_hours (
+                    agent_name TEXT PRIMARY KEY,
+                    hours_json TEXT NOT NULL DEFAULT '[]'
+                )
+            """)
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS agent_proactive_goals (
+                    agent_name TEXT PRIMARY KEY,
+                    goals_json TEXT NOT NULL DEFAULT '[]'
+                )
+            """)
             # `CREATE TABLE IF NOT EXISTS` does not add a column to a table
             # that already exists from before this field did. Migrated
             # separately by checking pragma_table_info first.
@@ -709,6 +978,88 @@ class StateService:
             if hasattr(self, "current_state"):
                 self._refresh_global_controls_locked()
 
+    def _apply_redis_state(self, data: dict[str, str]) -> None:
+        """Load one Redis `state:<agent>` hash into current_state."""
+        self.current_state.mood = float(data.get("mood", 0.0))
+        self.current_state.energy = float(data.get("energy", 0.5))
+        self.current_state.dominance = float(data.get("dominance", 0.5))
+        self.current_state.trust_benevolence = float(data.get("trust_benevolence", 0.5))
+        self.current_state.trust_competence = float(data.get("trust_competence", 0.5))
+        self.current_state.trust_integrity = float(data.get("trust_integrity", 0.5))
+        self.current_state.attachment = float(data.get("attachment", 0.1))
+        self.current_state.fatigue = float(data.get("fatigue", 0.0))
+        self.current_state.last_user_interaction = float(
+            data.get("last_user_interaction", clock.time())
+        )
+        self.current_state.last_proactive_attempt = float(
+            data.get("last_proactive_attempt", 0.0)
+        )
+        hours = _parse_interaction_hours(data.get("user_interaction_hours"))
+        if hours is not None:
+            self.current_state.user_interaction_hours = hours
+        goals = _parse_proactive_goals(data.get("proactive_goals"))
+        if goals is not None:
+            self.proactive_goals = goals
+        self.current_state.interaction_count = int(data.get("interaction_count", 0))
+        self.current_state.user_mental_model.inferred_valence = float(
+            data.get("inferred_valence", 0.0)
+        )
+        self.current_state.user_mental_model.inferred_arousal = float(
+            data.get("inferred_arousal", 0.5)
+        )
+        self.current_state.user_mental_model.implied_goals = json.loads(
+            data.get("implied_goals", "[]")
+        )
+        self.current_state.user_mental_model.known_concepts = json.loads(
+            data.get("known_concepts", "[]")
+        )
+        self.current_state.baseline_valence = float(data.get("baseline_valence", 0.0))
+        self.current_state.baseline_arousal = float(data.get("baseline_arousal", 0.5))
+        self.current_state.baseline_dominance = float(
+            data.get("baseline_dominance", 0.5)
+        )
+
+    def _apply_sqlite_state(
+        self, conn: sqlite3.Connection, row: sqlite3.Row, agent_name: str
+    ) -> None:
+        """Load the SQLite agent_state row and its side tables."""
+        self.current_state.mood = row["mood"]
+        self.current_state.energy = row["energy"]
+        self.current_state.dominance = row["dominance"]
+        self.current_state.trust_benevolence = row["trust_benevolence"]
+        self.current_state.trust_competence = row["trust_competence"]
+        self.current_state.trust_integrity = row["trust_integrity"]
+        self.current_state.attachment = row["attachment"]
+        self.current_state.fatigue = row["fatigue"]
+        self.current_state.last_user_interaction = row["last_user_interaction"]
+        self.current_state.last_proactive_attempt = row["last_proactive_attempt"] or 0.0
+        self.current_state.interaction_count = row["interaction_count"]
+        self.current_state.user_mental_model.inferred_valence = row["inferred_valence"]
+        self.current_state.user_mental_model.inferred_arousal = row["inferred_arousal"]
+        self.current_state.user_mental_model.implied_goals = json.loads(
+            row["implied_goals"] or "[]"
+        )
+        self.current_state.user_mental_model.known_concepts = json.loads(
+            row["known_concepts"] or "[]"
+        )
+        self.current_state.baseline_valence = row["baseline_valence"]
+        self.current_state.baseline_arousal = row["baseline_arousal"]
+        self.current_state.baseline_dominance = row["baseline_dominance"]
+        activity_row = conn.execute(
+            "SELECT hours_json FROM agent_user_activity_hours WHERE agent_name = ?",
+            (agent_name,),
+        ).fetchone()
+        hours = _parse_interaction_hours(activity_row[0] if activity_row else None)
+        if hours is not None:
+            self.current_state.user_interaction_hours = hours
+        goals_row = conn.execute(
+            "SELECT goals_json FROM agent_proactive_goals WHERE agent_name = ?",
+            (agent_name,),
+        ).fetchone()
+        goals = _parse_proactive_goals(goals_row[0] if goals_row else None)
+        if goals is not None:
+            self.proactive_goals = goals
+
     async def _hydrate_locked(self, agent_name: str):
         # 1. Try Redis
         if self.redis_client:
@@ -725,50 +1076,16 @@ class StateService:
                     ),
                 )
                 if data:
-                    self.current_state.mood = float(data.get("mood", 0.0))
-                    self.current_state.energy = float(data.get("energy", 0.5))
-                    self.current_state.dominance = float(data.get("dominance", 0.5))
-                    self.current_state.trust_benevolence = float(
-                        data.get("trust_benevolence", 0.5)
+                    self._apply_redis_state(data)
+                    watermark = await asyncio.to_thread(
+                        self.redis_client.get,
+                        f"proactive-watermark:{agent_name}",
                     )
-                    self.current_state.trust_competence = float(
-                        data.get("trust_competence", 0.5)
-                    )
-                    self.current_state.trust_integrity = float(
-                        data.get("trust_integrity", 0.5)
-                    )
-                    self.current_state.attachment = float(data.get("attachment", 0.1))
-                    self.current_state.fatigue = float(data.get("fatigue", 0.0))
-                    self.current_state.last_user_interaction = float(
-                        data.get("last_user_interaction", time.time())
-                    )
-                    self.current_state.last_proactive_attempt = float(
-                        data.get("last_proactive_attempt", 0.0)
-                    )
-                    self.current_state.interaction_count = int(
-                        data.get("interaction_count", 0)
-                    )
-                    self.current_state.user_mental_model.inferred_valence = float(
-                        data.get("inferred_valence", 0.0)
-                    )
-                    self.current_state.user_mental_model.inferred_arousal = float(
-                        data.get("inferred_arousal", 0.5)
-                    )
-                    self.current_state.user_mental_model.implied_goals = json.loads(
-                        data.get("implied_goals", "[]")
-                    )
-                    self.current_state.user_mental_model.known_concepts = json.loads(
-                        data.get("known_concepts", "[]")
-                    )
-                    self.current_state.baseline_valence = float(
-                        data.get("baseline_valence", 0.0)
-                    )
-                    self.current_state.baseline_arousal = float(
-                        data.get("baseline_arousal", 0.5)
-                    )
-                    self.current_state.baseline_dominance = float(
-                        data.get("baseline_dominance", 0.5)
-                    )
+                    if watermark is not None:
+                        self.current_state.last_proactive_attempt = max(
+                            self.current_state.last_proactive_attempt,
+                            float(watermark),
+                        )
                     logger.debug("[State] Hydrated successfully from Redis.")
                     return
             except Exception as e:
@@ -784,36 +1101,7 @@ class StateService:
                 )
                 row = cursor.fetchone()
                 if row:
-                    self.current_state.mood = row["mood"]
-                    self.current_state.energy = row["energy"]
-                    self.current_state.dominance = row["dominance"]
-                    self.current_state.trust_benevolence = row["trust_benevolence"]
-                    self.current_state.trust_competence = row["trust_competence"]
-                    self.current_state.trust_integrity = row["trust_integrity"]
-                    self.current_state.attachment = row["attachment"]
-                    self.current_state.fatigue = row["fatigue"]
-                    self.current_state.last_user_interaction = row[
-                        "last_user_interaction"
-                    ]
-                    self.current_state.last_proactive_attempt = (
-                        row["last_proactive_attempt"] or 0.0
-                    )
-                    self.current_state.interaction_count = row["interaction_count"]
-                    self.current_state.user_mental_model.inferred_valence = row[
-                        "inferred_valence"
-                    ]
-                    self.current_state.user_mental_model.inferred_arousal = row[
-                        "inferred_arousal"
-                    ]
-                    self.current_state.user_mental_model.implied_goals = json.loads(
-                        row["implied_goals"] or "[]"
-                    )
-                    self.current_state.user_mental_model.known_concepts = json.loads(
-                        row["known_concepts"] or "[]"
-                    )
-                    self.current_state.baseline_valence = row["baseline_valence"]
-                    self.current_state.baseline_arousal = row["baseline_arousal"]
-                    self.current_state.baseline_dominance = row["baseline_dominance"]
+                    self._apply_sqlite_state(conn, row, agent_name)
                     logger.debug("[State] Hydrated successfully from SQLite.")
                     return
         except Exception as e:
@@ -848,7 +1136,7 @@ class StateService:
                             agent_node.get("fatigue", 0.0)
                         )
                         self.current_state.last_user_interaction = float(
-                            agent_node.get("last_user_interaction", time.time())
+                            agent_node.get("last_user_interaction", clock.time())
                         )
                         self.current_state.last_proactive_attempt = float(
                             agent_node.get("last_proactive_attempt", 0.0)
@@ -931,6 +1219,19 @@ class StateService:
             if incoming_revision is not None:
                 incoming_revision = int(incoming_revision)
                 if incoming_revision < self.current_state.revision:
+                    # Proactive attempts are a monotonic cooldown watermark.
+                    # The subconscious owns the attempt until the next brain
+                    # tick; an older snapshot must never erase that mark.
+                    try:
+                        incoming_attempt = float(
+                            data.get("last_proactive_attempt", 0.0)
+                        )
+                    except (TypeError, ValueError):
+                        incoming_attempt = 0.0
+                    self.current_state.last_proactive_attempt = max(
+                        self.current_state.last_proactive_attempt,
+                        incoming_attempt,
+                    )
                     logger.debug(
                         "[State] %s: stale state.broadcast rejected "
                         "(incoming revision %d < current %d, writer=%r)",
@@ -984,12 +1285,18 @@ class StateService:
                     "last_user_interaction", self.current_state.last_user_interaction
                 )
             )
-            self.current_state.last_proactive_attempt = float(
-                data.get(
-                    "last_proactive_attempt",
-                    self.current_state.last_proactive_attempt,
-                )
+            try:
+                incoming_attempt = float(data.get("last_proactive_attempt", 0.0))
+            except (TypeError, ValueError):
+                incoming_attempt = 0.0
+            self.current_state.last_proactive_attempt = max(
+                self.current_state.last_proactive_attempt, incoming_attempt
             )
+            interaction_hours = _parse_interaction_hours(
+                data.get("user_interaction_hours")
+            )
+            if interaction_hours is not None:
+                self.current_state.user_interaction_hours = interaction_hours
             self.current_state.interaction_count = int(
                 data.get("interaction_count", self.current_state.interaction_count)
             )
@@ -1011,6 +1318,9 @@ class StateService:
             known_concepts = data.get("known_concepts")
             if isinstance(known_concepts, list):
                 self.current_state.user_mental_model.known_concepts = known_concepts
+            proactive_goals = _parse_proactive_goals(data.get("proactive_goals"))
+            if proactive_goals is not None:
+                self.proactive_goals = proactive_goals
             self.current_state.baseline_valence = float(
                 data.get("baseline_valence", self.current_state.baseline_valence)
             )
@@ -1066,6 +1376,9 @@ class StateService:
                 "fatigue": self.current_state.fatigue,
                 "last_user_interaction": self.current_state.last_user_interaction,
                 "last_proactive_attempt": self.current_state.last_proactive_attempt,
+                "user_interaction_hours": list(
+                    self.current_state.user_interaction_hours
+                ),
                 "interaction_count": self.current_state.interaction_count,
                 "inferred_valence": self.current_state.user_mental_model.inferred_valence,
                 "inferred_arousal": self.current_state.user_mental_model.inferred_arousal,
@@ -1073,7 +1386,12 @@ class StateService:
                 "baseline_arousal": self.current_state.baseline_arousal,
                 "baseline_dominance": self.current_state.baseline_dominance,
                 "global_controls": self.get_global_controls().model_dump(),
+                # Serialized once, here, for all three destinations. Dumped
+                # separately before each await, one persist could write three
+                # different goal lists if a thought was recorded mid-persist.
+                "proactive_goals": _goal_payload(self.proactive_goals),
             }
+            goals_json = json.dumps(snapshot["proactive_goals"])
 
             # 1. Save to Redis
             if self.redis_client:
@@ -1083,6 +1401,14 @@ class StateService:
                     # Called directly it blocks the loop for a network round
                     # trip mid-conversation. redis-py holds a connection pool
                     # and is thread-safe for commands.
+                    if snapshot["last_proactive_attempt"] > 0:
+                        await asyncio.to_thread(
+                            self.redis_client.eval,
+                            _PROACTIVE_WATERMARK_MAX_SCRIPT,
+                            1,
+                            f"proactive-watermark:{agent_name}",
+                            str(snapshot["last_proactive_attempt"]),
+                        )
                     await asyncio.to_thread(
                         self.redis_client.hset,
                         f"state:{agent_name}",
@@ -1102,6 +1428,10 @@ class StateService:
                             "last_proactive_attempt": str(
                                 snapshot["last_proactive_attempt"]
                             ),
+                            "user_interaction_hours": json.dumps(
+                                snapshot["user_interaction_hours"]
+                            ),
+                            "proactive_goals": goals_json,
                             "interaction_count": str(snapshot["interaction_count"]),
                             "inferred_valence": str(snapshot["inferred_valence"]),
                             "inferred_arousal": str(snapshot["inferred_arousal"]),
@@ -1143,7 +1473,14 @@ class StateService:
                 snapshot["last_proactive_attempt"],
             )
             try:
-                await asyncio.to_thread(self._write_state_row, sqlite_params)
+                await asyncio.to_thread(
+                    self._write_state_row,
+                    sqlite_params,
+                    json.dumps(
+                        snapshot["user_interaction_hours"][-_MAX_INTERACTION_HOURS:]
+                    ),
+                    goals_json,
+                )
             except Exception as e:
                 logger.error(f"Failed to persist state to SQLite: {e}")
 
@@ -1154,7 +1491,7 @@ class StateService:
                 **snapshot,
                 "implied_goals": self.current_state.user_mental_model.implied_goals,
                 "known_concepts": self.current_state.user_mental_model.known_concepts,
-                "timestamp": time.time(),
+                "timestamp": clock.time(),
             }
             try:
                 # Fire and forget publishing. P4-8: spawn_background retains
@@ -1171,8 +1508,14 @@ class StateService:
             f"[State] Persisted to cache (non-blocking Neo4j): V={snapshot['mood']:.2f} Ar={snapshot['energy']:.2f} D={snapshot['dominance']:.2f}"
         )
 
-    def _write_state_row(self, params) -> None:
-        """Write the agent_state row. Synchronous; called only via `to_thread`.
+    def _write_state_row(self, params, hours_json: str, goals_json: str) -> None:
+        """Write the agent_state row and the two W9 side tables in one
+        transaction. Synchronous; called only via `to_thread`.
+
+        One connection and one commit for all three: written separately, a
+        crash between them left a state row whose rhythm or thought history
+        belonged to a different persist, and each persist paid three opens,
+        three commits and three thread hops on every tick.
 
         Split out of `persist_state` so the blocking `sqlite3` work happens off
         the event loop -- it ran on every persist, from five call sites
@@ -1220,6 +1563,24 @@ class StateService:
                 """,
                     params,
                 )
+                # Rhythm sample and thought history, kept apart from the
+                # affect row but committed with it.
+                conn.execute(
+                    """
+                    INSERT INTO agent_user_activity_hours (agent_name, hours_json)
+                    VALUES (?, ?)
+                    ON CONFLICT(agent_name) DO UPDATE SET hours_json = excluded.hours_json
+                    """,
+                    (params[0], hours_json),
+                )
+                conn.execute(
+                    """
+                    INSERT INTO agent_proactive_goals (agent_name, goals_json)
+                    VALUES (?, ?)
+                    ON CONFLICT(agent_name) DO UPDATE SET goals_json = excluded.goals_json
+                    """,
+                    (params[0], goals_json),
+                )
         finally:
             # `finally`, not a trailing call: the original leaked the connection
             # whenever the INSERT raised.
@@ -1227,7 +1588,62 @@ class StateService:
 
     def record_user_interaction(self):
         """Mark that the user just interacted. Called by BrainAgent on every chat.input."""
-        self.current_state.last_user_interaction = time.time()
+        self.current_state.last_user_interaction = clock.time()
+        hour = user_hour(self.current_state.last_user_interaction)
+        self.current_state.user_interaction_hours.append(hour)
+        del self.current_state.user_interaction_hours[:-_MAX_INTERACTION_HOURS]
+
+    def record_proactive_thought(
+        self, description: str, *, goal_id: str | None = None
+    ) -> tuple[str, float]:
+        """Record a raised thought and return its stable id and re-raise rate."""
+        normalized = " ".join(description.casefold().split())
+        stable_id = goal_id or hashlib.sha256(normalized.encode()).hexdigest()[:16]
+        now = clock.time()
+        review_due_goals(
+            self.proactive_goals,
+            now,
+            ignore_after_s=Config.PROACTIVE_IGNORE_REVIEW_SECONDS,
+        )
+        record = next(
+            (goal for goal in self.proactive_goals if goal.goal_id == stable_id), None
+        )
+        if record is None:
+            record = GoalRecord(
+                goal_id=stable_id,
+                type="proactive_thought",
+                source="subconscious",
+                description=description,
+            )
+            self.proactive_goals.append(record)
+            self.proactive_goals = _bounded_proactive_goals(self.proactive_goals)
+        chance = record.re_raise_probability(Config.PROACTIVE_IGNORE_ZERO_AFTER)
+        if chance > 0:
+            record.record_proactive_raise(now)
+        return stable_id, chance
+
+    def resolve_proactive_thoughts(self, user_text: str) -> None:
+        """Record clear replies or dismissals; unresolved thoughts expire to ignored."""
+        now = clock.time()
+        review_due_goals(
+            self.proactive_goals,
+            now,
+            ignore_after_s=Config.PROACTIVE_IGNORE_REVIEW_SECONDS,
+        )
+        normalized = " ".join(user_text.casefold().split())
+        dismissal = any(
+            phrase in normalized
+            for phrase in ("stop asking", "don't ask", "do not ask", "drop this")
+        )
+        words = set(normalized.split())
+        for goal in self.proactive_goals:
+            if goal.proactive_raise_count <= len(goal.proactive_outcomes):
+                continue
+            goal_words = set(goal.description.casefold().split())
+            if dismissal:
+                goal.record_proactive_outcome("dismissed")
+            elif len(words & goal_words) >= 2:
+                goal.record_proactive_outcome("acted_on")
 
     async def apply_semantic_appraisal(self, new_pad: dict[str, float]):
         """Apply System-2 background semantic-drift results to short-term affect.
@@ -1236,6 +1652,11 @@ class StateService:
         LLM inference that produced ``new_pad`` runs upstream, outside the lock.
         """
         async with self._state_lock:
+            before = (
+                self._affect_snapshot("valence", "arousal", "dominance")
+                if self._trace_enabled()
+                else None
+            )
             if "valence" in new_pad and new_pad["valence"] is not None:
                 self.current_state.valence = float(new_pad["valence"])
             if "arousal" in new_pad and new_pad["arousal"] is not None:
@@ -1244,6 +1665,19 @@ class StateService:
                 self.current_state.dominance = float(new_pad["dominance"])
             self._enforce_bounds()
             self._refresh_global_controls_locked()
+            if before is not None:
+                after = self._affect_snapshot("valence", "arousal", "dominance")
+                self._trace_update(
+                    "affect.update",
+                    "semantic_appraisal",
+                    {
+                        key: value
+                        for key, value in new_pad.items()
+                        if key in before and value is not None
+                    },
+                    before,
+                    after,
+                )
 
     async def apply_affect_delta(
         self,
@@ -1267,6 +1701,11 @@ class StateService:
             return 0.0
 
         async with self._state_lock:
+            before = (
+                self._affect_snapshot("valence", "arousal", "dominance")
+                if self._trace_enabled()
+                else None
+            )
             self.current_state.valence += delta_for("pleasure", "valence")
             self.current_state.energy += delta_for("arousal")
             self.current_state.dominance += delta_for("dominance")
@@ -1274,6 +1713,21 @@ class StateService:
             self._refresh_global_controls_locked(
                 urgency=urgency, prediction_error=prediction_error
             )
+            if before is not None:
+                after = self._affect_snapshot("valence", "arousal", "dominance")
+                self._trace_update(
+                    "affect.update",
+                    "appraisal_delta",
+                    {
+                        "valence": delta_for("pleasure", "valence"),
+                        "arousal": delta_for("arousal"),
+                        "dominance": delta_for("dominance"),
+                        "urgency": urgency,
+                        "prediction_error": prediction_error,
+                    },
+                    before,
+                    after,
+                )
             return self._global_controls
 
     async def appraise_and_apply_event(
@@ -1327,6 +1781,14 @@ class StateService:
         w6 = weights.get("w6_na_to_d", 0.4)
 
         async with self._state_lock:
+            tracing = self._trace_enabled()
+            if tracing:
+                affect_before = self._affect_snapshot(
+                    "mood", "arousal", "dominance", energy_arousal=True
+                )
+                trust_before = self._trust_snapshot(
+                    "benevolence", "competence", "integrity", "attachment"
+                )
             # PAD mood-pull (section2.3)
             self.current_state.mood = (
                 1 - self.alpha
@@ -1364,11 +1826,44 @@ class StateService:
                 ),
             )
 
-            self.current_state.last_update = datetime.now()
+            self.current_state.last_update = clock.now()
             self._enforce_bounds()
-            self._refresh_global_controls_locked(
-                urgency=R, prediction_error=N
-            )
+            self._refresh_global_controls_locked(urgency=R, prediction_error=N)
+            if tracing:
+                affect_after = self._affect_snapshot(
+                    "mood", "arousal", "dominance", energy_arousal=True
+                )
+                trust_after = self._trust_snapshot(
+                    "benevolence", "competence", "integrity", "attachment"
+                )
+                self._trace_update(
+                    "affect.update",
+                    "appraisal",
+                    {
+                        "goal_congruence": G,
+                        "relationship_impact": RI,
+                        "novelty": N,
+                        "relevance": R,
+                        "agency": A,
+                        "norm_alignment": NA,
+                    },
+                    affect_before,
+                    affect_after,
+                )
+                self._trace_update(
+                    "trust.update",
+                    "appraisal",
+                    {
+                        "relationship_impact": RI,
+                        "goal_congruence": G,
+                        "relevance": R,
+                        "norm_alignment": NA,
+                        "interaction_count": self.current_state.interaction_count,
+                    },
+                    trust_before,
+                    trust_after,
+                    person_id=self.current_state.active_person_id,
+                )
         await self.persist_state()
 
         logger.debug(
@@ -1388,8 +1883,14 @@ class StateService:
         Wraps the new appraisal-driven update for code that still uses valence floats.
         """
         async with self._state_lock:
-            now = datetime.now()
-            self.current_state.last_user_interaction = time.time()
+            now = clock.now()
+            self.current_state.last_user_interaction = clock.time()
+            tracing = self._trace_enabled()
+            if tracing:
+                affect_before = self._affect_snapshot(
+                    "mood", "arousal", energy_arousal=True
+                )
+                trust_before = self._trust_snapshot("trust", "attachment")
 
             # Apply Cognitive Weight (0.7)
             self.current_state.mood = (self.current_state.mood * 0.3) + (
@@ -1405,9 +1906,27 @@ class StateService:
             self.current_state.interaction_count += 1
             self.current_state.last_update = now
             self._enforce_bounds()
-            self._refresh_global_controls_locked(
-                prediction_error=abs(event_valence)
-            )
+            self._refresh_global_controls_locked(prediction_error=abs(event_valence))
+            if tracing:
+                affect_after = self._affect_snapshot(
+                    "mood", "arousal", energy_arousal=True
+                )
+                trust_after = self._trust_snapshot("trust", "attachment")
+                self._trace_update(
+                    "affect.update",
+                    "legacy_event",
+                    {"event_valence": event_valence},
+                    affect_before,
+                    affect_after,
+                )
+                self._trace_update(
+                    "trust.update",
+                    "legacy_event",
+                    {"user_trust_delta": user_trust_delta},
+                    trust_before,
+                    trust_after,
+                    person_id=self.current_state.active_person_id,
+                )
         await self.persist_state()
 
     async def apply_sensory_perception(self, perception_metadata: dict[str, Any]):
@@ -1442,6 +1961,12 @@ class StateService:
         ) and not isinstance(emotion_bias, bool)
 
         async with self._state_lock:
+            tracing = self._trace_enabled()
+            if tracing:
+                affect_before = self._affect_snapshot(
+                    "mood", "arousal", energy_arousal=True
+                )
+                trust_before = self._trust_snapshot("trust", "attachment")
             if has_emotion_estimate:
                 # Confidence-scaled emotional bias
                 weight = self.sensory_weight * max(0.0, min(1.0, confidence))
@@ -1481,6 +2006,28 @@ class StateService:
 
             self._enforce_bounds()
             self._refresh_global_controls_locked()
+            if tracing:
+                affect_after = self._affect_snapshot(
+                    "mood", "arousal", energy_arousal=True
+                )
+                trust_after = self._trust_snapshot("trust", "attachment")
+                if affect_after != affect_before:
+                    self._trace_update(
+                        "affect.update",
+                        "sensory_perception",
+                        {"confidence": confidence, "event_count": len(events)},
+                        affect_before,
+                        affect_after,
+                    )
+                if trust_after != trust_before:
+                    self._trace_update(
+                        "trust.update",
+                        "sensory_perception",
+                        {"event_count": len(events)},
+                        trust_before,
+                        trust_after,
+                        person_id=self.current_state.active_person_id,
+                    )
         await self._persist_sensory_state_if_due()
 
     async def apply_somatic_perception(self, somatic: dict[str, Any]):
@@ -1532,6 +2079,8 @@ class StateService:
         entities = somatic.get("entities") or []
         async with self._state_lock:
             before_valence = self.current_state.valence
+            tracing = self._trace_enabled()
+            before = self._affect_snapshot("valence", "arousal") if tracing else None
             self.current_state.valence = min(
                 1.0, self.current_state.valence + valence_spike
             )
@@ -1543,6 +2092,14 @@ class StateService:
             self.current_state.release_dopamine(dopamine_spike)
             self._refresh_global_controls_locked()
             after_valence = self.current_state.valence
+            if tracing:
+                self._trace_update(
+                    "affect.update",
+                    "somatic_perception",
+                    {"valence_spike": valence_spike, "arousal_spike": arousal_spike},
+                    before,
+                    self._affect_snapshot("valence", "arousal"),
+                )
 
         logger.info(
             "[Vision]  Somatic comfort recognised %s -- valence %.2f -> %.2f (dopamine now %.2f).",
@@ -1603,6 +2160,8 @@ class StateService:
 
         async with self._state_lock:
             before_valence = self.current_state.valence
+            tracing = self._trace_enabled()
+            before = self._affect_snapshot("valence", "arousal") if tracing else None
             self.current_state.valence = self.current_state.valence + valence_delta
             # `arousal` is a derived property (`energy` + fatigue-restlessness
             # + adrenaline-lift, see its getter above) -- reading it and
@@ -1618,6 +2177,18 @@ class StateService:
                 self.current_state.release_dopamine(dopamine_spike)
             self._refresh_global_controls_locked()
             after_valence = self.current_state.valence
+            if tracing:
+                self._trace_update(
+                    "affect.update",
+                    "facial_reflex",
+                    {
+                        "valence_delta": valence_delta,
+                        "arousal_delta": arousal_delta,
+                        "dopamine_spike": dopamine_spike,
+                    },
+                    before,
+                    self._affect_snapshot("valence", "arousal"),
+                )
 
         logger.debug(
             "[State] Facial reflex %r -- valence %.3f -> %.3f, arousal delta %+.3f.",
@@ -1644,7 +2215,9 @@ class StateService:
         async with self._state_lock:
             level = self.current_state.release_cortisol(amount)
         if reason:
-            logger.info("[Endocrine] Cortisol released (%s) -- now %.2f.", reason, level)
+            logger.info(
+                "[Endocrine] Cortisol released (%s) -- now %.2f.", reason, level
+            )
         return level
 
     async def release_dopamine(self, amount: float, *, reason: str = "") -> float:
@@ -1658,7 +2231,9 @@ class StateService:
         async with self._state_lock:
             level = self.current_state.release_dopamine(amount)
         if reason:
-            logger.info("[Endocrine] Dopamine released (%s) -- now %.2f.", reason, level)
+            logger.info(
+                "[Endocrine] Dopamine released (%s) -- now %.2f.", reason, level
+            )
         return level
 
     async def release_adrenaline(self, amount: float, *, reason: str = "") -> float:
@@ -1708,13 +2283,20 @@ class StateService:
         makes this safe. `_enforce_bounds` and `_update_fatigue_python` are
         synchronous and take no lock.
         """
-        now = tick_metadata.get("timestamp", time.time())
+        now = tick_metadata.get("timestamp", clock.time())
         dt_hours = tick_metadata.get("interval", 60) / 3600.0
 
         async with self._state_lock:
+            tracing = self._trace_enabled()
+            if tracing:
+                affect_before = self._affect_snapshot(
+                    "mood", "arousal", "dominance", energy_arousal=True
+                )
+                trust_before = self._trust_snapshot(
+                    "benevolence", "competence", "integrity"
+                )
             # Evolve fatigue
-            hour = datetime.fromtimestamp(now).hour
-            is_night = hour >= 22 or hour < 6
+            is_night = in_hour_window(user_hour(now), 22, 6)
             try:
                 import cognitive_rust
 
@@ -1763,6 +2345,28 @@ class StateService:
             self.current_state.last_update = datetime.fromtimestamp(now)
             self._enforce_bounds()
             self._refresh_global_controls_locked()
+            if tracing:
+                affect_after = self._affect_snapshot(
+                    "mood", "arousal", "dominance", energy_arousal=True
+                )
+                trust_after = self._trust_snapshot(
+                    "benevolence", "competence", "integrity"
+                )
+                self._trace_update(
+                    "affect.update",
+                    "system_tick_decay",
+                    {"interval_s": dt_hours * 3600.0},
+                    affect_before,
+                    affect_after,
+                )
+                self._trace_update(
+                    "trust.update",
+                    "system_tick_drift",
+                    {"interval_s": dt_hours * 3600.0},
+                    trust_before,
+                    trust_after,
+                    person_id=self.current_state.active_person_id,
+                )
             await self.persist_state()
         logger.debug(
             "[State Heartbeat] V=%.3f Ar=%.3f D=%.3f F=%.3f",
@@ -1778,9 +2382,22 @@ class StateService:
         Evaluates whether the agent should spontaneously initiate contact.
         """
         if not getattr(Config, "PROACTIVE_ENABLED", False):
+            if self._trace_enabled():
+                self._trace_proactive(
+                    fired=False,
+                    reason="disabled",
+                    idle_s=None,
+                    idle_threshold_s=None,
+                    cooldown_remaining_s=None,
+                    cooldown_s=None,
+                    energy=self.current_state.energy,
+                    energy_min=None,
+                    probability=None,
+                    probability_min=None,
+                )
             return False
 
-        now = time.time()
+        now = clock.time()
 
         debug_override = getattr(Config, "PROACTIVE_DEBUG_THRESHOLD_OVERRIDE", None)
         if debug_override is not None:
@@ -1793,10 +2410,66 @@ class StateService:
 
         idle_duration = now - self.current_state.last_user_interaction
         if idle_duration < threshold:
+            if self._trace_enabled():
+                self._trace_proactive(
+                    fired=False,
+                    reason="idle_below_threshold",
+                    idle_s=idle_duration,
+                    idle_threshold_s=threshold,
+                    cooldown_remaining_s=max(
+                        0.0,
+                        self.current_state.last_proactive_attempt
+                        + getattr(Config, "PROACTIVE_COOLDOWN_SECONDS", 3600)
+                        - now,
+                    ),
+                    cooldown_s=getattr(Config, "PROACTIVE_COOLDOWN_SECONDS", 3600),
+                    energy=self.current_state.energy,
+                    energy_min=getattr(Config, "PROACTIVE_MIN_ENERGY", 0.2),
+                    probability=None,
+                    probability_min=getattr(
+                        Config, "PROACTIVE_MIN_TURN_PROBABILITY", 0.5
+                    ),
+                )
             return False
 
         cooldown = getattr(Config, "PROACTIVE_COOLDOWN_SECONDS", 3600)
-        if (now - self.current_state.last_proactive_attempt) < cooldown:
+        cooldown_remaining = max(
+            0.0, self.current_state.last_proactive_attempt + cooldown - now
+        )
+        if cooldown_remaining > 0:
+            if self._trace_enabled():
+                self._trace_proactive(
+                    fired=False,
+                    reason="cooldown",
+                    idle_s=idle_duration,
+                    idle_threshold_s=threshold,
+                    cooldown_remaining_s=cooldown_remaining,
+                    cooldown_s=cooldown,
+                    energy=self.current_state.energy,
+                    energy_min=getattr(Config, "PROACTIVE_MIN_ENERGY", 0.2),
+                    probability=None,
+                    probability_min=getattr(
+                        Config, "PROACTIVE_MIN_TURN_PROBABILITY", 0.5
+                    ),
+                )
+            return False
+
+        if self.is_quiet_hour(now):
+            if self._trace_enabled():
+                self._trace_proactive(
+                    fired=False,
+                    reason="quiet_hours",
+                    idle_s=idle_duration,
+                    idle_threshold_s=threshold,
+                    cooldown_remaining_s=cooldown_remaining,
+                    cooldown_s=cooldown,
+                    energy=self.current_state.energy,
+                    energy_min=getattr(Config, "PROACTIVE_MIN_ENERGY", 0.2),
+                    probability=None,
+                    probability_min=getattr(
+                        Config, "PROACTIVE_MIN_TURN_PROBABILITY", 0.5
+                    ),
+                )
             return False
 
         min_energy = getattr(Config, "PROACTIVE_MIN_ENERGY", 0.2)
@@ -1806,6 +2479,21 @@ class StateService:
                 self.current_state.energy,
                 min_energy,
             )
+            if self._trace_enabled():
+                self._trace_proactive(
+                    fired=False,
+                    reason="energy",
+                    idle_s=idle_duration,
+                    idle_threshold_s=threshold,
+                    cooldown_remaining_s=cooldown_remaining,
+                    cooldown_s=cooldown,
+                    energy=self.current_state.energy,
+                    energy_min=min_energy,
+                    probability=None,
+                    probability_min=getattr(
+                        Config, "PROACTIVE_MIN_TURN_PROBABILITY", 0.5
+                    ),
+                )
             return False
 
         # Roadmap leftovers Item 4b (M3-D2): turn_taking_probability was
@@ -1835,6 +2523,19 @@ class StateService:
                 turn_probability,
                 min_turn_probability,
             )
+            if self._trace_enabled():
+                self._trace_proactive(
+                    fired=False,
+                    reason="probability_gate",
+                    idle_s=idle_duration,
+                    idle_threshold_s=threshold,
+                    cooldown_remaining_s=cooldown_remaining,
+                    cooldown_s=cooldown,
+                    energy=self.current_state.energy,
+                    energy_min=min_energy,
+                    probability=turn_probability,
+                    probability_min=min_turn_probability,
+                )
             return False
 
         logger.info(
@@ -1845,7 +2546,73 @@ class StateService:
             self.current_state.energy,
             turn_probability,
         )
+        if self._trace_enabled():
+            self._trace_proactive(
+                fired=True,
+                reason="eligible",
+                idle_s=idle_duration,
+                idle_threshold_s=threshold,
+                cooldown_remaining_s=cooldown_remaining,
+                cooldown_s=cooldown,
+                energy=self.current_state.energy,
+                energy_min=min_energy,
+                probability=turn_probability,
+                probability_min=min_turn_probability,
+            )
         return True
+
+    def is_quiet_hour(self, timestamp: float | None = None) -> bool:
+        """Infer quiet hours from user turn times, with a night default."""
+        now = clock.time() if timestamp is None else timestamp
+        hour = user_hour(now)
+        quiet = in_hour_window(
+            hour, Config.PROACTIVE_QUIET_START_HOUR, Config.PROACTIVE_QUIET_END_HOUR
+        )
+        hours = self.current_state.user_interaction_hours
+        if len(hours) >= Config.PROACTIVE_ACTIVITY_HISTORY_MINIMUM:
+            observed = [hours.count(index) for index in range(24)]
+            active_counts = sorted(count for count in observed if count)
+            if active_counts:
+                median_activity = active_counts[len(active_counts) // 2]
+                quiet = observed[hour] < max(1, int(median_activity * 0.5))
+        return quiet
+
+    def proactive_candidate_eligible(
+        self,
+        *,
+        importance: float,
+        category: str,
+        description: str,
+        goal_id: str | None = None,
+    ) -> bool:
+        """Apply per-category importance and thought-history gates after generation."""
+        if category not in {"useful_to_user", "self_directed"}:
+            return False
+        threshold = (
+            Config.PROACTIVE_SELF_DIRECTED_IMPORTANCE_MIN
+            if category == "self_directed"
+            else Config.PROACTIVE_USEFUL_IMPORTANCE_MIN
+        )
+        if not isinstance(importance, (int, float)) or not math.isfinite(importance):
+            return False
+        if not threshold <= importance <= 1.0:
+            return False
+        normalized = " ".join(description.casefold().split())
+        stable_id = goal_id or hashlib.sha256(normalized.encode()).hexdigest()[:16]
+        review_due_goals(
+            self.proactive_goals,
+            clock.time(),
+            ignore_after_s=Config.PROACTIVE_IGNORE_REVIEW_SECONDS,
+        )
+        goal = next(
+            (item for item in self.proactive_goals if item.goal_id == stable_id), None
+        )
+        return not (
+            goal
+            and importance
+            * goal.re_raise_probability(Config.PROACTIVE_IGNORE_ZERO_AFTER)
+            < threshold
+        )
 
     def mark_proactive_attempt(self):
         """Record that a proactive generation was initiated.
@@ -1856,7 +2623,7 @@ class StateService:
         field already rides -- previously a plain instance attribute that
         neither survived a restart nor ever crossed the process boundary.
         """
-        self.current_state.last_proactive_attempt = time.time()
+        self.current_state.last_proactive_attempt = clock.time()
 
     def _enforce_bounds(self):
         self.current_state.mood = max(-1.0, min(1.0, self.current_state.mood))
@@ -1937,6 +2704,7 @@ class StateService:
 
     def get_context_snapshot(self) -> dict[str, Any]:
         return {
+            "timestamp": clock.time(),
             "emotion": self.get_emotion_label(),
             # Surfaced so `StateUpdate.from_snapshot` (contracts.py) carries
             # revision/writer_id on the `state.update` subject for cross-process tracing.
@@ -1952,6 +2720,13 @@ class StateService:
             "attachment": self.current_state.attachment,
             "interaction_count": self.current_state.interaction_count,
             "active_goals": self.current_state.active_goals,
+            "user_interaction_hours": list(self.current_state.user_interaction_hours),
+            "proactive_goals": [goal.model_dump() for goal in self.proactive_goals],
+            "unresolved_thoughts": [
+                goal.model_dump()
+                for goal in self.proactive_goals
+                if goal.proactive_raise_count > len(goal.proactive_outcomes)
+            ],
             # PAD aliases for new consumers
             "valence": self.current_state.mood,
             "arousal": self.current_state.arousal,
@@ -2016,7 +2791,7 @@ class StateService:
         return "neutral"
 
     async def _persist_sensory_state_if_due(self):
-        now = time.time()
+        now = clock.time()
         if now - self._last_sensory_persist < self.sensory_persist_interval:
             return
         self._last_sensory_persist = now

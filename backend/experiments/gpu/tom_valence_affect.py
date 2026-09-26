@@ -4,9 +4,12 @@ The affect simulation shows the *mechanism* works when appraisal's goal
 congruence comes from the user's expressed valence (oracle labels: mood tracks
 the user, r = 0.36-0.98, bounded, trust separates hostile from positive) and
 fails in V1, where it comes from the agent's own mood. What is not known is
-whether a production estimator is good enough. The candidate already runs on
-every turn: DecisionService._classify_intent_and_goal asks the fast LLM for
-`inferred_valence`. This script measures it and replays the simulation on it.
+whether a production estimator is good enough. The candidate already exists:
+DecisionService._classify_intent_and_goal asks the fast LLM for
+`inferred_valence` on turns that reach it -- deterministic responses and
+greetings short-circuit before classification runs (decision.py's
+`evaluate_deterministic_response` gate), so this is not literally every turn.
+This script measures it and replays the simulation on it.
 
 Steps:
 1. For every labelled message in evals/cognitive/affect_sim.MESSAGES, call

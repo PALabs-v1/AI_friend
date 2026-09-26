@@ -36,11 +36,8 @@ use audio::{Endpointer, ResamplerCache, VadEvent};
 use sensevoice::SenseVoiceModel;
 use whisper::WhisperModel;
 
-/// P2-1, opt-in: connects with a username/password only when both are
-/// given, mirroring `BaseAgent.connect` (Python) so both halves of the mesh
-/// honour the same opt-in credential -- see nats-accounts.conf's own header
-/// for how an operator turns this on. With neither given (the default),
-/// this is `async_nats::connect(url)`, unchanged from before this existed.
+/// Runtime agents require a username/password, matching the authenticated
+/// default in `nats-accounts.conf` and Python's `BaseAgent.connect`.
 /// Takes the credentials as parameters rather than reading
 /// `NATS_USER`/`NATS_PASSWORD` internally so tests can exercise both
 /// branches without mutating this process's real environment (`cargo test`
@@ -49,15 +46,16 @@ async fn connect_nats(
     url: &str,
     user: Option<String>,
     password: Option<String>,
-) -> std::result::Result<async_nats::Client, async_nats::ConnectError> {
+) -> Result<async_nats::Client> {
     match (user, password) {
-        (Some(user), Some(password)) => {
+        (Some(user), Some(password)) if !user.is_empty() && !password.is_empty() => {
             async_nats::ConnectOptions::new()
                 .user_and_password(user, password)
                 .connect(url)
                 .await
+                .context("NATS authentication failed")
         }
-        _ => async_nats::connect(url).await,
+        _ => anyhow::bail!("NATS_USER and NATS_PASSWORD are required"),
     }
 }
 
@@ -178,8 +176,8 @@ fn parse_transcribe_file_arg(args: impl Iterator<Item = String>) -> Option<PathB
 /// `ResamplerCache`) but starting from a WAV file's own header-declared
 /// format instead of a fixed-format inbound PCM stream.
 fn decode_wav_mono_16k(path: &Path) -> Result<Vec<f32>> {
-    let mut reader =
-        hound::WavReader::open(path).with_context(|| format!("open WAV file {}", path.display()))?;
+    let mut reader = hound::WavReader::open(path)
+        .with_context(|| format!("open WAV file {}", path.display()))?;
     let spec = reader.spec();
 
     let raw: Vec<f32> = match (spec.sample_format, spec.bits_per_sample) {
@@ -187,7 +185,7 @@ fn decode_wav_mono_16k(path: &Path) -> Result<Vec<f32>> {
             .samples::<f32>()
             .collect::<std::result::Result<Vec<f32>, _>>()
             .context("decode f32 WAV samples")?,
-        (hound::SampleFormat::Int, bits) if bits >= 1 && bits <= 32 => {
+        (hound::SampleFormat::Int, bits) if (1..=32).contains(&bits) => {
             // i32 is the only integer sample type hound offers that can hold
             // every bit depth (8/16/24/32) without overflow; scale by the
             // depth actually declared in the header, not a fixed 16-bit
@@ -227,7 +225,8 @@ async fn run_offline_transcription(path: &Path, config: &SttConfig) -> Result<()
     let vad_path = resolve_vad_model(config).await;
     let language = config.language.clone();
     let transcript = tokio::task::spawn_blocking(move || -> Result<String> {
-        let model = WhisperModel::load(&model_path, "accurate", &language)?.with_vad_model(vad_path);
+        let model =
+            WhisperModel::load(&model_path, "accurate", &language)?.with_vad_model(vad_path);
         model.transcribe(&pcm_16k)
     })
     .await
@@ -367,7 +366,12 @@ async fn main() -> Result<()> {
                 "stt-agent running in MOCK mode: inbound audio content is ignored and a fixed \
                  string is replayed. Downstream chat.input is NOT real perception."
             );
-            spawn_mock_workers(jetstream.clone(), partial_slot.clone(), final_rx, transcript);
+            spawn_mock_workers(
+                jetstream.clone(),
+                partial_slot.clone(),
+                final_rx,
+                transcript,
+            );
         }
         Backend::Whisper => {
             info!(
@@ -386,12 +390,7 @@ async fn main() -> Result<()> {
             let fast = Arc::new(load_fast_path(&config).await?);
             let hears_emotion = matches!(*fast, FastPath::SenseVoice(_));
 
-            spawn_partial_worker(
-                jetstream.clone(),
-                partial_slot.clone(),
-                fast,
-                state.clone(),
-            );
+            spawn_partial_worker(jetstream.clone(), partial_slot.clone(), fast, state.clone());
             spawn_final_worker(jetstream.clone(), final_rx, accurate, state.clone());
             info!(
                 hears_emotion,
@@ -507,7 +506,8 @@ async fn run_final_job(
         state.lock().await.last_completed_tempo_wpm = Some(rate);
     }
 
-    if let Err(err) = publish_final(jetstream, &text, &job.utterance_id, job.latency, "whisper").await
+    if let Err(err) =
+        publish_final(jetstream, &text, &job.utterance_id, job.latency, "whisper").await
     {
         error!("stt-agent failed to publish transcript: {err:#}");
     }
@@ -558,8 +558,7 @@ async fn run_partial_job(
         return;
     }
 
-    if let Err(err) =
-        publish_partial(jetstream, &perception, &job.utterance_id, Some(state)).await
+    if let Err(err) = publish_partial(jetstream, &perception, &job.utterance_id, Some(state)).await
     {
         error!("stt-agent failed to publish perception: {err:#}");
     }
@@ -685,8 +684,14 @@ fn spawn_mock_workers(
         while let Some(job) = final_rx.recv().await {
             // source="mock", never "whisper": downstream must be able to tell a
             // scripted string from real recognition.
-            if let Err(err) =
-                publish_final(&jetstream, &transcript, &job.utterance_id, job.latency, "mock").await
+            if let Err(err) = publish_final(
+                &jetstream,
+                &transcript,
+                &job.utterance_id,
+                job.latency,
+                "mock",
+            )
+            .await
             {
                 error!("mock final publish failed: {err:#}");
             }
@@ -782,6 +787,9 @@ async fn publish_partial(
         if should_fire {
             let stop = AudioStop {
                 interrupt: true,
+                // A speculative duck never flushes (flush is the brain's
+                // self-correction stop, DR-029).
+                flush: false,
                 speculative: true,
                 reason: None,
                 command_text: None,
@@ -821,6 +829,7 @@ async fn publish_final(
             source: source.to_string(),
             confidence: 0.9,
             utterance_id: Some(utterance_id.to_string()),
+            ..ChatInputMetadata::default()
         },
         latency_metadata: Some(latency_metadata),
     };
@@ -945,9 +954,8 @@ async fn handle_audio_inbound(
             let confirmed = guard.endpointer.speech_confirmed();
             if confirmed && now - guard.last_partial_at >= config.partial_interval_ms / 1000.0 {
                 guard.last_partial_at = now;
-                let pcm =
-                    trailing_window(&guard.buffer, source_rate, config.partial_window_secs)
-                        .to_vec();
+                let pcm = trailing_window(&guard.buffer, source_rate, config.partial_window_secs)
+                    .to_vec();
                 let utt = guard.utterance_id.clone();
                 let rate = source_rate;
                 drop(guard);
@@ -1331,13 +1339,15 @@ mod tests {
         assert_eq!(perception.intent_type, "CONVERSATIONAL");
         assert_eq!(perception.keywords, vec!["stop"]);
         assert_eq!(
-            perception.speculative_intent.as_ref().unwrap().utterance_id.as_deref(),
+            perception
+                .speculative_intent
+                .as_ref()
+                .unwrap()
+                .utterance_id
+                .as_deref(),
             Some("utt-1")
         );
-        assert_eq!(
-            speculative.unwrap().utterance_id.as_deref(),
-            Some("utt-1")
-        );
+        assert_eq!(speculative.unwrap().utterance_id.as_deref(), Some("utt-1"));
     }
 
     #[test]
@@ -1400,9 +1410,7 @@ mod tests {
         let rate = 48_000u32;
         let freq = 200.0f64;
         let samples: Vec<f32> = (0..rate as usize / 2)
-            .map(|i| {
-                (2.0 * std::f64::consts::PI * freq * (i as f64 / rate as f64)).sin() as f32
-            })
+            .map(|i| (2.0 * std::f64::consts::PI * freq * (i as f64 / rate as f64)).sin() as f32)
             .collect();
         let f0 = estimate_f0(&samples, rate);
         assert!((f0 - freq).abs() < 10.0, "expected ~{freq} Hz, got {f0}");
@@ -1416,16 +1424,17 @@ mod tests {
     }
 
     fn args(values: &[&str]) -> impl Iterator<Item = String> {
-        values.iter().map(|s| s.to_string()).collect::<Vec<_>>().into_iter()
+        values
+            .iter()
+            .map(|s| s.to_string())
+            .collect::<Vec<_>>()
+            .into_iter()
     }
 
     #[test]
     fn transcribe_file_flag_captures_the_following_path() {
-        let parsed = parse_transcribe_file_arg(args(&[
-            "stt-agent",
-            "--transcribe-file",
-            "clip.wav",
-        ]));
+        let parsed =
+            parse_transcribe_file_arg(args(&["stt-agent", "--transcribe-file", "clip.wav"]));
         assert_eq!(parsed, Some(PathBuf::from("clip.wav")));
     }
 
@@ -1588,7 +1597,10 @@ mod tests {
             duration,
         )
         .unwrap();
-        assert!(fast > slow, "more words in the same duration must be a higher rate");
+        assert!(
+            fast > slow,
+            "more words in the same duration must be a higher rate"
+        );
     }
 
     #[test]
@@ -1598,6 +1610,9 @@ mod tests {
         // A real, very slow rate must be able to read below 120.
         let one_word_over_ten_seconds = (16_000 * 10) as usize;
         let wpm = measured_tempo_wpm("hello", one_word_over_ten_seconds).unwrap();
-        assert!(wpm < 120.0, "expected well under 120wpm for one word in 10s, got {wpm}");
+        assert!(
+            wpm < 120.0,
+            "expected well under 120wpm for one word in 10s, got {wpm}"
+        );
     }
 }

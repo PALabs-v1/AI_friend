@@ -14,6 +14,7 @@ from collections.abc import AsyncGenerator
 from pathlib import Path
 from typing import Any
 
+from .. import clock
 from ..config import Config
 from ..llm.adapter_gate import (
     OfflineAdapterGate,
@@ -31,19 +32,20 @@ from ..persona.biography import (
 )
 from ..persona.history_migration import migrate_history_memories
 from ..state import StateService
+from ..state.adaptive_weights_store import AdaptiveWeightsStore
+from ..state.runtime_paths import runtime_state_db
 from ..state.self_knowledge_store import SelfKnowledgeStore
 from ..state.temporal_store import TemporalMemoryStore
 from ..state.working_memory_store import WorkingMemoryStore
 from ..state.workspace_store import SQLiteWorkspaceStore
-from .action import ActionService, _wrap_retrieved
+from .action import ActionService
 from .appraisal import AppraisalEngine, AppraisalVector
-from .background_scheduler import BackgroundScheduler
 from .decision import DecisionService
 from .external_action import ExternalActionDispatcher
 from .identity import IdentityManager
 from .learning import ReflectionService
 from .learning_governance import LearningGovernor
-from .memory_activation import AntiInjectionGate, MemoryActivation
+from .memory_activation import AntiInjectionGate, MemoryActivation, wrap_retrieved_text
 from .percept import PerceptEnvelope
 from .perception import PerceptionService
 from .pipeline import CognitivePipeline, WorkspaceSnapshotLike
@@ -96,7 +98,6 @@ class CognitiveService:
         self.temporal_memory_store = TemporalMemoryStore(
             getattr(Config, "TEMPORAL_MEMORY_DB_PATH", None) or temporal_db_path
         )
-        self.scheduler = BackgroundScheduler()
         self.plan_verifier = DeterministicPlanVerifier()
         self.plan_executor = DeterministicPlanExecutor()
         self.episodic_simulator = EpisodicSimulator()
@@ -115,8 +116,19 @@ class CognitiveService:
         self.provider_capability_negotiator = ProviderCapabilityNegotiator()
         self.external_action_dispatcher = ExternalActionDispatcher()
         self.perception = PerceptionService(llm_service=llm_service)
+        # F-016: agent state and the learned adaptive weights share one file,
+        # under the same runtime directory as the three databases above. It
+        # used to land in the working directory, which in the production
+        # container is the image layer, so a redeploy reset what the agent had
+        # learned (#117/H6, #118/H7). With no runtime directory it stays the
+        # relative `state_cache.db`, as before. Only the explicit `base_path`
+        # is passed: resolved from IDENTITY_BASE_PATH it is the deployment's
+        # location, which is the one place a legacy file is migrated from.
+        state_db_path = runtime_state_db("state_cache.db", base_path=base_path)
         self.appraisal = AppraisalEngine()  # §1: OCC/Lazarus/EMA
-        self.reappraisal = ReappraisalEngine()  # Gross/Bosse feedback loop
+        self.reappraisal = ReappraisalEngine(  # Gross/Bosse feedback loop
+            store=AdaptiveWeightsStore(state_db_path)
+        )
         # One profile drives both halves of the persona. Without this,
         # StateService would call `PersonaProfile.load()` and build a *second*
         # profile from a different source, so the authored file could set a
@@ -124,6 +136,7 @@ class CognitiveService:
         # this work has been closing, reopened at the last wiring point.
         self.state = StateService(
             graph_store=graph_db,
+            db_path=state_db_path,
             publish_cb=self.publish,
             persona=self.identity.persona,
             writer_id="brain_agent",
@@ -131,6 +144,7 @@ class CognitiveService:
         self.decision = DecisionService(
             llm_service=llm_service,
             memory_store=memory_store,
+            weights_store=AdaptiveWeightsStore(state_db_path),
             identity_manager=self.identity,
         )
         # The agent's own name is seeded explicitly: a biography written in the
@@ -169,7 +183,6 @@ class CognitiveService:
             llm_service=llm_service,
             reappraisal=self.reappraisal,
             session_store=self.session_store,
-            scheduler=self.scheduler,
             workspace_store=self.workspace_store,
             temporal_memory_store=self.temporal_memory_store,
             plan_verifier=self.plan_verifier,
@@ -406,7 +419,7 @@ class CognitiveService:
                 "keywords": data.get("keywords", []),
                 "confidence": data.get("confidence", 0.0),
                 "text": data.get("text", ""),
-                "timestamp": data.get("timestamp", time.time()),
+                "timestamp": data.get("timestamp", clock.time()),
             }
         await self.state.apply_sensory_perception(perception_meta)
 
@@ -578,11 +591,11 @@ class CognitiveService:
         if not self.surfaced_memories:
             return ""
         gate = AntiInjectionGate()
-        lines = [
-            f"- {_wrap_retrieved(gate.sanitize_memory_text(str(m.get('content', ''))))}"
-            for m in self.surfaced_memories[-3:]
-            if m.get("content")
-        ]
+        memories = [m for m in self.surfaced_memories[-3:] if m.get("content")]
+        sanitized = gate.sanitize_memory_batch(
+            [str(memory.get("content", "")) for memory in memories]
+        )
+        lines = [f"- {wrap_retrieved_text(content)}" for content in sanitized]
         if not lines:
             return ""
         return (
@@ -675,7 +688,7 @@ class CognitiveService:
 
         if full_response:
             episode = {
-                "id": f"proactive-{time.time()}",
+                "id": f"proactive-{clock.time()}",
                 "event": "[Agent initiated contact]",
                 "context": state_directive,
                 "emotion_vector": {

@@ -125,7 +125,9 @@ class VisualAppraisalService:
             from PIL import Image
 
             img = Image.open(io.BytesIO(jpeg_bytes)).convert("L").resize((16, 16))
-            return [px / 255.0 for px in img.getdata()]  # type: ignore[attr-defined]
+            # get_flattened_data (Pillow >= 12.3, the pinned floor) replaces
+            # getdata, which is deprecated and removed in Pillow 14.
+            return [px / 255.0 for px in img.get_flattened_data()]
         except Exception as e:
             logger.debug(
                 "[VisualAppraisal] PIL downsampling failed too, no continuity-"

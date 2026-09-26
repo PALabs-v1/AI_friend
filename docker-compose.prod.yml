@@ -12,7 +12,7 @@ services:
     environment:
       - NATS_URL=nats://nats_mesh:4222
       - NATS_USER=${NATS_PROVISIONER_USER:-nats_provisioner}
-      - NATS_PASSWORD=${NATS_PROVISIONER_PASSWORD:-}
+      - NATS_PASSWORD=${NATS_PROVISIONER_PASSWORD:?run friend init to generate NATS credentials}
     networks:
       - ai_mesh_network
     depends_on:
@@ -58,8 +58,8 @@ services:
       - ENVIRONMENT=${ENVIRONMENT:-production}  # #162: refuses to boot with placeholder secrets
       - NATS_URL=nats://nats_mesh:4222
       - NATS_USER=${NATS_SIGNALING_USER:-signaling}
-      - NATS_PASSWORD=${NATS_SIGNALING_PASSWORD:-}
-      - LIVEKIT_URL=${LIVEKIT_URL:-ws://local_sfu:7880}
+      - NATS_PASSWORD=${NATS_SIGNALING_PASSWORD:?run friend init to generate NATS credentials}
+      - LIVEKIT_URL=${LIVEKIT_URL:-ws://livekit:7880}
       - LIVEKIT_PUBLIC_URL=${LIVEKIT_PUBLIC_URL:-ws://127.0.0.1:7880}
       - BACKEND_BIND_HOST=0.0.0.0
       # Keep onboarding writes on the shared host-backed paths rather than the
@@ -121,7 +121,7 @@ services:
       - ENVIRONMENT=${ENVIRONMENT:-production}  # #162: refuses to boot with placeholder secrets
       - NATS_URL=nats://nats_mesh:4222
       - NATS_USER=${NATS_BRAIN_USER:-brain_agent}
-      - NATS_PASSWORD=${NATS_BRAIN_PASSWORD:-}
+      - NATS_PASSWORD=${NATS_BRAIN_PASSWORD:?run friend init to generate NATS credentials}
       # P3-3 (M1-A3): this used to default to http://local_brain:11434 --
       # the container_name of docker-compose.infra.yml's `ollama` service,
       # which is profiles: ["docker-ollama"] and therefore NOT started by
@@ -153,6 +153,7 @@ services:
       - PROACTIVE_IDLE_THRESHOLD_SECONDS=${PROACTIVE_IDLE_THRESHOLD_SECONDS:-7200}
       - PROACTIVE_COOLDOWN_SECONDS=${PROACTIVE_COOLDOWN_SECONDS:-3600}
       - PROACTIVE_MIN_ENERGY=${PROACTIVE_MIN_ENERGY:-0.2}
+      - USER_TIMEZONE=${USER_TIMEZONE:-}
       - LOG_LEVEL=INFO
       - QDRANT_HOST=brain_vectors
       - MOCK_LLM_TEXT=${MOCK_LLM_TEXT:-false}
@@ -212,7 +213,7 @@ services:
       - ENVIRONMENT=${ENVIRONMENT:-production}  # #162: refuses to boot with placeholder secrets
       - NATS_URL=nats://nats_mesh:4222
       - NATS_USER=${NATS_SYSTEM_USER:-system_agent}
-      - NATS_PASSWORD=${NATS_SYSTEM_PASSWORD:-}
+      - NATS_PASSWORD=${NATS_SYSTEM_PASSWORD:?run friend init to generate NATS credentials}
       - SYSTEM_TICK_INTERVAL=${SYSTEM_TICK_INTERVAL:-60}
     networks:
       - ai_mesh_network
@@ -239,7 +240,7 @@ services:
       - ENVIRONMENT=${ENVIRONMENT:-production}  # #162: refuses to boot with placeholder secrets
       - NATS_URL=nats://nats_mesh:4222
       - NATS_USER=${NATS_SUBCONSCIOUS_USER:-subconscious_agent}
-      - NATS_PASSWORD=${NATS_SUBCONSCIOUS_PASSWORD:-}
+      - NATS_PASSWORD=${NATS_SUBCONSCIOUS_PASSWORD:?run friend init to generate NATS credentials}
       # P3-3 (M1-A3): see brain_agent's own OLLAMA_URL comment above -- same
       # bug, same fix.
       - OLLAMA_URL=${OLLAMA_URL:-http://host.docker.internal:11434}
@@ -254,6 +255,7 @@ services:
       - PROACTIVE_IDLE_THRESHOLD_SECONDS=${PROACTIVE_IDLE_THRESHOLD_SECONDS:-7200}
       - PROACTIVE_COOLDOWN_SECONDS=${PROACTIVE_COOLDOWN_SECONDS:-3600}
       - PROACTIVE_MIN_ENERGY=${PROACTIVE_MIN_ENERGY:-0.2}
+      - USER_TIMEZONE=${USER_TIMEZONE:-}
       - LOG_LEVEL=INFO
       - QDRANT_HOST=brain_vectors
       - MOCK_LLM_TEXT=${MOCK_LLM_TEXT:-false}
@@ -298,7 +300,7 @@ services:
       - ENVIRONMENT=${ENVIRONMENT:-production}  # #162: refuses to boot with placeholder secrets
       - NATS_URL=nats://nats_mesh:4222
       - NATS_USER=${NATS_SURFACING_USER:-surfacing_agent}
-      - NATS_PASSWORD=${NATS_SURFACING_PASSWORD:-}
+      - NATS_PASSWORD=${NATS_SURFACING_PASSWORD:?run friend init to generate NATS credentials}
       # P3-3 (M1-A3): see brain_agent's own OLLAMA_URL comment above -- same
       # bug, same fix.
       - OLLAMA_URL=${OLLAMA_URL:-http://host.docker.internal:11434}
@@ -359,7 +361,7 @@ services:
     environment:
       - NATS_URL=nats://nats_mesh:4222
       - NATS_USER=${NATS_VOICE_USER:-voice_agent}
-      - NATS_PASSWORD=${NATS_VOICE_PASSWORD:-}
+      - NATS_PASSWORD=${NATS_VOICE_PASSWORD:?run friend init to generate NATS credentials}
       - SOVITS_URL=http://local_voice:9871
       - TTS_LANGUAGE=${TTS_LANGUAGE:-en}
       - SAMPLE_RATE=${SAMPLE_RATE:-32000}
@@ -406,8 +408,8 @@ services:
       - ENVIRONMENT=${ENVIRONMENT:-production}  # #162: refuses to boot with placeholder secrets
       - NATS_URL=nats://nats_mesh:4222
       - NATS_USER=${NATS_TRANSPORT_USER:-transport_agent}
-      - NATS_PASSWORD=${NATS_TRANSPORT_PASSWORD:-}
-      - LIVEKIT_URL=ws://local_sfu:7880
+      - NATS_PASSWORD=${NATS_TRANSPORT_PASSWORD:?run friend init to generate NATS credentials}
+      - LIVEKIT_URL=${LIVEKIT_URL:-ws://livekit:7880}
       - LIVEKIT_API_KEY=${LIVEKIT_API_KEY}
       - LIVEKIT_API_SECRET=${LIVEKIT_API_SECRET}
       - TRANSPORT_AUDIO_QUEUE_SIZE=${TRANSPORT_AUDIO_QUEUE_SIZE:-1024}
@@ -459,7 +461,7 @@ services:
     environment:
       - NATS_URL=nats://nats_mesh:4222
       - NATS_USER=${NATS_STT_USER:-stt_agent}
-      - NATS_PASSWORD=${NATS_STT_PASSWORD:-}
+      - NATS_PASSWORD=${NATS_STT_PASSWORD:?run friend init to generate NATS credentials}
       - STT_BACKEND=${STT_BACKEND:-whisper}
       - STT_MODEL_DIR=${STT_MODEL_DIR:-/app/models/whisper}
       - STT_SENSEVOICE=${STT_SENSEVOICE:-on}
@@ -536,7 +538,7 @@ services:
       - AGENT_NAME=vision_agent
       - NATS_URL=nats://nats_mesh:4222
       - NATS_USER=${NATS_VISION_USER:-vision_agent}
-      - NATS_PASSWORD=${NATS_VISION_PASSWORD:-}
+      - NATS_PASSWORD=${NATS_VISION_PASSWORD:?run friend init to generate NATS credentials}
       # P3-3 (M1-A3): this had no fallback at all (an unset OLLAMA_URL
       # resolved to an empty string) -- see brain_agent's own OLLAMA_URL
       # comment above for the same host.docker.internal reasoning.

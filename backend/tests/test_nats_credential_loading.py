@@ -25,7 +25,7 @@ class _StubConn:
 
 
 @pytest.mark.asyncio
-async def test_connect_omits_credentials_when_env_vars_are_unset(monkeypatch):
+async def test_connect_fails_closed_when_credentials_are_unset(monkeypatch):
     monkeypatch.delenv("NATS_USER", raising=False)
     monkeypatch.delenv("NATS_PASSWORD", raising=False)
     agent = BaseAgent(name="test_agent")
@@ -33,12 +33,11 @@ async def test_connect_omits_credentials_when_env_vars_are_unset(monkeypatch):
 
     mock_connect = AsyncMock(return_value=_StubConn())
     with patch("app.agents.base.nats.connect", mock_connect):
-        await agent.connect()
+        with pytest.raises(RuntimeError, match="requires NATS_USER and NATS_PASSWORD"):
+            await agent.connect()
 
-    _, kwargs = mock_connect.await_args
-    assert "user" not in kwargs
-    assert "password" not in kwargs
-    agent._bootstrap_mesh.assert_awaited_once()
+    mock_connect.assert_not_awaited()
+    agent._bootstrap_mesh.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -59,11 +58,8 @@ async def test_connect_adds_credentials_when_both_env_vars_are_set(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_connect_omits_credentials_when_only_one_env_var_is_set(monkeypatch):
-    """Half-configured must behave like unconfigured, not like a broken
-    attempt at auth -- a deployer who set only one of the two by mistake
-    should get the same connection they'd get with neither, not a confusing
-    NATS auth failure."""
+async def test_connect_fails_closed_when_only_one_credential_is_set(monkeypatch):
+    """A partial identity must not silently fall back to anonymous access."""
     monkeypatch.setenv("NATS_USER", "vision_agent")
     monkeypatch.delenv("NATS_PASSWORD", raising=False)
     agent = BaseAgent(name="test_agent")
@@ -71,12 +67,11 @@ async def test_connect_omits_credentials_when_only_one_env_var_is_set(monkeypatc
 
     mock_connect = AsyncMock(return_value=_StubConn())
     with patch("app.agents.base.nats.connect", mock_connect):
-        await agent.connect()
+        with pytest.raises(RuntimeError, match="requires NATS_USER and NATS_PASSWORD"):
+            await agent.connect()
 
-    _, kwargs = mock_connect.await_args
-    assert "user" not in kwargs
-    assert "password" not in kwargs
-    agent._bootstrap_mesh.assert_awaited_once()
+    mock_connect.assert_not_awaited()
+    agent._bootstrap_mesh.assert_not_awaited()
 
 
 def test_constructor_reads_credentials_from_environment(monkeypatch):
