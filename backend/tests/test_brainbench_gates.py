@@ -10,6 +10,7 @@ and one real production mutation the gate must catch.
 from __future__ import annotations
 
 import asyncio
+import sys
 import time
 from pathlib import Path
 from unittest.mock import patch
@@ -20,6 +21,19 @@ from app.config import Config
 from evals.brainbench import gates
 
 GATE_BUDGET_SECONDS = 60.0
+
+
+def _tracer_active() -> bool:
+    """A coverage or debug tracer is attached (settrace, or 3.12's sys.monitoring).
+
+    ci.yml's backend-test runs the suite under --cov, which slows this slice
+    3-4x (425 s against the 180 s ceiling): the wall bound there measures the
+    tracer, not the brain.
+    """
+    if sys.gettrace() is not None:
+        return True
+    monitoring = getattr(sys, "monitoring", None)
+    return bool(monitoring and monitoring.get_tool(monitoring.COVERAGE_ID) is not None)
 
 
 @pytest.fixture(scope="module")
@@ -43,7 +57,8 @@ def test_v2_capabilities_hold_their_bands(measured, recorded):
     # The plan's budget is a design constraint, not a timing assertion that
     # could flake: report it, and fail only far past it.
     print(f"gate slice wall time: {wall:.1f} s (budget {GATE_BUDGET_SECONDS:.0f} s)")
-    assert wall < 3 * GATE_BUDGET_SECONDS
+    if not _tracer_active():
+        assert wall < 3 * GATE_BUDGET_SECONDS
 
 
 def test_recorded_bands_cover_exactly_the_gated_metrics(recorded):
