@@ -287,8 +287,8 @@ mod tests {
     /// provisioned, mirroring voice-agent's real-model tests.
     #[test]
     fn real_model_loads_and_perceives_audio() {
-        let model_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../models/sensevoice");
+        let model_dir =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../models/sensevoice");
         if !model_dir.join("tokens.txt").exists() {
             eprintln!("SKIP: models/sensevoice not provisioned");
             return;
