@@ -88,6 +88,11 @@ LOCAL_RULES: list[tuple[Path, list[str], str]] = [
         "reports/brain-v3/v2-lifesim-baseline",
     ),
     (
+        REPO / "docs/brain-research-v3/results/home-gpu/v3waveA",
+        ["*/report.md", "*/compare-vs-*.md"],
+        "reports/brain-v3/wave-a",
+    ),
+    (
         REPO / "docs/brain-research-v3/results/home-gpu/gpu-experiments",
         NUMBERS,
         "results/brain-v3/gpu-experiments",

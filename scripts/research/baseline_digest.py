@@ -340,24 +340,32 @@ def llm_reference(c: dict) -> str:
     return table(["metric", "value", "group"], rows)
 
 
+SECTIONS = [
+    ("Proactive initiation (run B)", "B", proactive),
+    ("Barge-in lifecycle (run B)", "B", bargein),
+    ("Attention (run A)", "A", attention),
+    ("Trust (run A)", "A", trust),
+    ("Resources, architecture_only (run A)", "A", resources),
+    (
+        "llm_augmented reference (run C: steady_professional, seed 1000, 1m)",
+        "C",
+        llm_reference,
+    ),
+    ("Resources, llm_augmented (run C)", "C", resources),
+]
+
+
 def main() -> None:
     root = Path(sys.argv[1])
-    a, b, c = load(root, "A"), load(root, "B"), load(root, "C")
-    errors = {name: len(r.get("errors", [])) for name, r in zip("ABC", (a, b, c))}
+    # A rerun may repeat only some groups (wave A reran B); report what exists.
+    runs = {n: load(root, n) for n in "ABC" if (root / n / "report.json").exists()}
+    if not runs:
+        sys.exit(f"no {{A,B,C}}/report.json under {root}")
+    errors = {name: len(r.get("errors", [])) for name, r in runs.items()}
     print(f"Errored cells: {errors}\n")
-    for title, body in [
-        ("Proactive initiation (run B)", proactive(b)),
-        ("Barge-in lifecycle (run B)", bargein(b)),
-        ("Attention (run A)", attention(a)),
-        ("Trust (run A)", trust(a)),
-        ("Resources, architecture_only (run A)", resources(a)),
-        (
-            "llm_augmented reference (run C: steady_professional, seed 1000, 1m)",
-            llm_reference(c),
-        ),
-        ("Resources, llm_augmented (run C)", resources(c)),
-    ]:
-        print(f"### {title}\n\n{body}\n")
+    for title, run, section in SECTIONS:
+        if run in runs:
+            print(f"### {title}\n\n{section(runs[run])}\n")
 
 
 if __name__ == "__main__":

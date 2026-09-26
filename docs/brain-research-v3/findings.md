@@ -19,7 +19,8 @@ Running record of pre-existing problems found during the Brain V3 cycle (Objecti
 - **Root cause**: the consumer-side fix (queue a completion marker, drain it in FIFO order behind real PCM, publish `AudioPlaybackProgress(completed=True)` once it's actually reached the LiveKit audio source) was built correctly, but nothing was ever wired to produce the `is_done=True` shape it depends on.
 - **How this was found**: Codex's independent cold audit (C1) claimed this signal *does* reach the brain in production, citing only consumer-side line numbers. Resolving the disagreement required tracing the producer side, which the audit hadn't checked — see `02-audit-comparison.md`'s "Contested and resolved" section for the full trace.
 - **Fix**: workstream W4 (`05-research-plan.md`) — either voice-agent emits an end-of-stream trailer that `_on_nats_audio` can recognize, or (better, since transport is the process that actually owns LiveKit playout timing) transport derives completion from its own queue-drain plus a `chat.output.done` subscription it doesn't currently have, rather than depending on voice-agent to shape a payload correctly.
-- **Status**: open, scoped into W4. Not yet fixed.
+- **Resolution**: W4 (merged `932439ea`) took the trailer route: `voice-agent` publishes an `AudioStreamTrailer` after the last PCM chunk (`publish_stream_trailer`, `crates/voice-agent/src/main.rs`), and `transport_agent.py` queues it behind real playout and emits `COMPLETED` or `FAILED` on `audio.playback.lifecycle` when it is reached (`_enqueue_stream_trailer`). Measured in-process on the full wave-A panel: completed outcomes went from none to 1.27 per barge-in scenario, and replies left without a terminal outcome from 1.416 to 0 (`13-wave-a-results.md`).
+- **Status**: fixed in code by W4. The live voice-mesh check (LiveKit + voice agent + TTS) that proves it end to end has not run yet; it must run before the voice path ships.
 
 ## F-003: Qdrant healthcheck can never fail
 
@@ -121,6 +122,7 @@ Running record of pre-existing problems found during the Brain V3 cycle (Objecti
 - **Caveat**: `NullLLM` always yields a non-empty thought, so this is the gate's behaviour. With a real model, a thought generation that fails or returns empty skips that tick. While nobody is connected, thoughts go to `proactive_queue` at the same rate.
 - **Fix**: W9 chose a monotonic max-merge of `last_proactive_attempt` in `StateService.apply_external_state`, including stale-revision snapshots. The broadcast arm continues to run the real brain tick handler in both orders. W9 also adds importance/category scoring, quiet-hour and activity gating, and bounded ignored-thought decay; see `adr/ADR-W9-proactive.md`.
 - **Acceptance evidence** (W9 fixed dev panel, `architecture_only`, 12 personas/seeds 1000–1011, `1w` and `1m`, both broadcast tick orders, 48/48 cells, 0 errors): cooldown violations 0; marked-attempt resets 0; median post-threshold outreach rate 0 per idle hour; annoyance 0.088 per simulated day versus the 21.8/day V2 control; pooled useful rate 45.7% versus V2's 0%; night fraction 0.171 versus V2's 0.365. The one-week useful rate was 0%, and the one-month rate was 50%, under the unchanged 24-hour planned-commitment oracle.
+- **Full-panel evidence** (wave A, `v3waveA-B`: the same 240-cell grid as `v2base-B`, 12 personas, `1w`/`1m`/`6m`/`1y`, all four sync and tick-order variants, commit `e3fcb9a`, 240/240 ok): cooldown violations and marked-attempt resets are 0 in every cell, and the four variants now give identical results, so the broadcast sync no longer changes behavior. At `1y`, V2's production shape made 1,215 initiations a day with a 0.108 useful rate, 1,084 annoyances a day and 35.4% at night. Wave A makes 1.26 a day, 0.880 useful, 0.150 annoyances a day and 8.9% at night. See `13-wave-a-results.md`.
 - **Status**: fixed and acceptance measured. The monotonic merge is backed by an atomic Redis high-water mark, brain-side marking on accepted subconscious turns, and regressions for both tick orders and stale-writer restart.
 
 ## F-012: personality evolution is frozen in V2, and the DR-020 path replaces the whole adaptive self in a week with no content gate
@@ -152,7 +154,8 @@ Running record of pre-existing problems found during the Brain V3 cycle (Objecti
 - **Evidence** (BrainBench barge-in suite, real `BrainAgent` in-process, seed 1000, 50 scenarios per family, 350 total, 0.6 s): 50/50 `confirmed_barge_in` scenarios end with zero terminal outcomes for the stopped reply and a history row that still holds unheard text (both counted as unclaimed by ADR-003). Every reply that plays in full also ends unresolved (0 COMPLETED outcomes across 350 scenarios), which is F-002 from the brain's side. ADR-003's claimed guarantees hold: 0 stale or unknown stops applied, 0 current-turn harm, 0 duplicate outcomes, 0 hangs.
 - **Measurement note**: two harness defects produced false V2 failures and were fixed before these numbers (24% false "current turn harmed" and 4% false missing outcomes in the random family). See codex-log C10.
 - **Fix**: W4 (lifecycle contract) and W5 (barge-in end to end), per R8.
-- **Status**: open.
+- **Wave A measurement** (`v3waveA-B`, W4 merged, 12 personas x 4 horizons, 50 scenarios per family): replies with no terminal outcome fell from 0.143 per scenario to 0, started replies left without a terminal outcome from 1.416 to 0, and terminal-count violations from 0.143 to 0. "History differs from what was heard" is unchanged at 0.143: an ordinary barge-in still leaves unheard text in history. That half is DR-028 and belongs to W5. See `13-wave-a-results.md`.
+- **Status**: open. The terminal-outcome half is fixed by W4; the history half is W5's.
 
 ## F-014: hygiene findings from the Phase 6 suites (low)
 
@@ -245,6 +248,22 @@ Running record of pre-existing problems found during the Brain V3 cycle (Objecti
 - **Evidence**: push consumers deliver to `_INBOX.*` subjects and JetStream replies to `_INBOX.*` too, and every user is granted `subscribe: _INBOX.>`. Any agent can subscribe to the whole inbox space and see other agents' deliveries, including the ack reply subjects it would need to acknowledge them. Consumer rights are also granted per stream (`CONSUMER.DURABLE.CREATE.AI_MESSAGES.>`), not per durable, so an agent can read another agent's consumer config. Found by the F-018 critic (Codex, round 2); left out of the F-018 fix because the remedy crosses services.
 - **Fix (planned)**: a per-user inbox prefix (nats-py `inbox_prefix`, `async_nats` `custom_inbox_prefix`), with `subscribe: _INBOX_<user>.>` and consumer rights per durable name, extended in `check_nats_grants.py` and proven on the real server.
 - **Status**: open, owned by W10 (part b).
+
+## F-021: the facial-reflex channel labels expressions "unambiguously" positive or negative, and its docstring says it is not wired when it is
+
+- **Severity**: low (small deltas, but a claim the science contradicts sits in live affect code)
+- **Where**: `backend/app/vision/reflex.py` (module docstring and the `SMILE_*` / `BROW_FURROW_*` constants), applied by `backend/app/agents/brain_agent.py` `_on_facial_reflex` through `backend/app/state/agent_state.py` `apply_facial_reflex`
+- **Evidence**: the module calls a smile "unambiguously positive" and a brow furrow "unambiguously negative-valenced", and each firing moves the agent's own valence (smile +0.04 and a +0.08 dopamine spike; furrow -0.03) from thresholds "picked by hand against real output on a sample face". Barrett, Adolphs, Marsella, Martinez & Pollak (2019, doi:10.1177/1529100619832930) find facial configurations track emotion above chance but vary substantially across cultures, situations and people, and one configuration can go with more than one emotion. The docstring also says the live camera wiring "is intentionally not part of this change", but `backend/app/vision/agent.py` now calls `score_blendshapes` and the brain applies the result. Found by the Brain V4 research pass (Codex R6, confirmed in the code).
+- **Fix (planned)**: keep the mechanism (the agent's mood responding to a smile is defensible as emotional contagion), drop the "unambiguously" claims, document it as contagion rather than a reading of the user's feelings, update the stale docstring, and never let a facial cue alone move trust. W2 owns affect inputs.
+- **Status**: open, owned by W2.
+
+## F-022: `scripts/research/human_realism_eval.py` can print realism figures that no run measured
+
+- **Severity**: low (a research script, not production), but its output looks like a measurement
+- **Where**: `scripts/research/human_realism_eval.py` (pre-V3; 924 lines)
+- **Evidence**: its "paralinguistic realism" module derives numbers from other result files and silently falls back to hard-coded constants when they are missing (`intent_accuracy = 85.70`, `redis_fetch = 0.164`). Nothing marks a fallback value in the output, and no human judgment is involved anywhere despite the name. Found while checking whether a perceived-realism eval already existed for Brain V4 (it does not).
+- **Fix (planned)**: delete it, or make every fallback a hard failure and rename it for what it measures (system timing and stored trajectories). The same check applies to `scripts/research/human_fidelity_test.py`.
+- **Status**: open, owned by SW.
 
 ## Real-model resource baseline (not a finding, recorded for Phase 8)
 

@@ -21,7 +21,8 @@ This directory is the working record for the next research/engineering cycle, pe
 | [10-lifesim.md](10-lifesim.md) | Synthetic longitudinal life simulator: pipeline, leakage boundary, the builder tournament, every defect the harsh-critic pass found and fixed | done |
 | [11-v2-lifesim-baseline.md](11-v2-lifesim-baseline.md) | Phase 6: the Brain V2 lifesim baseline every V3 workstream is compared against (BrainBench, 463 cells, both modes) | done |
 | [12-neuroscience-grounding.md](12-neuroscience-grounding.md) | Every mechanism named after a published model, checked against it (`research/neuro/fidelity-table.md`, 39 rows), a human-data probe suite, and the rule that neuroscience proposes while BrainBench decides | audit done (W12); probe suite and corrections open |
-| [findings.md](findings.md) | Pre-existing problem ledger (Objective 9) | ongoing, F-001..F-015 |
+| [13-wave-a-results.md](13-wave-a-results.md) | Wave A (W4 + W9 + W10a) against the V2 lifesim baseline on the same 240-cell grid: the proactive flood fixed at full scale, every reply terminal, and the outreach-rate trade-off | done |
+| [findings.md](findings.md) | Pre-existing problem ledger (Objective 9) | ongoing, F-001..F-022 |
 | [codex-log.md](codex-log.md) | One line per Codex task: verdict, disagreement, resolution | ongoing (C0-C14, P8, W4, W9, W10a) |
 | `interview/round-1..10.md` | Interview briefs | done, all 10 rounds |
 | `decisions/DR-001..038-*.md` | Recorded architecture decisions from Aniket | done, all 38 |
@@ -50,4 +51,4 @@ Both machines agree on every deterministic result (Rust: 179/179 on both; barge-
 
 **Phase 6 (BrainBench)**: nine suites over two modes, the ablation switchboard, clustered statistics and the CI gate slice are merged; the full V2 lifesim baseline ran on home-gpu (463 cells, 0 errors) and is written up in `11-v2-lifesim-baseline.md`. It measures V-4 at about 1,214 cooldown violations per simulated day under production's broadcast sync, one barge-in scenario in seven losing a reply's outcome, trust pinned at its ceiling (so hostility is unmeasurable), and user words moving mood by exactly 0.
 
-**Phase 7, wave A**: W4 (playback lifecycle), W9 (importance-weighted proactive initiation) and W10a (security part 1) are reviewed and merged, and P8's scale runner is in; every review is a row in `codex-log.md`. Next: rerun the W9 panel at the merged commit on home-gpu, then W5 and W10b, then wave B (W1, W2, W3, SW).
+**Phase 7, wave A**: W4 (playback lifecycle), W9 (importance-weighted proactive initiation) and W10a (security part 1) are reviewed and merged, and P8's scale runner is in; every review is a row in `codex-log.md`. The full-panel rerun `v3waveA-B` (240/240 cells) is written up in `13-wave-a-results.md`: cooldown violations 1,214/day to 0, annoyance down about 99% against V2's control, useful rate 0.108 to 0.880, every reply now terminal; absolute useful outreach roughly halves, a rate for Aniket to confirm. Next: W5 and W10b, then wave B (W1, W2, W3, SW).

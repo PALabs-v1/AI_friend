@@ -124,7 +124,7 @@ own work (as opposed to verifying it) still requires the Mac to stay awake.
 - `.env` / `.env.example` disagree on `LLM_FAST_MODEL` (`qwen2.5:3b` vs `llama3.2:3b`).
 - `.env` lacks the per-agent NATS credentials (`NATS_BRAIN_USER`, etc.) that `.env.example` defines — relevant only if the full prod mesh (not just infra) is ever started.
 - `QDRANT_HOST` / `QDRANT_PORT` are not set in either `.env` file; code defaults to `127.0.0.1:6333`, which happens to be correct for both the tunnel (Mac) and the local stack (home-gpu).
-- `backend/models/GPT_weights` and `SoVITS_weights` are empty — GPT-SoVITS voice cannot run anywhere without fetching weights; out of scope unless a workstream needs it.
+- `models/GPT_weights` and `models/SoVITS_weights` (repo root, mounted by `docker-compose.infra.yml`) are empty on the Mac and absent on home-gpu (re-checked 2026-09-26) — GPT-SoVITS voice cannot run anywhere without fetching weights; out of scope unless a workstream needs it.
 - The GPU experiments README's host description (driver 535, specific model list) is stale versus the box's actual state (driver 595.84; confirmed above).
 
 ## Next
