@@ -93,7 +93,11 @@ async def collect_until_terminal(
             if on_started:
                 await on_started()
         events.append(body)
-        if body.get("state") in {"COMPLETED", "INTERRUPTED", "FAILED"}:
+        # A flushed INTERRUPTED ends only the rejected self-correction take;
+        # the turn's retry is still coming under a new utterance id.
+        if body.get("state") in {"COMPLETED", "INTERRUPTED", "FAILED"} and not body.get(
+            "flushed"
+        ):
             if first_audio_at is None:
                 raise AssertionError(
                     f"{turn_id}: terminal arrived without audio start: {events}"
@@ -145,6 +149,7 @@ async def check_interruption(client: Any, timeout: float) -> None:
     events, _ = await collect_until_terminal(sub, turn, timeout, on_started=stop)
     states = [item["state"] for item in events]
     assert states[0] == "STARTED" and states[-1] == "INTERRUPTED", states
+    assert events[-1].get("flushed") is False, events[-1]
     print(f"interruption states={states}")
     await sub.unsubscribe()
 
@@ -175,7 +180,16 @@ async def check_flush_retry(client: Any, timeout: float) -> None:
     )
     states = [item["state"] for item in events]
     assert states[-1] == "COMPLETED", f"flush stop aborted retry: {states}"
-    assert sum(state in {"COMPLETED", "INTERRUPTED", "FAILED"} for state in states) == 1
+    flushed = [item for item in events if item.get("flushed")]
+    assert [item["state"] for item in flushed] == ["INTERRUPTED"], events
+    assert flushed[0]["utterance_id"] != events[-1]["utterance_id"], events
+    unflushed_terminals = [
+        item
+        for item in events
+        if item["state"] in {"COMPLETED", "INTERRUPTED", "FAILED"}
+        and not item.get("flushed")
+    ]
+    assert len(unflushed_terminals) == 1, events
     print(f"flush_retry states={states}")
     await sub.unsubscribe()
 
