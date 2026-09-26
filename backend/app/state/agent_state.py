@@ -932,6 +932,88 @@ class StateService:
             if hasattr(self, "current_state"):
                 self._refresh_global_controls_locked()
 
+    def _apply_redis_state(self, data: dict[str, str]) -> None:
+        """Load one Redis `state:<agent>` hash into current_state."""
+        self.current_state.mood = float(data.get("mood", 0.0))
+        self.current_state.energy = float(data.get("energy", 0.5))
+        self.current_state.dominance = float(data.get("dominance", 0.5))
+        self.current_state.trust_benevolence = float(data.get("trust_benevolence", 0.5))
+        self.current_state.trust_competence = float(data.get("trust_competence", 0.5))
+        self.current_state.trust_integrity = float(data.get("trust_integrity", 0.5))
+        self.current_state.attachment = float(data.get("attachment", 0.1))
+        self.current_state.fatigue = float(data.get("fatigue", 0.0))
+        self.current_state.last_user_interaction = float(
+            data.get("last_user_interaction", clock.time())
+        )
+        self.current_state.last_proactive_attempt = float(
+            data.get("last_proactive_attempt", 0.0)
+        )
+        hours = _parse_interaction_hours(data.get("user_interaction_hours"))
+        if hours is not None:
+            self.current_state.user_interaction_hours = hours
+        goals = _parse_proactive_goals(data.get("proactive_goals"))
+        if goals is not None:
+            self.proactive_goals = goals
+        self.current_state.interaction_count = int(data.get("interaction_count", 0))
+        self.current_state.user_mental_model.inferred_valence = float(
+            data.get("inferred_valence", 0.0)
+        )
+        self.current_state.user_mental_model.inferred_arousal = float(
+            data.get("inferred_arousal", 0.5)
+        )
+        self.current_state.user_mental_model.implied_goals = json.loads(
+            data.get("implied_goals", "[]")
+        )
+        self.current_state.user_mental_model.known_concepts = json.loads(
+            data.get("known_concepts", "[]")
+        )
+        self.current_state.baseline_valence = float(data.get("baseline_valence", 0.0))
+        self.current_state.baseline_arousal = float(data.get("baseline_arousal", 0.5))
+        self.current_state.baseline_dominance = float(
+            data.get("baseline_dominance", 0.5)
+        )
+
+    def _apply_sqlite_state(
+        self, conn: sqlite3.Connection, row: sqlite3.Row, agent_name: str
+    ) -> None:
+        """Load the SQLite agent_state row and its side tables."""
+        self.current_state.mood = row["mood"]
+        self.current_state.energy = row["energy"]
+        self.current_state.dominance = row["dominance"]
+        self.current_state.trust_benevolence = row["trust_benevolence"]
+        self.current_state.trust_competence = row["trust_competence"]
+        self.current_state.trust_integrity = row["trust_integrity"]
+        self.current_state.attachment = row["attachment"]
+        self.current_state.fatigue = row["fatigue"]
+        self.current_state.last_user_interaction = row["last_user_interaction"]
+        self.current_state.last_proactive_attempt = row["last_proactive_attempt"] or 0.0
+        self.current_state.interaction_count = row["interaction_count"]
+        self.current_state.user_mental_model.inferred_valence = row["inferred_valence"]
+        self.current_state.user_mental_model.inferred_arousal = row["inferred_arousal"]
+        self.current_state.user_mental_model.implied_goals = json.loads(
+            row["implied_goals"] or "[]"
+        )
+        self.current_state.user_mental_model.known_concepts = json.loads(
+            row["known_concepts"] or "[]"
+        )
+        self.current_state.baseline_valence = row["baseline_valence"]
+        self.current_state.baseline_arousal = row["baseline_arousal"]
+        self.current_state.baseline_dominance = row["baseline_dominance"]
+        activity_row = conn.execute(
+            "SELECT hours_json FROM agent_user_activity_hours WHERE agent_name = ?",
+            (agent_name,),
+        ).fetchone()
+        hours = _parse_interaction_hours(activity_row[0] if activity_row else None)
+        if hours is not None:
+            self.current_state.user_interaction_hours = hours
+        goals_row = conn.execute(
+            "SELECT goals_json FROM agent_proactive_goals WHERE agent_name = ?",
+            (agent_name,),
+        ).fetchone()
+        goals = _parse_proactive_goals(goals_row[0] if goals_row else None)
+        if goals is not None:
+            self.proactive_goals = goals
+
     async def _hydrate_locked(self, agent_name: str):
         # 1. Try Redis
         if self.redis_client:
@@ -948,56 +1030,7 @@ class StateService:
                     ),
                 )
                 if data:
-                    self.current_state.mood = float(data.get("mood", 0.0))
-                    self.current_state.energy = float(data.get("energy", 0.5))
-                    self.current_state.dominance = float(data.get("dominance", 0.5))
-                    self.current_state.trust_benevolence = float(
-                        data.get("trust_benevolence", 0.5)
-                    )
-                    self.current_state.trust_competence = float(
-                        data.get("trust_competence", 0.5)
-                    )
-                    self.current_state.trust_integrity = float(
-                        data.get("trust_integrity", 0.5)
-                    )
-                    self.current_state.attachment = float(data.get("attachment", 0.1))
-                    self.current_state.fatigue = float(data.get("fatigue", 0.0))
-                    self.current_state.last_user_interaction = float(
-                        data.get("last_user_interaction", clock.time())
-                    )
-                    self.current_state.last_proactive_attempt = float(
-                        data.get("last_proactive_attempt", 0.0)
-                    )
-                    hours = _parse_interaction_hours(data.get("user_interaction_hours"))
-                    if hours is not None:
-                        self.current_state.user_interaction_hours = hours
-                    goals = _parse_proactive_goals(data.get("proactive_goals"))
-                    if goals is not None:
-                        self.proactive_goals = goals
-                    self.current_state.interaction_count = int(
-                        data.get("interaction_count", 0)
-                    )
-                    self.current_state.user_mental_model.inferred_valence = float(
-                        data.get("inferred_valence", 0.0)
-                    )
-                    self.current_state.user_mental_model.inferred_arousal = float(
-                        data.get("inferred_arousal", 0.5)
-                    )
-                    self.current_state.user_mental_model.implied_goals = json.loads(
-                        data.get("implied_goals", "[]")
-                    )
-                    self.current_state.user_mental_model.known_concepts = json.loads(
-                        data.get("known_concepts", "[]")
-                    )
-                    self.current_state.baseline_valence = float(
-                        data.get("baseline_valence", 0.0)
-                    )
-                    self.current_state.baseline_arousal = float(
-                        data.get("baseline_arousal", 0.5)
-                    )
-                    self.current_state.baseline_dominance = float(
-                        data.get("baseline_dominance", 0.5)
-                    )
+                    self._apply_redis_state(data)
                     watermark = await asyncio.to_thread(
                         self.redis_client.get,
                         f"proactive-watermark:{agent_name}",
@@ -1022,52 +1055,7 @@ class StateService:
                 )
                 row = cursor.fetchone()
                 if row:
-                    self.current_state.mood = row["mood"]
-                    self.current_state.energy = row["energy"]
-                    self.current_state.dominance = row["dominance"]
-                    self.current_state.trust_benevolence = row["trust_benevolence"]
-                    self.current_state.trust_competence = row["trust_competence"]
-                    self.current_state.trust_integrity = row["trust_integrity"]
-                    self.current_state.attachment = row["attachment"]
-                    self.current_state.fatigue = row["fatigue"]
-                    self.current_state.last_user_interaction = row[
-                        "last_user_interaction"
-                    ]
-                    self.current_state.last_proactive_attempt = (
-                        row["last_proactive_attempt"] or 0.0
-                    )
-                    self.current_state.interaction_count = row["interaction_count"]
-                    self.current_state.user_mental_model.inferred_valence = row[
-                        "inferred_valence"
-                    ]
-                    self.current_state.user_mental_model.inferred_arousal = row[
-                        "inferred_arousal"
-                    ]
-                    self.current_state.user_mental_model.implied_goals = json.loads(
-                        row["implied_goals"] or "[]"
-                    )
-                    self.current_state.user_mental_model.known_concepts = json.loads(
-                        row["known_concepts"] or "[]"
-                    )
-                    self.current_state.baseline_valence = row["baseline_valence"]
-                    self.current_state.baseline_arousal = row["baseline_arousal"]
-                    self.current_state.baseline_dominance = row["baseline_dominance"]
-                    activity_row = conn.execute(
-                        "SELECT hours_json FROM agent_user_activity_hours WHERE agent_name = ?",
-                        (agent_name,),
-                    ).fetchone()
-                    hours = _parse_interaction_hours(
-                        activity_row[0] if activity_row else None
-                    )
-                    if hours is not None:
-                        self.current_state.user_interaction_hours = hours
-                    goals_row = conn.execute(
-                        "SELECT goals_json FROM agent_proactive_goals WHERE agent_name = ?",
-                        (agent_name,),
-                    ).fetchone()
-                    goals = _parse_proactive_goals(goals_row[0] if goals_row else None)
-                    if goals is not None:
-                        self.proactive_goals = goals
+                    self._apply_sqlite_state(conn, row, agent_name)
                     logger.debug("[State] Hydrated successfully from SQLite.")
                     return
         except Exception as e:
