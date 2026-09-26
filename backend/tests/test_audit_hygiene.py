@@ -135,6 +135,7 @@ async def test_state_persistence_does_not_block_the_event_loop():
         trust_benevolence = trust_competence = trust_integrity = trust = 0.5
         attachment = fatigue = last_user_interaction = last_proactive_attempt = 0.0
         interaction_count = 0
+        user_interaction_hours: tuple[int, ...] = ()  # W9 quiet-hours history
         baseline_valence = baseline_arousal = baseline_dominance = 0.0
         revision = 0  # Phase 2A
         writer_id = ""  # Phase 2A
@@ -204,6 +205,7 @@ async def test_an_older_state_snapshot_cannot_land_on_top_of_a_newer_one():
         trust_benevolence = trust_competence = trust_integrity = trust = 0.5
         attachment = fatigue = last_user_interaction = last_proactive_attempt = 0.0
         interaction_count = 0
+        user_interaction_hours: tuple[int, ...] = ()  # W9 quiet-hours history
         baseline_valence = baseline_arousal = baseline_dominance = 0.0
         revision = 0  # Phase 2A
         writer_id = ""  # Phase 2A
