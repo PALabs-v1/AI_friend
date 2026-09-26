@@ -363,271 +363,168 @@ class TransportAgent(BaseAgent):
             character_offset = metadata.get("character_offset") if metadata else None
             word_index = metadata.get("word_index") if metadata else None
 
-            audio_bytes = b""
-            sample_rate = self.output_sample_rate
-            num_channels = self.output_channels
-            terminal_state = None
-
             if metadata and metadata.get("audio_stream_kind") == "trailer":
-                try:
-                    trailer = AudioStreamTrailer.model_validate(json.loads(bytes(data)))
-                except Exception as exc:
-                    logger.error("Dropping invalid audio stream trailer: %s", exc)
-                    return
-                terminal_state = "FAILED" if trailer.failed else "COMPLETED"
-                turn_id = trailer.turn_id
-                utterance_id = self._lifecycle_active_by_turn.get(turn_id)
-                if utterance_id is None:
-                    return
-                trailer_offset = character_offset
-                trailer_words = word_index
-                if trailer_offset is None:
-                    trailer_offset = 0
-                if trailer_words is None:
-                    trailer_words = 0
-                marker = (
-                    b"",
+                await self._enqueue_stream_trailer(data, character_offset, word_index)
+                return
+
+            decoded = self._decode_audio_payload(data)
+            if decoded is None:
+                return
+            pcm_data, sample_rate, num_channels = decoded
+            if pcm_data:
+                self._enqueue_pcm(
+                    pcm_data,
                     sample_rate,
                     num_channels,
-                    utterance_id,
+                    self._lifecycle_utterance_for(turn_id, utterance_id),
                     turn_id,
-                    trailer_offset,
-                    trailer_words,
-                    terminal_state,
+                    character_offset,
+                    word_index,
                 )
-                # Unlike media frames, losing this marker would leave a fully
-                # played reply unresolved. Let the bounded queue drain first.
-                await self.audio_queue.put(marker)
-                return
-
-            if isinstance(data, (bytes, bytearray)):
-                audio_bytes = bytes(data)
-            elif isinstance(data, dict):
-                audio_b64 = data.get("audio", "")
-                sample_rate = data.get("sample_rate", sample_rate)
-                num_channels = data.get("channels", num_channels)
-                if audio_b64:
-                    audio_bytes = base64.b64decode(audio_b64)
-            else:
-                logger.warning(
-                    "Unsupported audio payload type from NATS: %s",
-                    type(data).__name__,
-                )
-                return
-
-            if audio_bytes:
-                # Strip WAV header if present (44 bytes)
-                if audio_bytes.startswith(b"RIFF"):
-                    pcm_data = audio_bytes[44:]
-                else:
-                    pcm_data = audio_bytes
-
-                if pcm_data:
-                    if turn_id:
-                        active_utterance = self._lifecycle_active_by_turn.get(turn_id)
-                        if active_utterance is None:
-                            attempt = self._lifecycle_attempts.get(turn_id, 0)
-                            self._lifecycle_attempts[turn_id] = attempt + 1
-                            _cap(self._lifecycle_attempts)
-                            active_utterance = (
-                                utterance_id
-                                if attempt == 0
-                                else f"{utterance_id or turn_id}:{attempt}"
-                            )
-                            self._lifecycle_active_by_turn[turn_id] = active_utterance
-                            _cap(self._lifecycle_active_by_turn)
-                        utterance_id = active_utterance
-                    queued_frame = (
-                        pcm_data,
-                        sample_rate,
-                        num_channels,
-                        utterance_id,
-                        turn_id,
-                        character_offset,
-                        word_index,
-                        None,
-                    )
-                    try:
-                        self.audio_queue.put_nowait(queued_frame)
-                    except asyncio.QueueFull:
-                        # Bucket 2 (VOICE_REMEDIATION_PLAN.md): drop the NEW frame, not
-                        # the oldest one. The old policy evicted the oldest queued frame
-                        # and spliced this one in behind it -- for synthesised speech
-                        # (a fixed artifact that must arrive intact, unlike a live
-                        # stream where freshness beats completeness) that is a hard
-                        # discontinuity between non-adjacent PCM segments: an audible
-                        # click plus a hole in the speech, reported live as "grainy" /
-                        # "can't understand it."
-                        #
-                        # True backpressure (`await self.audio_queue.put(...)`) would
-                        # fix this without dropping anything, but this callback is the
-                        # direct NATS handler for audio.stream -- the comment on this
-                        # agent's `start()` ("Capture frames on a dedicated worker so
-                        # NATS callback can return fast") is the same ack-timing
-                        # constraint CLAUDE.md's finding A1 documents: `BaseAgent.subscribe`
-                        # acks only after the callback returns, so blocking here until
-                        # a real-time playback worker catches up on a 256-deep backlog
-                        # risks the same JetStream AckWait/redelivery failure mode, not
-                        # fixes it. Dropping the newest frame keeps everything already
-                        # queued in order and keeps this callback non-blocking; in
-                        # measured real sessions (2026-09-01) the queue never exceeded
-                        # 68 of 256 slots, so this path is a rare-overflow safety net,
-                        # not the common case.
-                        self.dropped_audio_frames += 1
-                        if utterance_id and turn_id:
-                            self._lifecycle_dropped[(utterance_id, turn_id)] = None
-                            _cap(self._lifecycle_dropped)
-                        if self.dropped_audio_frames % 50 == 1:
-                            logger.warning(
-                                "Transport audio queue overloaded; dropped %s frames.",
-                                self.dropped_audio_frames,
-                            )
-
-                    self._trace(
-                        "buffer2_to_3",
-                        qsize=self.audio_queue.qsize(),
-                        dropped=self.dropped_audio_frames,
-                    )
-
-                    self._maybe_publish_playback_backlog()
-
         except Exception as e:
             logger.error(f"Error bridging audio: {e}")
+
+    async def _enqueue_stream_trailer(self, data, character_offset, word_index) -> None:
+        """Queue the voice agent's end-of-stream marker behind the reply's PCM."""
+        try:
+            trailer = AudioStreamTrailer.model_validate(json.loads(bytes(data)))
+        except Exception as exc:
+            logger.error("Dropping invalid audio stream trailer: %s", exc)
+            return
+        turn_id = trailer.turn_id
+        utterance_id = self._lifecycle_active_by_turn.get(turn_id)
+        if utterance_id is None:
+            return
+        marker = (
+            b"",
+            self.output_sample_rate,
+            self.output_channels,
+            utterance_id,
+            turn_id,
+            character_offset if character_offset is not None else 0,
+            word_index if word_index is not None else 0,
+            "FAILED" if trailer.failed else "COMPLETED",
+        )
+        # Unlike media frames, losing this marker would leave a fully
+        # played reply unresolved. Let the bounded queue drain first.
+        await self.audio_queue.put(marker)
+
+    def _decode_audio_payload(self, data) -> tuple[bytes, int, int] | None:
+        """PCM bytes (WAV header stripped), sample rate and channel count, or
+        None for a payload type this bridge does not carry."""
+        audio_bytes = b""
+        sample_rate = self.output_sample_rate
+        num_channels = self.output_channels
+        if isinstance(data, (bytes, bytearray)):
+            audio_bytes = bytes(data)
+        elif isinstance(data, dict):
+            audio_b64 = data.get("audio", "")
+            sample_rate = data.get("sample_rate", sample_rate)
+            num_channels = data.get("channels", num_channels)
+            if audio_b64:
+                audio_bytes = base64.b64decode(audio_b64)
+        else:
+            logger.warning(
+                "Unsupported audio payload type from NATS: %s",
+                type(data).__name__,
+            )
+            return None
+        # Strip WAV header if present (44 bytes)
+        if audio_bytes.startswith(b"RIFF"):
+            audio_bytes = audio_bytes[44:]
+        return audio_bytes, sample_rate, num_channels
+
+    def _lifecycle_utterance_for(self, turn_id, utterance_id):
+        """The utterance this turn's PCM belongs to. The first take keeps the
+        voice agent's id; each take after a flush gets `<id>:<attempt>`."""
+        if not turn_id:
+            return utterance_id
+        active_utterance = self._lifecycle_active_by_turn.get(turn_id)
+        if active_utterance is None:
+            attempt = self._lifecycle_attempts.get(turn_id, 0)
+            self._lifecycle_attempts[turn_id] = attempt + 1
+            _cap(self._lifecycle_attempts)
+            active_utterance = (
+                utterance_id if attempt == 0 else f"{utterance_id or turn_id}:{attempt}"
+            )
+            self._lifecycle_active_by_turn[turn_id] = active_utterance
+            _cap(self._lifecycle_active_by_turn)
+        return active_utterance
+
+    def _enqueue_pcm(
+        self,
+        pcm_data,
+        sample_rate,
+        num_channels,
+        utterance_id,
+        turn_id,
+        character_offset,
+        word_index,
+    ) -> None:
+        queued_frame = (
+            pcm_data,
+            sample_rate,
+            num_channels,
+            utterance_id,
+            turn_id,
+            character_offset,
+            word_index,
+            None,
+        )
+        try:
+            self.audio_queue.put_nowait(queued_frame)
+        except asyncio.QueueFull:
+            # Bucket 2 (VOICE_REMEDIATION_PLAN.md): drop the NEW frame, not
+            # the oldest one. The old policy evicted the oldest queued frame
+            # and spliced this one in behind it -- for synthesised speech
+            # (a fixed artifact that must arrive intact, unlike a live
+            # stream where freshness beats completeness) that is a hard
+            # discontinuity between non-adjacent PCM segments: an audible
+            # click plus a hole in the speech, reported live as "grainy" /
+            # "can't understand it."
+            #
+            # True backpressure (`await self.audio_queue.put(...)`) would
+            # fix this without dropping anything, but this callback is the
+            # direct NATS handler for audio.stream -- the comment on this
+            # agent's `start()` ("Capture frames on a dedicated worker so
+            # NATS callback can return fast") is the same ack-timing
+            # constraint CLAUDE.md's finding A1 documents: `BaseAgent.subscribe`
+            # acks only after the callback returns, so blocking here until
+            # a real-time playback worker catches up on a 256-deep backlog
+            # risks the same JetStream AckWait/redelivery failure mode, not
+            # fixes it. Dropping the newest frame keeps everything already
+            # queued in order and keeps this callback non-blocking; in
+            # measured real sessions (2026-09-01) the queue never exceeded
+            # 68 of 256 slots, so this path is a rare-overflow safety net,
+            # not the common case.
+            self.dropped_audio_frames += 1
+            if utterance_id and turn_id:
+                self._lifecycle_dropped[(utterance_id, turn_id)] = None
+                _cap(self._lifecycle_dropped)
+            if self.dropped_audio_frames % 50 == 1:
+                logger.warning(
+                    "Transport audio queue overloaded; dropped %s frames.",
+                    self.dropped_audio_frames,
+                )
+
+        self._trace(
+            "buffer2_to_3",
+            qsize=self.audio_queue.qsize(),
+            dropped=self.dropped_audio_frames,
+        )
+
+        self._maybe_publish_playback_backlog()
 
     async def _audio_playback_worker(self):
         """Drain queued PCM frames and push to LiveKit at sink pace."""
         while True:
             try:
-                (
-                    pcm_data,
-                    sample_rate,
-                    num_channels,
-                    utterance_id,
-                    turn_id,
-                    character_offset,
-                    word_index,
-                    terminal_state,
-                ) = await self.audio_queue.get()
+                item = await self.audio_queue.get()
                 try:
-                    if terminal_state:
-                        lifecycle_key = (utterance_id or "", turn_id or "")
-                        heard_words, heard_offset = self._lifecycle_position.get(
-                            lifecycle_key, (0, 0)
-                        )
-                        streamed_words = max(heard_words, word_index or 0)
-                        streamed_offset = max(heard_offset, character_offset or 0)
-                        if (
-                            terminal_state == "COMPLETED"
-                            and lifecycle_key in self._lifecycle_dropped
-                        ):
-                            terminal_state = "FAILED"
-                        self._lifecycle_dropped.pop(lifecycle_key, None)
-                        if terminal_state == "COMPLETED":
-                            source = self.audio_source
-                            try:
-                                await source.wait_for_playout()
-                            except Exception:
-                                self._emit_lifecycle(
-                                    utterance_id=utterance_id or "",
-                                    turn_id=turn_id or "",
-                                    state="FAILED",
-                                    words_played=heard_words,
-                                    words_streamed=streamed_words,
-                                    heard_offset=heard_offset,
-                                    streamed_offset=streamed_offset,
-                                )
-                                raise
-                            if (
-                                self._lifecycle_terminal.get(
-                                    (utterance_id or "", turn_id or "")
-                                )
-                                == "INTERRUPTED"
-                            ):
-                                continue
-                        self._emit_lifecycle(
-                            utterance_id=utterance_id or "",
-                            turn_id=turn_id or "",
-                            state=terminal_state,
-                            words_played=(
-                                streamed_words
-                                if terminal_state == "COMPLETED"
-                                else heard_words
-                            ),
-                            words_streamed=streamed_words,
-                            heard_offset=(
-                                streamed_offset
-                                if terminal_state == "COMPLETED"
-                                else heard_offset
-                            ),
-                            streamed_offset=streamed_offset,
-                        )
-                        if self._lifecycle_active_by_turn.get(turn_id or "") == (
-                            utterance_id or ""
-                        ):
-                            self._lifecycle_active_by_turn.pop(turn_id or "", None)
-                        if self._active_utterance_id == utterance_id:
-                            self._active_utterance_id = None
-                            self._active_utterance_turn_id = None
-                        continue
-                    if not pcm_data or num_channels <= 0:
-                        continue
-
-                    samples_per_channel = len(pcm_data) // (2 * num_channels)
-                    if samples_per_channel <= 0:
-                        continue
-
-                    frame = rtc.AudioFrame(
-                        data=pcm_data,
-                        sample_rate=sample_rate,
-                        num_channels=num_channels,
-                        samples_per_channel=samples_per_channel,
-                    )
-                    lifecycle_key = (utterance_id or "", turn_id or "")
-                    try:
-                        await self.audio_source.capture_frame(frame)
-                    except Exception:
-                        heard_words, heard_offset = self._lifecycle_position.get(
-                            lifecycle_key, (0, 0)
-                        )
-                        self._emit_lifecycle(
-                            utterance_id=utterance_id or "",
-                            turn_id=turn_id or "",
-                            state="FAILED",
-                            words_played=heard_words,
-                            words_streamed=word_index or 0,
-                            heard_offset=heard_offset,
-                            streamed_offset=character_offset or 0,
-                        )
-                        if self._lifecycle_active_by_turn.get(turn_id or "") == (
-                            utterance_id or ""
-                        ):
-                            self._lifecycle_active_by_turn.pop(turn_id or "", None)
-                        if self._active_utterance_id == utterance_id:
-                            self._active_utterance_id = None
-                            self._active_utterance_turn_id = None
-                        raise
-                    self._active_utterance_id = utterance_id
-                    self._active_utterance_turn_id = turn_id
-                    self._emit_playing_lifecycle(
-                        utterance_id, turn_id, character_offset, word_index
-                    )
-                    self._trace(
-                        "buffer3_to_4",
-                        qsize=self.audio_queue.qsize(),
-                    )
-                    self._maybe_publish_playback_progress(
-                        turn_id, character_offset, word_index
-                    )
-                    # Reviewer finding: backlog telemetry used to be published
-                    # only on enqueue (_on_nats_audio). If a report reached
-                    # the brain at depth >= VOICE_FILLER_MAX_PLAYBACK_BACKLOG
-                    # and the queue then fully drained during silence (no new
-                    # PCM arriving to trigger another enqueue-side publish),
-                    # the brain's last-known depth stayed stuck high and
-                    # suppressed the next turn's filler for no live reason.
-                    # Publishing from the drain side too means an emptied
-                    # queue eventually reports its own zero depth.
-                    self._maybe_publish_playback_backlog()
+                    if item[-1]:
+                        await self._finish_utterance(*item[3:])
+                    else:
+                        await self._play_frame(*item[:-1])
                 finally:
                     self.audio_queue.task_done()
             except asyncio.CancelledError:
@@ -635,6 +532,117 @@ class TransportAgent(BaseAgent):
             except Exception as e:
                 logger.error(f"Transport playback worker error: {e}")
                 await asyncio.sleep(0.01)
+
+    def _release_utterance(self, utterance_id, turn_id) -> None:
+        """Forget which utterance a turn is playing once it has ended."""
+        if self._lifecycle_active_by_turn.get(turn_id or "") == (utterance_id or ""):
+            self._lifecycle_active_by_turn.pop(turn_id or "", None)
+        if self._active_utterance_id == utterance_id:
+            self._active_utterance_id = None
+            self._active_utterance_turn_id = None
+
+    async def _finish_utterance(
+        self, utterance_id, turn_id, character_offset, word_index, terminal_state
+    ) -> None:
+        """Emit a reply's terminal once its end-of-stream marker is drained;
+        COMPLETED only after LiveKit has played the last frame out."""
+        lifecycle_key = (utterance_id or "", turn_id or "")
+        heard_words, heard_offset = self._lifecycle_position.get(lifecycle_key, (0, 0))
+        streamed_words = max(heard_words, word_index or 0)
+        streamed_offset = max(heard_offset, character_offset or 0)
+        if terminal_state == "COMPLETED" and lifecycle_key in self._lifecycle_dropped:
+            terminal_state = "FAILED"
+        self._lifecycle_dropped.pop(lifecycle_key, None)
+        if terminal_state == "COMPLETED":
+            source = self.audio_source
+            try:
+                await source.wait_for_playout()
+            except Exception:
+                self._emit_lifecycle(
+                    utterance_id=utterance_id or "",
+                    turn_id=turn_id or "",
+                    state="FAILED",
+                    words_played=heard_words,
+                    words_streamed=streamed_words,
+                    heard_offset=heard_offset,
+                    streamed_offset=streamed_offset,
+                )
+                raise
+            if self._lifecycle_terminal.get(lifecycle_key) == "INTERRUPTED":
+                return
+        completed = terminal_state == "COMPLETED"
+        self._emit_lifecycle(
+            utterance_id=utterance_id or "",
+            turn_id=turn_id or "",
+            state=terminal_state,
+            words_played=streamed_words if completed else heard_words,
+            words_streamed=streamed_words,
+            heard_offset=streamed_offset if completed else heard_offset,
+            streamed_offset=streamed_offset,
+        )
+        self._release_utterance(utterance_id, turn_id)
+
+    async def _play_frame(
+        self,
+        pcm_data,
+        sample_rate,
+        num_channels,
+        utterance_id,
+        turn_id,
+        character_offset,
+        word_index,
+    ) -> None:
+        if not pcm_data or num_channels <= 0:
+            return
+
+        samples_per_channel = len(pcm_data) // (2 * num_channels)
+        if samples_per_channel <= 0:
+            return
+
+        frame = rtc.AudioFrame(
+            data=pcm_data,
+            sample_rate=sample_rate,
+            num_channels=num_channels,
+            samples_per_channel=samples_per_channel,
+        )
+        lifecycle_key = (utterance_id or "", turn_id or "")
+        try:
+            await self.audio_source.capture_frame(frame)
+        except Exception:
+            heard_words, heard_offset = self._lifecycle_position.get(
+                lifecycle_key, (0, 0)
+            )
+            self._emit_lifecycle(
+                utterance_id=utterance_id or "",
+                turn_id=turn_id or "",
+                state="FAILED",
+                words_played=heard_words,
+                words_streamed=word_index or 0,
+                heard_offset=heard_offset,
+                streamed_offset=character_offset or 0,
+            )
+            self._release_utterance(utterance_id, turn_id)
+            raise
+        self._active_utterance_id = utterance_id
+        self._active_utterance_turn_id = turn_id
+        self._emit_playing_lifecycle(
+            utterance_id, turn_id, character_offset, word_index
+        )
+        self._trace(
+            "buffer3_to_4",
+            qsize=self.audio_queue.qsize(),
+        )
+        self._maybe_publish_playback_progress(turn_id, character_offset, word_index)
+        # Reviewer finding: backlog telemetry used to be published
+        # only on enqueue (_on_nats_audio). If a report reached
+        # the brain at depth >= VOICE_FILLER_MAX_PLAYBACK_BACKLOG
+        # and the queue then fully drained during silence (no new
+        # PCM arriving to trigger another enqueue-side publish),
+        # the brain's last-known depth stayed stuck high and
+        # suppressed the next turn's filler for no live reason.
+        # Publishing from the drain side too means an emptied
+        # queue eventually reports its own zero depth.
+        self._maybe_publish_playback_backlog()
 
     def _maybe_publish_playback_backlog(self) -> None:
         """Throttled `AudioPlaybackBacklog` publish, called from both the
