@@ -40,7 +40,7 @@ Contracts are typed on both sides: `backend/app/contracts.py` (Python/Pydantic) 
 9. `validate_response` (persona/safety checks)
 10. `reflection_needed` event → `trigger_reflection` (async)
 
-`BackgroundScheduler` is preempted at the start of step 8 and resumed in a `finally` — the seam that is supposed to stop background cognition from starving the foreground turn, but nothing currently enqueues work on it (see Objective 9 findings).
+The unused `BackgroundScheduler` pipeline seam was removed in W9. The real consolidation worker remains a retained async task in `SubconsciousAgent`; W9's starvation regression keeps that task pending while measuring a foreground BrainBench turn against a 500 ms budget.
 
 ## Path classification (reflex / interactive / deliberative / background)
 

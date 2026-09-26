@@ -1,11 +1,10 @@
-"""Local Phase 04 micro-benchmarks (BM-LOC-P4-01, BM-LOC-P4-02, BM-LOC-P4-03).
+"""Local Phase 04 micro-benchmarks (BM-LOC-P4-01, BM-LOC-P4-02).
 
 Implements local benchmarks per orchestration/archive/phase_04/BENCHMARK_PLAN.md.
 """
 
 from __future__ import annotations
 
-import asyncio
 import json
 import os
 import sys
@@ -16,11 +15,6 @@ BACKEND_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..
 if BACKEND_ROOT not in sys.path:
     sys.path.insert(0, BACKEND_ROOT)
 
-from app.cognitive.background_scheduler import (
-    BackgroundJob,
-    BackgroundJobKind,
-    BackgroundScheduler,
-)
 from app.cognitive.calibration import (
     CapabilityLimitationModel,
     DomainCalibration,
@@ -39,11 +33,19 @@ def run_bm_loc_p4_01() -> dict[str, Any]:
     num_iterations = 10000
 
     calibration_model = CapabilityLimitationModel(
-        known_limitations=["execute arbitrary shell", "predict stock prices", "diagnose cancer"],
+        known_limitations=[
+            "execute arbitrary shell",
+            "predict stock prices",
+            "diagnose cancer",
+        ],
         domain_calibrations={
-            "general": DomainCalibration(domain="general", sample_count=10, brier_score=0.15),
+            "general": DomainCalibration(
+                domain="general", sample_count=10, brier_score=0.15
+            ),
             "math": DomainCalibration(domain="math", sample_count=50, brier_score=0.08),
-            "memory": DomainCalibration(domain="memory", sample_count=20, brier_score=0.25),
+            "memory": DomainCalibration(
+                domain="memory", sample_count=20, brier_score=0.25
+            ),
         },
     )
 
@@ -64,7 +66,9 @@ def run_bm_loc_p4_01() -> dict[str, Any]:
         raw_conf = 0.2 + (i % 80) / 100.0
 
         t0 = time.perf_counter_ns()
-        directive, cal_conf = calibration_model.evaluate_directive(domain, raw_conf, query=query)
+        directive, cal_conf = calibration_model.evaluate_directive(
+            domain, raw_conf, query=query
+        )
         t1 = time.perf_counter_ns()
 
         latencies_us.append((t1 - t0) / 1000.0)
@@ -83,7 +87,9 @@ def run_bm_loc_p4_01() -> dict[str, Any]:
     verdict = "PASS" if mean_us < 50.0 else "FAIL"
 
     print(f"Iterations: {num_iterations}")
-    print(f"Mean: {mean_us:.3f} us | p50: {p50_us:.3f} us | p95: {p95_us:.3f} us | p99: {p99_us:.3f} us")
+    print(
+        f"Mean: {mean_us:.3f} us | p50: {p50_us:.3f} us | p95: {p95_us:.3f} us | p99: {p99_us:.3f} us"
+    )
     print(f"Verdict: {verdict} (Target: mean < 50.0 us)")
 
     return {
@@ -163,81 +169,6 @@ def run_bm_loc_p4_02() -> dict[str, Any]:
     }
 
 
-def run_bm_loc_p4_03() -> dict[str, Any]:
-    """BM-LOC-P4-03: Background Preemption Latency Benchmark.
-
-    500 preemption cycles testing cancellation latency upon foreground arrival.
-    Target: p95 preemption latency < 5.0 ms.
-    """
-    print("\n--- Running BM-LOC-P4-03: Background Preemption Latency ---")
-    num_trials = 500
-
-    scheduler = BackgroundScheduler()
-
-    async def _async_preempt_trial() -> float:
-        async def _long_running_job(job=None):
-            await asyncio.sleep(10.0)
-            return {"tokens_used": 10, "writes": []}
-
-        job = BackgroundJob(
-            job_id="test_preempt_job",
-            kind=BackgroundJobKind.EPISODIC_CLUSTERING,
-            watermark=1.0,
-            priority=50,
-            idempotency_key="bench_preempt",
-        )
-        scheduler.enqueue(job)
-
-        runner_task = asyncio.create_task(scheduler.run_next(_long_running_job))
-        await asyncio.sleep(0.0001)
-
-        t0 = time.perf_counter_ns()
-        scheduler.preempt()
-        await runner_task
-        t1 = time.perf_counter_ns()
-
-        scheduler.resume_foreground_idle()
-        return (t1 - t0) / 1_000_000.0
-
-    async def _run_all_trials() -> list[float]:
-        results = []
-        for _ in range(num_trials):
-            dur_ms = await _async_preempt_trial()
-            results.append(dur_ms)
-        return results
-
-    latencies_ms = asyncio.run(_run_all_trials())
-    latencies_ms.sort()
-    n = len(latencies_ms)
-
-    mean_ms = sum(latencies_ms) / n
-    p50_ms = latencies_ms[int(n * 0.50)]
-    p95_ms = latencies_ms[int(n * 0.95)]
-    p99_ms = latencies_ms[int(n * 0.99)]
-    min_ms = latencies_ms[0]
-    max_ms = latencies_ms[-1]
-
-    verdict = "PASS" if p95_ms < 5.0 else "FAIL"
-
-    print(f"Trials: {num_trials}")
-    print(f"Mean: {mean_ms:.3f} ms | p50: {p50_ms:.3f} ms | p95: {p95_ms:.3f} ms | p99: {p99_ms:.3f} ms")
-    print(f"Verdict: {verdict} (Target: p95 < 5.0 ms)")
-
-    return {
-        "benchmark_id": "BM-LOC-P4-03",
-        "title": "Background Preemption Latency",
-        "trials": num_trials,
-        "mean_ms": round(mean_ms, 3),
-        "p50_ms": round(p50_ms, 3),
-        "p95_ms": round(p95_ms, 3),
-        "p99_ms": round(p99_ms, 3),
-        "min_ms": round(min_ms, 3),
-        "max_ms": round(max_ms, 3),
-        "target_p95_ms": "< 5.0",
-        "verdict": verdict,
-    }
-
-
 def main():
     print("=================================================================")
     print("PHASE 04 LOCAL BENCHMARKS (Apple Silicon)")
@@ -245,15 +176,15 @@ def main():
 
     r1 = run_bm_loc_p4_01()
     r2 = run_bm_loc_p4_02()
-    r3 = run_bm_loc_p4_03()
 
     results = {
         "BM-LOC-P4-01": r1,
         "BM-LOC-P4-02": r2,
-        "BM-LOC-P4-03": r3,
     }
 
-    out_dir = os.path.abspath(os.path.join(BACKEND_ROOT, "..", "orchestration", "PHASE_04"))
+    out_dir = os.path.abspath(
+        os.path.join(BACKEND_ROOT, "..", "orchestration", "PHASE_04")
+    )
     os.makedirs(out_dir, exist_ok=True)
     out_file = os.path.join(out_dir, "local_benchmark_results.json")
 

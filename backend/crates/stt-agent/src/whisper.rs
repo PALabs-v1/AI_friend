@@ -490,10 +490,14 @@ mod tests {
         // correctly-downloaded, SHA256-verified VAD file was flagged "truncated" and
         // re-downloaded from HuggingFace on every single process start.
         const REAL_SILERO_V5_1_2_SIZE_BYTES: u64 = 885_098;
-        assert!(REAL_SILERO_V5_1_2_SIZE_BYTES > MIN_VALID_VAD_MODEL_BYTES);
+        const {
+            assert!(REAL_SILERO_V5_1_2_SIZE_BYTES > MIN_VALID_VAD_MODEL_BYTES);
+        }
         // And the whisper threshold must stay far above the VAD one, or this test
         // would pass for the wrong reason (both thresholds collapsing to ~0).
-        assert!(MIN_VALID_WHISPER_MODEL_BYTES > REAL_SILERO_V5_1_2_SIZE_BYTES);
+        const {
+            assert!(MIN_VALID_WHISPER_MODEL_BYTES > REAL_SILERO_V5_1_2_SIZE_BYTES);
+        }
     }
 
     #[test]

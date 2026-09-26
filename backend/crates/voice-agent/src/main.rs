@@ -3463,6 +3463,8 @@ mod tests {
             turn_id: Some("p2-2-test".to_string()),
             affect: None,
             expression: None,
+            importance: None,
+            category: None,
             timestamp: 0.0,
             full_response: None,
             generation_error: None,

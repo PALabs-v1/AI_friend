@@ -185,7 +185,7 @@ fn decode_wav_mono_16k(path: &Path) -> Result<Vec<f32>> {
             .samples::<f32>()
             .collect::<std::result::Result<Vec<f32>, _>>()
             .context("decode f32 WAV samples")?,
-        (hound::SampleFormat::Int, bits) if bits >= 1 && bits <= 32 => {
+        (hound::SampleFormat::Int, bits) if (1..=32).contains(&bits) => {
             // i32 is the only integer sample type hound offers that can hold
             // every bit depth (8/16/24/32) without overflow; scale by the
             // depth actually declared in the header, not a fixed 16-bit
@@ -829,6 +829,7 @@ async fn publish_final(
             source: source.to_string(),
             confidence: 0.9,
             utterance_id: Some(utterance_id.to_string()),
+            ..ChatInputMetadata::default()
         },
         latency_metadata: Some(latency_metadata),
     };

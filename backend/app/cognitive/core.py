@@ -40,7 +40,6 @@ from ..state.working_memory_store import WorkingMemoryStore
 from ..state.workspace_store import SQLiteWorkspaceStore
 from .action import ActionService
 from .appraisal import AppraisalEngine, AppraisalVector
-from .background_scheduler import BackgroundScheduler
 from .decision import DecisionService
 from .external_action import ExternalActionDispatcher
 from .identity import IdentityManager
@@ -99,7 +98,6 @@ class CognitiveService:
         self.temporal_memory_store = TemporalMemoryStore(
             getattr(Config, "TEMPORAL_MEMORY_DB_PATH", None) or temporal_db_path
         )
-        self.scheduler = BackgroundScheduler()
         self.plan_verifier = DeterministicPlanVerifier()
         self.plan_executor = DeterministicPlanExecutor()
         self.episodic_simulator = EpisodicSimulator()
@@ -185,7 +183,6 @@ class CognitiveService:
             llm_service=llm_service,
             reappraisal=self.reappraisal,
             session_store=self.session_store,
-            scheduler=self.scheduler,
             workspace_store=self.workspace_store,
             temporal_memory_store=self.temporal_memory_store,
             plan_verifier=self.plan_verifier,

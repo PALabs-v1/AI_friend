@@ -3,10 +3,12 @@ Test suite for the Subconscious Engine.
 Validates idle checking, internal thought generation, and routing to the BrainAgent.
 """
 
+import json
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from app.cognitive.subconscious import SubconsciousEngine
 from app.contracts import ChatInput, Topics
 
 
@@ -14,6 +16,9 @@ from app.contracts import ChatInput, Topics
 def mock_state_service():
     service = MagicMock()
     service.check_proactive_eligibility.return_value = True
+    service.proactive_candidate_eligible.return_value = True
+    service.record_proactive_thought.return_value = ("stable-goal", 1.0)
+    service.persist_state = AsyncMock()
     service.get_context_snapshot.return_value = {"emotion": "curious", "energy": 0.8}
     service.current_state.last_user_interaction = 0.0
     return service
@@ -27,6 +32,37 @@ def mock_llm_service():
 
 
 class TestSubconsciousAgent:
+    @pytest.mark.asyncio
+    async def test_generation_prompt_contains_bounded_goal_and_ignore_context(self):
+        llm = MagicMock()
+        llm.generate = AsyncMock(
+            return_value='{"thought":"Check the grant plan","importance":0.8,"goal_id":"grant"}'
+        )
+        engine = SubconsciousEngine(llm)
+        snapshot = {
+            "timestamp": 1000.0,
+            "active_goals": ["finish application"],
+            "proactive_goals": [
+                {
+                    "goal_id": "grant",
+                    "description": "finish the grant application",
+                    "deadline": 4600.0,
+                }
+            ],
+            "unresolved_thoughts": [
+                {"goal_id": "grant", "description": "check the budget section"}
+            ],
+        }
+
+        result = await engine.evaluate_and_think(snapshot, True)
+
+        assert result is not None and result.goal_id == "grant"
+        prompt = llm.generate.await_args.args[0]
+        assert "finish application" in prompt
+        assert "deadline in 1.0 hours" in prompt
+        assert "check the budget section" in prompt
+        assert "do not invent commitments" in prompt
+
     @pytest.mark.asyncio
     async def test_subconscious_agent_ignores_tick_when_ineligible(
         self, mock_state_service, mock_llm_service
@@ -79,6 +115,8 @@ class TestSubconsciousAgent:
         msg = ChatInput.model_validate(payload)
         assert msg.text == "I should ask them about their day."
         assert msg.metadata.source == "subconscious"
+        assert msg.metadata.importance == 0.2
+        assert msg.metadata.category == "useful_to_user"
 
         # Verify attempt was marked
         mock_state_service.mark_proactive_attempt.assert_called_once()
@@ -107,9 +145,9 @@ class TestProactiveQueueing:
         await agent._on_system_tick({"timestamp": 1234567890})
 
         agent.publish.assert_not_awaited()
-        assert proactive_queue.pop_all(mock_state_service.db_path) == [
-            "I should ask them about their day."
-        ]
+        queued = proactive_queue.pop_all(mock_state_service.db_path)
+        assert len(queued) == 1
+        assert json.loads(queued[0])["text"] == "I should ask them about their day."
         # The cooldown must still be consumed, or every tick while still
         # disconnected would generate (and queue) another duplicate thought.
         mock_state_service.mark_proactive_attempt.assert_called_once()
@@ -204,6 +242,11 @@ class TestBrainAgentSubconsciousRouting:
             "dominance": 0.5,
             "fatigue": 0.0,
         }
+        agent.cognitive_core.state.record_proactive_thought.return_value = (
+            "stable-goal",
+            1.0,
+        )
+        agent.cognitive_core.state.persist_state = AsyncMock()
         agent.cognitive_core.generate_proactive_response = MagicMock()
         agent.cognitive_core.process_event = MagicMock()
         agent._stream_to_speech = AsyncMock(return_value="Hello there.")

@@ -57,6 +57,8 @@ class NullLLM:
     why the memory and personality suites never use this mode (DR-037).
     """
 
+    is_null_llm = True
+
     def __init__(self) -> None:
         self.generate_call_count = 0
         self.stream_call_count = 0

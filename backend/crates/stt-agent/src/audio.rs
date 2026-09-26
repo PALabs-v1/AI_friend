@@ -20,7 +20,9 @@ pub const WHISPER_SAMPLE_RATE: u32 = 16_000;
 pub fn decode_mono_f32(bytes: &[u8], channels: usize) -> Vec<f32> {
     let channels = channels.max(1);
     let samples: Vec<i16> = bytes
-        .chunks_exact(2)
+        .as_chunks::<2>()
+        .0
+        .iter()
         .map(|chunk| i16::from_le_bytes([chunk[0], chunk[1]]))
         .collect();
 
