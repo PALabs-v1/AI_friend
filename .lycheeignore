@@ -78,6 +78,39 @@ nats.io
 # still checked here, so the paper stays independently confirmable by CI.
 papers.nips.cc
 
+# W12 neuroscience citation mirrors: secondary "opened PDF" / catalog links
+# for citations that are independently confirmed by a DOI or publisher record
+# also present in the same doc (docs/brain-research-v3/research/neuro/
+# verification-log.md carries each one's VERIFIED/PARTLY status and what was
+# checked). Excluded because these specific mirrors are dead or bot-gated,
+# NOT because the citation itself is unverified.
+http://ilpubs.stanford.edu:8090/422/1/1999-66.pdf
+https://act-r.psy.cmu.edu/actr7.x/reference-manual.pdf
+https://edwp.educ.msu.edu/wp-content/uploads/sites/29/2020/06/Bradley_1994_MeasuringEmotionTheSelfassessment.pdf
+https://emotion.wisc.edu/wp-content/uploads/sites/1353/2021/11/Gross-1998-The-Emerging-Field-of-Emotion-Regulation-An-Integrative-Review.pdf
+https://princetonuniversity.github.io/NEU-PSY-502/_static/pdf/Class%208/Aston-Jones2005.pdf
+https://www.cambridge.org/core/books/cognitive-theory-of-consciousness/
+https://media.springernature.com/original/springer-static/esm/art%3A10.1038/nature07538/MediaObjects/41586_2008_BFnature07538_MOESM306_ESM.pdf
+https://archive.org/details/organizationofbe00hebb
+# exclude-file entries are regex: '?' is escaped so it matches the literal
+# query-string separator instead of "preceding char is optional"
+https://books\.google\.com/books\?id=Qb3HAAAAIAAJ
+https://books\.google\.com/books\?id=VbZ9AAAAMAAJ
+https://citeseerx\.ist\.psu\.edu/document\?doi=426f49ec0ab1b2f119f12436a2be619f9d53ee9f&repid=rep1&type=pdf
+https://laplab.ucsd.edu/articles/Cepeda%20et%20al%202008_psychsci.pdf
+# TLS handshake fails from CI runners on every path on this host, not just
+# one citation's PDF
+psychclassics.yorku.ca
+https://sanlab.psych.ucla.edu/wp-content/uploads/sites/31/2016/03/Gross_JPSP_1998.pdf
+https://web.stanford.edu/class/cs106m/meetings/03-pagerank/
+https://www.accessdata.fda.gov/drugsatfda_docs/label/2025/204200s008lbl.pdf
+https://www.guilford.com/books/Attachment-in-Adulthood/Mikulincer-Shaver/9781593854568
+# Slow/rate-limited academic mirrors that time out from CI runners; each
+# citation also carries a DOI checked elsewhere in the same doc
+users.cs.northwestern.edu
+ppw.kuleuven.be
+www.ppw.kuleuven.be
+
 # Dynamically generated runtime datasets
 benchmark_results.json
 raw_research_data.json
