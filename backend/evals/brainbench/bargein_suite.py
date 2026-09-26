@@ -101,6 +101,20 @@ def _utterance(turn_id: str) -> Event:
     return Event("user_utterance", turn_id=turn_id)
 
 
+def _stop_reason(target: str | None) -> str:
+    """The reason a real stop for `target` would carry.
+
+    Stage 2 sends its confirmed voice command only to the playing or the
+    superseded reply (ADR-003); a stop for an older or unknown turn comes from
+    the reflex path. Giving a "stale" stop the command reason lets it land on
+    the superseded id, which BrainAgent rightly accepts, and the suite then
+    scored a correct stop as a stale one that applied.
+    """
+    if target in ("stale", "unknown"):
+        return "facial_reflex_startle"
+    return "confirmed_command"
+
+
 def _scenario(
     family: str,
     index: int,
@@ -205,10 +219,14 @@ def generate_scenarios(
                 _utterance(b),
                 Event("idle"),
                 _utterance(c),
-                Event("stop", target="stale"),
+                Event("stop", target="stale", reason=_stop_reason("stale")),
                 Event("idle"),
             ],
-            "unknown_stop": first + [Event("stop", target="unknown"), Event("idle")],
+            "unknown_stop": first
+            + [
+                Event("stop", target="unknown", reason=_stop_reason("unknown")),
+                Event("idle"),
+            ],
             "rapid_fire": [_utterance(a), _utterance(b), _utterance(c), Event("idle")],
         }
         for family in FAMILIES[:-1]:
@@ -233,6 +251,11 @@ def generate_scenarios(
                         kind,
                         target=target,
                         word_offset=rng.randint(0, 8),
+                        reason=(
+                            _stop_reason(target)
+                            if kind == "stop"
+                            else "confirmed_command"
+                        ),
                     )
                 )
             elif kind == "stream_chunk_delay":
@@ -300,6 +323,13 @@ def check_invariants(evidence: ScenarioEvidence) -> dict[str, float | int | None
         "replies_with_zero_terminal_outcomes": missing,
         "replies_with_multiple_terminal_outcomes": duplicate,
         "terminal_outcome_replies_eligible": len(eligible),
+        # Over every started reply, eligible or not: a reply that played to
+        # the end and never got COMPLETED is unresolved too (F-002).
+        "started_reply_count": len(set(evidence.started_replies)),
+        "started_replies_without_terminal": sum(
+            evidence.terminal_counts.get(reply, 0) == 0
+            for reply in set(evidence.started_replies)
+        ),
         "replies_unresolved_without_completion": sum(
             reply not in eligible and evidence.terminal_counts.get(reply, 0) == 0
             for reply in evidence.started_replies
@@ -520,6 +550,9 @@ async def _run_scenario(
     unclaimed_history: set[str] = set()
     terminal_eligible: set[str] = set()
     terminal_claimed: dict[str, bool] = {}
+    lifecycle_seq: dict[str, int] = {}
+    lifecycle_terminal: set[str] = set()
+    lifecycle_completed: set[str] = set()
     stale_changed = False
     current_harmed = False
     hung = False
@@ -542,7 +575,44 @@ async def _run_scenario(
             for _ in range(count):
                 gate.put_nowait(None)
 
-    async def settle() -> None:
+    async def lifecycle(turn_id: str, state: str, offset: int, words: int) -> None:
+        seq = lifecycle_seq.get(turn_id, 0)
+        await agent._on_audio_playback_lifecycle(
+            {
+                "utterance_id": turn_id,
+                "turn_id": turn_id,
+                "seq": seq,
+                "state": state,
+                "words_played": words,
+                "words_streamed": max(words, released.get(turn_id, 0)),
+                "heard_offset": offset,
+                "streamed_offset": max(offset, len(scenario.reply_texts[turn_id])),
+            }
+        )
+        lifecycle_seq[turn_id] = seq + 1
+        if state in {"COMPLETED", "INTERRUPTED", "FAILED"}:
+            lifecycle_terminal.add(turn_id)
+        if state == "COMPLETED":
+            lifecycle_completed.add(turn_id)
+
+    async def start_lifecycle(turn_id: str, offset: int, words: int) -> None:
+        if turn_id not in lifecycle_seq:
+            await lifecycle(turn_id, "STARTED", 0, 0)
+        await lifecycle(turn_id, "PLAYING", offset, words)
+
+    async def complete(turn_id: str) -> None:
+        text = scenario.reply_texts[turn_id]
+        words = len(text.split())
+        progress_offsets[turn_id] = len(text)
+        progress_prefixes[turn_id] = text
+        await start_lifecycle(turn_id, len(text), words)
+        await lifecycle(turn_id, "COMPLETED", len(text), words)
+
+    async def settle(final: bool = False) -> None:
+        # An idle lets generation finish; it does not mean the audio has
+        # played. Mid-scenario, a reply completes only when a progress event
+        # reaches its end. Once the scenario is over, a reply nobody stopped
+        # plays out, so it completes then.
         for turn_id in tuple(started):
             await release(turn_id, len(scenario.reply_texts[turn_id].split()) + 2)
         tasks = list(user_tasks.values())
@@ -555,6 +625,18 @@ async def _run_scenario(
             await asyncio.wait_for(
                 asyncio.gather(*pending, return_exceptions=True), timeout
             )
+        if not final:
+            return
+        for turn_id in started:
+            task = user_tasks.get(turn_id)
+            if (
+                turn_id not in lifecycle_terminal
+                and task is not None
+                and task.done()
+                and not task.cancelled()
+                and task.exception() is None
+            ):
+                await complete(turn_id)
 
     try:
         for event in scenario.events:
@@ -600,6 +682,16 @@ async def _run_scenario(
                 if target_id in scenario.reply_texts:
                     progress_prefixes[target_id] = actual[:offset].strip()
                     progress_offsets[target_id] = offset
+                    await start_lifecycle(target_id, offset, word_offset)
+                    task = user_tasks.get(target_id)
+                    if (
+                        word_offset >= len(actual.split())
+                        and target_id not in lifecycle_terminal
+                        and task is not None
+                        and task.done()
+                        and not task.cancelled()
+                    ):
+                        await complete(target_id)
             elif event.type == "stop":
                 target_id = _target_id(event.target, playing, superseded, older)
                 before = _signature(agent, history)
@@ -622,6 +714,19 @@ async def _run_scenario(
                         "turn_id": target_id,
                     }
                 )
+                applies_to_playback = target_id == playing or (
+                    target_id == superseded and event.reason == "confirmed_command"
+                )
+                if (
+                    applies_to_playback
+                    and target_id in scenario.reply_texts
+                    and target_id not in lifecycle_terminal
+                ):
+                    if target_id not in lifecycle_seq:
+                        await lifecycle(target_id, "STARTED", 0, 0)
+                    offset = progress_offsets.get(target_id, 0)
+                    words = released.get(target_id, 0)
+                    await lifecycle(target_id, "INTERRUPTED", offset, words)
                 after = _signature(agent, history)
                 # A "superseded" stop with no superseded reply resolves to the
                 # unknown id, so it is judged as an unknown stop.
@@ -648,9 +753,14 @@ async def _run_scenario(
                         )
                         or playing_terminal_after > playing_terminal_before
                     )
-                if target_id in scenario.reply_texts and event.target in (
-                    "playing",
-                    "superseded",
+                if (
+                    target_id in scenario.reply_texts
+                    and event.target
+                    in (
+                        "playing",
+                        "superseded",
+                    )
+                    and target_id not in lifecycle_completed
                 ):
                     reply_text = scenario.reply_texts[target_id]
                     offset = progress_offsets.get(target_id)
@@ -690,7 +800,7 @@ async def _run_scenario(
     # Drain any tasks after the final event, within the same scenario budget.
     if not hung:
         try:
-            await asyncio.wait_for(settle(), timeout)
+            await asyncio.wait_for(settle(final=True), timeout)
         except TimeoutError:
             hung = True
             for task in user_tasks.values():
@@ -722,6 +832,10 @@ async def _run_scenario(
             turn_id not in unclaimed_history and turn_id not in cancelled_before_insert
         )
     completed_count = sum(record.status == "COMPLETED" for record in records)
+    completed_without_producer = any(
+        record.status == "COMPLETED" and record.turn_id not in lifecycle_completed
+        for record in records
+    )
     evidence = ScenarioEvidence(
         started_replies=tuple(started),
         terminal_counts=terminal_counts,
@@ -733,7 +847,7 @@ async def _run_scenario(
         terminal_claimed=terminal_claimed,
         stale_stop_changed=stale_changed,
         superseded_stop_harmed_current=current_harmed,
-        completed_without_producer=completed_count > 0,
+        completed_without_producer=completed_without_producer,
         completed_outcome_count=completed_count,
         hung=hung,
         terminal_eligible=tuple(terminal_eligible),

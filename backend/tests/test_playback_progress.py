@@ -15,13 +15,15 @@ never ran in production. This covers the pipeline that makes it run:
 
 import asyncio
 import contextlib
+import uuid
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from app.agents.brain_agent import BrainAgent, _char_offset_after_word
 from app.agents.transport_agent import TransportAgent
-from app.contracts import Topics
+from app.cognitive.action_intent import build_action_intent
+from app.contracts import AudioPlaybackLifecycle, Topics
 
 # --------------------------------------------------------------------------
 # _char_offset_after_word
@@ -355,11 +357,12 @@ async def test_on_nats_audio_queues_character_offset_and_word_index():
     )
 
     item = await agent.audio_queue.get()
-    _, _, _, turn_id, character_offset, word_index, completed = item
+    _, _, _, utterance_id, turn_id, character_offset, word_index, terminal_state = item
+    assert utterance_id == "turn-1"
     assert turn_id == "turn-1"
     assert character_offset == 9
     assert word_index == 2
-    assert completed is False
+    assert terminal_state is None
 
 
 @pytest.mark.asyncio
@@ -369,11 +372,12 @@ async def test_on_nats_audio_queues_none_offsets_when_metadata_lacks_them():
     await agent._on_nats_audio(b"pcm", metadata={"turn_id": "turn-1"})
 
     item = await agent.audio_queue.get()
-    _, _, _, turn_id, character_offset, word_index, completed = item
+    _, _, _, utterance_id, turn_id, character_offset, word_index, terminal_state = item
+    assert utterance_id == "turn-1"
     assert turn_id == "turn-1"
     assert character_offset is None
     assert word_index is None
-    assert completed is False
+    assert terminal_state is None
 
 
 @pytest.mark.asyncio
@@ -386,7 +390,9 @@ async def test_on_nats_audio_overflow_drops_the_newest_frame_not_the_oldest():
     already queued in its original order.
     """
     agent = _transport_agent()
-    agent.audio_queue = asyncio.Queue(maxsize=2)  # constructor floors below 32; override
+    agent.audio_queue = asyncio.Queue(
+        maxsize=2
+    )  # constructor floors below 32; override
 
     await agent._on_nats_audio(b"first", metadata={"turn_id": "turn-1"})
     await agent._on_nats_audio(b"second", metadata={"turn_id": "turn-1"})
@@ -430,7 +436,299 @@ async def test_audio_playback_worker_publishes_progress_after_capture_frame():
     # backlog telemetry as it enqueues the frame, and the playback worker
     # firing playback-progress after `capture_frame` (the original P4-2
     # behaviour this test was written for).
-    assert agent.spawn.call_count == 2
+    assert agent.spawn.call_count == 4
+
+
+@pytest.mark.asyncio
+async def test_audio_trailer_completes_only_after_prior_pcm_reaches_sink():
+    agent = _transport_agent()
+    agent.audio_source = MagicMock()
+    agent.audio_source.capture_frame = AsyncMock()
+    agent.audio_source.wait_for_playout = AsyncMock()
+    published = []
+    tasks = []
+
+    def capture(coro):
+        task = asyncio.create_task(coro)
+        tasks.append(task)
+        return task
+
+    agent.spawn = MagicMock(side_effect=capture)
+    await agent._on_nats_audio(
+        b"\x00\x00" * 320,
+        metadata={"turn_id": "turn-1", "character_offset": 9, "word_index": 2},
+    )
+    await agent._on_nats_audio(
+        b'{"kind":"END_OF_STREAM","utterance_id":"turn-1",'
+        b'"turn_id":"turn-1","failed":false}',
+        metadata={
+            "audio_stream_kind": "trailer",
+            "turn_id": "turn-1",
+            "utterance_id": "turn-1",
+            "character_offset": 9,
+            "word_index": 2,
+        },
+    )
+
+    worker = asyncio.ensure_future(agent._audio_playback_worker())
+    try:
+        await asyncio.wait_for(agent.audio_queue.join(), timeout=2.0)
+    finally:
+        worker.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await worker
+        await asyncio.gather(*tasks)
+
+    published = [call.args for call in agent.publish.await_args_list]
+    agent.audio_source.wait_for_playout.assert_awaited_once()
+    lifecycle = [
+        AudioPlaybackLifecycle.model_validate(data)
+        for subject, data in published
+        if subject == Topics.AUDIO_PLAYBACK_LIFECYCLE
+    ]
+    assert [event.state for event in lifecycle] == ["STARTED", "PLAYING", "COMPLETED"]
+    assert [event.seq for event in lifecycle] == [0, 1, 2]
+
+
+@pytest.mark.asyncio
+async def test_brain_records_one_completed_outcome_from_lifecycle(
+    mock_llm_service, mock_graph_db, mock_memory_store
+):
+    agent = _agent(mock_llm_service, mock_graph_db, mock_memory_store)
+    agent._active_response_turn_id = "turn-1"
+    agent._reply_turn_id = "turn-1"
+    agent.last_assistant_response = "A complete reply."
+    agent._active_action_intent = build_action_intent(
+        turn_id="turn-1",
+        workspace_epoch=0,
+        workspace_revision=0,
+        kind="SPEAK",
+        behavior_decision={},
+    )
+    agent._reply_contexts["turn-1"] = (
+        agent.last_assistant_response,
+        agent._active_action_intent,
+    )
+    lifecycle = {
+        "utterance_id": "turn-1",
+        "turn_id": "turn-1",
+        "seq": 0,
+        "state": "STARTED",
+        "words_played": 0,
+        "words_streamed": 3,
+        "heard_offset": 0,
+        "streamed_offset": 17,
+    }
+    await agent._on_audio_playback_lifecycle(lifecycle)
+    lifecycle.update(seq=1, state="PLAYING", words_played=3, heard_offset=17)
+    await agent._on_audio_playback_lifecycle(lifecycle)
+    lifecycle.update(seq=2, state="COMPLETED")
+    await agent._on_audio_playback_lifecycle(lifecycle)
+    lifecycle.update(seq=3)
+    await agent._on_audio_playback_lifecycle(lifecycle)
+
+    outcomes = agent.get_outcome_history("turn-1")
+    assert len(outcomes) == 1
+    assert outcomes[0].status == "COMPLETED"
+    assert outcomes[0].character_offset == len("A complete reply.")
+
+
+@pytest.mark.asyncio
+async def test_brain_survives_a_lost_started_and_ignores_it_arriving_late(
+    mock_llm_service, mock_graph_db, mock_memory_store
+):
+    """The first event seen for a reply is applied whatever its state: if a
+    lost STARTED made the tracker refuse everything after it, the reply's
+    COMPLETED would be refused too and the reply would never resolve. A
+    STARTED that shows up after PLAYING is stale and must not rewind the
+    heard position."""
+    agent = _agent(mock_llm_service, mock_graph_db, mock_memory_store)
+    agent._active_response_turn_id = "turn-1"
+
+    def event(seq, state, offset, words):
+        return {
+            "utterance_id": "turn-1",
+            "turn_id": "turn-1",
+            "seq": seq,
+            "state": state,
+            "words_played": words,
+            "words_streamed": words,
+            "heard_offset": offset,
+            "streamed_offset": offset,
+        }
+
+    await agent._on_audio_playback_lifecycle(event(1, "PLAYING", 9, 2))
+    assert agent.last_audio_progress.character_offset == 9
+
+    await agent._on_audio_playback_lifecycle(event(0, "STARTED", 0, 0))
+    assert agent.last_audio_progress.character_offset == 9
+    assert agent._playback_lifecycle.protocol_errors == 0
+
+
+@pytest.mark.asyncio
+async def test_completed_lifecycle_prevents_a_late_stop_from_cutting_history(
+    mock_llm_service, mock_graph_db, mock_memory_store
+):
+    agent = _agent(mock_llm_service, mock_graph_db, mock_memory_store)
+    text = "This reply is complete."
+    agent._active_response_turn_id = "turn-1"
+    agent._reply_turn_id = "turn-1"
+    agent.last_assistant_response = text
+    agent._reply_message_id = uuid.uuid4()
+    agent.conversation_store = MagicMock()
+    agent.conversation_store.rewrite_assistant_message = AsyncMock()
+    intent = build_action_intent(
+        turn_id="turn-1",
+        workspace_epoch=0,
+        workspace_revision=0,
+        kind="SPEAK",
+        behavior_decision={},
+    )
+    agent._reply_contexts["turn-1"] = (text, intent)
+
+    def event(seq, state, offset, words):
+        return {
+            "utterance_id": "turn-1",
+            "turn_id": "turn-1",
+            "seq": seq,
+            "state": state,
+            "words_played": words,
+            "words_streamed": words,
+            "heard_offset": offset,
+            "streamed_offset": max(offset, len(text)),
+        }
+
+    await agent._on_audio_playback_lifecycle(event(0, "STARTED", 0, 0))
+    await agent._on_audio_playback_lifecycle(event(1, "PLAYING", 4, 1))
+    await agent._on_audio_playback_lifecycle(
+        event(2, "COMPLETED", len(text), len(text.split()))
+    )
+    await agent._truncate_interrupted_reply()
+
+    agent.conversation_store.rewrite_assistant_message.assert_not_awaited()
+    assert [record.status for record in agent.get_outcome_history("turn-1")] == [
+        "COMPLETED"
+    ]
+
+
+@pytest.mark.asyncio
+async def test_self_correction_flush_does_not_cancel_brain_generation(
+    mock_llm_service, mock_graph_db, mock_memory_store
+):
+    agent = _agent(mock_llm_service, mock_graph_db, mock_memory_store)
+    agent._cancel_active_generation = AsyncMock()
+    agent._truncate_interrupted_reply = AsyncMock()
+
+    await agent._on_audio_stop({"flush": True, "interrupt": True, "turn_id": "turn-1"})
+
+    agent._cancel_active_generation.assert_not_awaited()
+    agent._truncate_interrupted_reply.assert_not_awaited()
+
+
+def _flushed_turn_agent(mock_llm_service, mock_graph_db, mock_memory_store):
+    """A brain mid-reply on turn-1 that has just flushed a rejected take."""
+    agent = _agent(mock_llm_service, mock_graph_db, mock_memory_store)
+    agent._active_response_turn_id = "turn-1"
+    agent._reply_turn_id = "turn-1"
+    agent._active_action_intent = build_action_intent(
+        turn_id="turn-1",
+        workspace_epoch=0,
+        workspace_revision=0,
+        kind="SPEAK",
+        behavior_decision={},
+    )
+    agent._reply_contexts["turn-1"] = ("Corrected reply.", agent._active_action_intent)
+    return agent
+
+
+def _turn1_lifecycle(utterance, seq, state, offset, words, flushed=False):
+    return {
+        "utterance_id": utterance,
+        "turn_id": "turn-1",
+        "seq": seq,
+        "state": state,
+        "words_played": words,
+        "words_streamed": 2,
+        "heard_offset": offset,
+        "streamed_offset": 16,
+        "flushed": flushed,
+    }
+
+
+@pytest.mark.asyncio
+async def test_flushed_take_is_not_the_outcome_the_retry_is(
+    mock_llm_service, mock_graph_db, mock_memory_store
+):
+    agent = _flushed_turn_agent(mock_llm_service, mock_graph_db, mock_memory_store)
+    await agent._on_audio_stop({"flush": True, "turn_id": "turn-1"})
+
+    await agent._on_audio_playback_lifecycle(
+        _turn1_lifecycle("turn-1", 0, "STARTED", 0, 0)
+    )
+    await agent._on_audio_playback_lifecycle(
+        _turn1_lifecycle("turn-1", 1, "INTERRUPTED", 0, 0, flushed=True)
+    )
+    assert agent.get_outcome_history("turn-1") == []
+    assert "turn-1" in agent._reply_contexts
+
+    await agent._on_audio_playback_lifecycle(
+        _turn1_lifecycle("turn-1:1", 0, "STARTED", 0, 0)
+    )
+    await agent._on_audio_playback_lifecycle(
+        _turn1_lifecycle("turn-1:1", 1, "COMPLETED", 16, 2)
+    )
+    outcomes = agent.get_outcome_history("turn-1")
+    assert len(outcomes) == 1
+    assert outcomes[0].status == "COMPLETED"
+
+
+@pytest.mark.asyncio
+async def test_a_real_barge_in_on_the_retry_is_recorded_as_truncated(
+    mock_llm_service, mock_graph_db, mock_memory_store
+):
+    """Regression: the brain used to remember "this turn was flushed" per
+    turn and swallow every INTERRUPTED for it until COMPLETED/FAILED, so a
+    user cutting off the corrected retry left the reply with no outcome
+    forever. Only the take the transport marks `flushed` is skipped."""
+    agent = _flushed_turn_agent(mock_llm_service, mock_graph_db, mock_memory_store)
+    await agent._on_audio_stop({"flush": True, "turn_id": "turn-1"})
+    await agent._on_audio_playback_lifecycle(
+        _turn1_lifecycle("turn-1", 0, "STARTED", 0, 0)
+    )
+    await agent._on_audio_playback_lifecycle(
+        _turn1_lifecycle("turn-1", 1, "INTERRUPTED", 0, 0, flushed=True)
+    )
+
+    await agent._on_audio_playback_lifecycle(
+        _turn1_lifecycle("turn-1:1", 0, "STARTED", 0, 0)
+    )
+    await agent._on_audio_playback_lifecycle(
+        _turn1_lifecycle("turn-1:1", 1, "INTERRUPTED", 9, 1)
+    )
+
+    outcomes = agent.get_outcome_history("turn-1")
+    assert [o.status for o in outcomes] == ["TRUNCATED"]
+    assert outcomes[0].character_offset == 9
+    assert "turn-1" not in agent._reply_contexts
+
+
+@pytest.mark.asyncio
+async def test_an_unflushed_interruption_after_a_flush_stop_still_counts(
+    mock_llm_service, mock_graph_db, mock_memory_store
+):
+    """The flush stop itself no longer arms anything: a take the transport
+    did not mark flushed (a different turn's audio cut by the flush, or an
+    older transport build) is recorded like any other interruption."""
+    agent = _flushed_turn_agent(mock_llm_service, mock_graph_db, mock_memory_store)
+    await agent._on_audio_stop({"flush": True, "turn_id": "turn-1"})
+    await agent._on_audio_playback_lifecycle(
+        _turn1_lifecycle("turn-1", 0, "STARTED", 0, 0)
+    )
+    await agent._on_audio_playback_lifecycle(
+        _turn1_lifecycle("turn-1", 1, "INTERRUPTED", 4, 1)
+    )
+
+    assert [o.status for o in agent.get_outcome_history("turn-1")] == ["TRUNCATED"]
 
 
 # --------------------------------------------------------------------------

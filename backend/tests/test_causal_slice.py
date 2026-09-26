@@ -606,6 +606,23 @@ def _seed_active_intent(agent: BrainAgent, turn_id: str = "turn-1") -> ActionInt
     return intent
 
 
+async def _emit_completed_lifecycle(agent, intent, text, offset, words):
+    agent._reply_contexts[intent.turn_id] = (text, intent)
+    for seq, state in enumerate(("STARTED", "COMPLETED")):
+        await agent._on_audio_playback_lifecycle(
+            {
+                "utterance_id": intent.turn_id,
+                "turn_id": intent.turn_id,
+                "seq": seq,
+                "state": state,
+                "words_played": words if state == "COMPLETED" else 0,
+                "words_streamed": words,
+                "heard_offset": offset if state == "COMPLETED" else 0,
+                "streamed_offset": max(offset, len(text)),
+            }
+        )
+
+
 @pytest.mark.asyncio
 async def test_turn_completion_emits_completed_outcome(
     mock_graph_db, mock_memory_store
@@ -618,13 +635,8 @@ async def test_turn_completion_emits_completed_outcome(
     full_text = "This is the complete assistant reply."
     agent.last_assistant_response = full_text
 
-    await agent._on_audio_playback_progress(
-        {
-            "utterance_id": "turn-1",
-            "character_offset": len(full_text),
-            "word_index": len(full_text.split()),
-            "completed": True,
-        }
+    await _emit_completed_lifecycle(
+        agent, intent, full_text, len(full_text), len(full_text.split())
     )
 
     record = agent._last_outcome_record
@@ -877,27 +889,26 @@ async def test_outcome_history_is_queryable_by_turn_id(
 
 
 @pytest.mark.asyncio
-async def test_outcome_history_keeps_multiple_records_for_the_same_turn_in_order(
+async def test_outcome_history_keeps_distinct_turn_records_in_order(
     mock_graph_db, mock_memory_store
 ):
-    """A turn is not guaranteed exactly one record (e.g. a duplicate
-    playback-progress delivery) -- the ledger must not overwrite or dedupe,
-    only append, so it stays a faithful emission-order log."""
+    """The ledger retains one terminal record for each reply in order."""
     agent = _make_agent(mock_graph_db, mock_memory_store)
     intent = _seed_active_intent(agent, turn_id="turn-1")
 
     await agent._emit_outcome_record(
         intent, status="TRUNCATED", actual_delivered_text="partial", character_offset=5
     )
+    second_intent = _seed_active_intent(agent, turn_id="turn-2")
     await agent._emit_outcome_record(
-        intent,
+        second_intent,
         status="COMPLETED",
-        actual_delivered_text="partial full",
-        character_offset=20,
+        actual_delivered_text="second reply",
+        character_offset=12,
     )
 
-    history = agent.get_outcome_history("turn-1")
-    assert [r.status for r in history] == ["TRUNCATED", "COMPLETED"]
+    assert [r.status for r in agent.get_outcome_history("turn-1")] == ["TRUNCATED"]
+    assert [r.status for r in agent.get_outcome_history("turn-2")] == ["COMPLETED"]
 
 
 @pytest.mark.asyncio
@@ -934,18 +945,11 @@ async def test_completed_outcome_uses_the_reported_offset_when_smaller_than_full
     that assumption would fabricate a delivered-length claim playback never
     actually reported."""
     agent = _make_agent(mock_graph_db, mock_memory_store)
-    _seed_active_intent(agent)
+    intent = _seed_active_intent(agent)
     full_text = "This response is longer than what was actually reported delivered."
     agent.last_assistant_response = full_text
 
-    await agent._on_audio_playback_progress(
-        {
-            "utterance_id": "turn-1",
-            "character_offset": 10,
-            "word_index": 2,
-            "completed": True,
-        }
-    )
+    await _emit_completed_lifecycle(agent, intent, full_text, 10, 2)
 
     record = agent._last_outcome_record
     assert record.character_offset == 10
@@ -960,18 +964,11 @@ async def test_completed_outcome_clamps_an_offset_that_exceeds_delivered_length(
     stale/rounded offset from a previous, longer segment) must clamp to the
     real delivered length, never index past the actual string."""
     agent = _make_agent(mock_graph_db, mock_memory_store)
-    _seed_active_intent(agent)
+    intent = _seed_active_intent(agent)
     full_text = "short reply"
     agent.last_assistant_response = full_text
 
-    await agent._on_audio_playback_progress(
-        {
-            "utterance_id": "turn-1",
-            "character_offset": len(full_text) + 50,
-            "word_index": 5,
-            "completed": True,
-        }
-    )
+    await _emit_completed_lifecycle(agent, intent, full_text, len(full_text) + 50, 5)
 
     record = agent._last_outcome_record
     assert record.character_offset == len(full_text)

@@ -34,7 +34,8 @@ from .splits import authorize
 from .timeline import Timeline
 from .world import World, build_world
 
-GENERATOR_VERSION = "lifesim-1"
+# lifesim-2: a session never starts before the previous one's last turn.
+GENERATOR_VERSION = "lifesim-2"
 
 _H = re.compile(r"^(\d+)([twmyd])$")
 _DAYS = {"d": 1, "w": 7, "m": 30.44, "y": 365.25}

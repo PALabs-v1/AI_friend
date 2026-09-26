@@ -169,12 +169,31 @@ async def _say(agent, text, turn_id, *, subconscious=False):
 
 
 async def _progress(agent, turn_id, offset, completed=False):
+    if completed:
+        for seq, state, heard in (
+            (0, "STARTED", 0),
+            (1, "PLAYING", offset),
+            (2, "COMPLETED", offset),
+        ):
+            await agent._on_audio_playback_lifecycle(
+                {
+                    "utterance_id": turn_id,
+                    "turn_id": turn_id,
+                    "seq": seq,
+                    "state": state,
+                    "words_played": 1 if state != "STARTED" else 0,
+                    "words_streamed": 1,
+                    "heard_offset": heard,
+                    "streamed_offset": max(offset, len(REPLY_A)),
+                }
+            )
+        return
     await agent._on_audio_playback_progress(
         {
             "utterance_id": turn_id,
             "character_offset": offset,
             "word_index": 1,
-            "completed": completed,
+            "completed": False,
         }
     )
 

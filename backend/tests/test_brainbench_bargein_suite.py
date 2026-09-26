@@ -6,6 +6,7 @@ from dataclasses import replace
 
 import pytest
 
+from app.config import Config
 from evals.brainbench.bargein_suite import (
     FAMILIES,
     Event,
@@ -66,6 +67,19 @@ def test_generator_is_reproducible_and_weighted_mix_is_seeded():
         assert all(text.startswith("[reply:") for text in scenario_replies)
 
 
+def test_stale_stop_events_do_not_claim_confirmed_command_authority():
+    scenarios = generate_scenarios(1000, n_scenarios_per_family=50)
+    stale_stops = [
+        event
+        for scenario in scenarios
+        for event in scenario.events
+        if event.type == "stop" and event.target == "stale"
+    ]
+
+    assert stale_stops
+    assert all(event.reason == "facial_reflex_startle" for event in stale_stops)
+
+
 @pytest.mark.parametrize(
     ("family", "predicate"),
     [
@@ -116,6 +130,66 @@ def test_generator_is_reproducible_and_weighted_mix_is_seeded():
 def test_each_family_has_its_defining_event_shape(family, predicate):
     scenario = _family(generate_scenarios(1000), family)
     assert predicate(scenario.events)
+
+
+def test_unresolved_count_covers_every_started_reply_not_only_eligible_ones():
+    # B played to the end and never got COMPLETED (V2 has no producer, F-002):
+    # not eligible, so the eligible-only count cannot see it.
+    evidence = replace(
+        _clean_evidence(),
+        started_replies=("A", "B", "B"),
+        terminal_counts={"A": 1},
+        terminal_eligible=("A",),
+    )
+    metrics = check_invariants(evidence)
+    assert metrics["replies_with_zero_terminal_outcomes"] == 0
+    assert metrics["started_reply_count"] == 2
+    assert metrics["started_replies_without_terminal"] == 1
+
+
+def test_only_playing_or_superseded_stops_carry_the_voice_command_reason():
+    # ADR-003: Stage 2 addresses its confirmed command to the playing or the
+    # superseded reply; stops for older or unknown turns come from the reflex.
+    stops = [
+        event
+        for scenario in generate_scenarios(1000, n_scenarios_per_family=20)
+        for event in scenario.events
+        if event.type == "stop"
+    ]
+    assert {e.target for e in stops} >= {"playing", "superseded", "stale", "unknown"}
+    for event in stops:
+        if event.target in ("stale", "unknown"):
+            assert event.reason == "facial_reflex_startle", event
+        elif event.reason != "confirmed_user_speech":
+            assert event.reason == "confirmed_command", event
+
+
+@pytest.mark.asyncio
+async def test_a_stale_stop_that_lands_on_the_superseded_reply_is_not_applied(
+    monkeypatch,
+):
+    # Seed 1000 random scenario 29: "stale" resolves to the first reply, which
+    # is also the superseded one. As a voice command BrainAgent would rightly
+    # accept it (ADR-003), and the suite used to score that as a stale stop
+    # that applied; a reflex stop for a superseded turn must be ignored.
+    monkeypatch.setattr(Config, "BARGE_IN_ONSET_GRACE_S", 0.0)  # as the suite runs
+    scenario = next(
+        s
+        for s in generate_scenarios(1000, n_scenarios_per_family=50)
+        if s.family == "random" and s.index == 29
+    )
+    assert any(e.type == "stop" and e.target == "stale" for e in scenario.events)
+    reflex = await _run_scenario(scenario, 1000, scenario.index, 1.0)
+    assert reflex.metrics["stale_stop_applied_violation"] == 0
+    as_command = replace(
+        scenario,
+        events=tuple(
+            replace(e, reason="confirmed_command") if e.type == "stop" else e
+            for e in scenario.events
+        ),
+    )
+    command = await _run_scenario(as_command, 1000, scenario.index, 1.0)
+    assert command.metrics["stale_stop_applied_violation"] == 1
 
 
 @pytest.mark.parametrize(
@@ -262,7 +336,7 @@ def test_clean_scenario_has_no_real_brainagent_violations(real_seed_1000_outcome
         "hung",
     ):
         assert outcome.metrics[f"{name}_violation"] == 0.0
-    assert outcome.metrics["replies_unresolved_without_completion"] == 1
+    assert outcome.metrics["replies_unresolved_without_completion"] == 0
 
 
 def test_adr003_superseded_stop_truncates_old_reply_and_preserves_current_turn(
@@ -334,6 +408,10 @@ async def test_progress_cannot_report_words_that_were_never_streamed():
 def test_ordinary_barge_in_history_gap_is_measured_as_unclaimed(
     real_seed_1000_outcomes,
 ):
+    # ADR-003 Known: ordinary confirmed speech flushes playback but keeps the
+    # full reply row. The lifecycle (W4) now gives the reply its terminal
+    # outcome; cutting the row to the heard prefix is W5's (R8), so the gap is
+    # still measured, and still unclaimed.
     outcome = next(
         row
         for row in real_seed_1000_outcomes
@@ -342,6 +420,24 @@ def test_ordinary_barge_in_history_gap_is_measured_as_unclaimed(
     assert outcome.metrics["history_matches_heard_violation"] == 1.0
     assert outcome.metrics["history_matches_heard_claimed_violation"] == 0.0
     assert outcome.metrics["history_matches_heard_unclaimed_violation"] == 1.0
+    assert outcome.metrics["replies_with_zero_terminal_outcomes"] == 0
+
+
+def test_an_idle_finishes_generation_not_playback(real_seed_1000_outcomes):
+    # Every family opens with utterance, idle, progress(2 words): the reply is
+    # generated but still playing. Completing it at that idle made the
+    # barge-in land on a finished reply, so the family stopped testing
+    # barge-in (0 eligible replies, the interrupted reply COMPLETED).
+    outcome = next(
+        row
+        for row in real_seed_1000_outcomes
+        if row.categories == ("confirmed_barge_in",)
+    )
+    assert outcome.metrics["terminal_outcome_replies_eligible"] == 1
+    # Only the follow-up reply plays out; the interrupted one does not.
+    assert outcome.metrics["completed_outcome_count"] == 1
+    clean = next(r for r in real_seed_1000_outcomes if r.categories == ("clean",))
+    assert clean.metrics["completed_outcome_count"] == 1
 
 
 def test_scoring_functions_report_rates_and_reply_accounting():

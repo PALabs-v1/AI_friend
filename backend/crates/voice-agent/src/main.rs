@@ -2,13 +2,14 @@ use anyhow::{Context, Result};
 use async_nats::HeaderMap;
 use bytes::Bytes;
 use contracts::{
-    topics, vad_to_prosody, AmbientNoiseTelemetry, ChatOutput, PlaybackVisemes,
+    topics, vad_to_prosody, AmbientNoiseTelemetry, AudioStreamTrailer, ChatOutput, PlaybackVisemes,
     HEADER_LATENCY_META, HEADER_PAYLOAD_FORMAT, PAYLOAD_FORMAT_RAW_PCM,
 };
 use futures_util::StreamExt;
 use regex::Regex;
 use reqwest::Client;
 use serde_json::json;
+use std::collections::HashSet;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tracing::{error, info, warn};
 
@@ -62,6 +63,10 @@ fn mesh_signal_applies_to_active_turn(active: &ActiveTurn, signal_turn: Option<&
         Ok(guard) => guard.as_deref().is_none_or(|active| active == signal_turn),
         Err(_) => true,
     }
+}
+
+fn stop_aborts_generation(stop: &contracts::AudioStop) -> bool {
+    !stop.speculative && !stop.flush
 }
 
 /// Runtime agents require a username/password, matching the authenticated
@@ -401,6 +406,10 @@ fn reference_clip_missing(path: &str) -> bool {
     std::fs::metadata(path).is_err()
 }
 
+fn take_stream_failure(failed_turns: &mut HashSet<String>, turn_id: Option<&str>) -> bool {
+    turn_id.is_some_and(|turn_id| failed_turns.remove(turn_id))
+}
+
 fn warn_if_reference_clip_missing(env_var: &str, clip: &RefClip) {
     if reference_clip_missing(&clip.audio_path) {
         warn!(
@@ -704,6 +713,8 @@ async fn main() -> Result<()> {
                         if let Ok(mut guard) = attenuation_stop.lock() {
                             *guard = 0.30;
                         }
+                    } else if !stop_aborts_generation(&stop) {
+                        info!("Received AUDIO_STOP flush; preserving the active generation.");
                     } else {
                         info!("Received CONFIRMED AUDIO_STOP - aborting current voice playback.");
                         abort_flag_stop.store(true, std::sync::atomic::Ordering::SeqCst);
@@ -815,6 +826,7 @@ async fn main() -> Result<()> {
     // back down, audibly, every single chunk boundary during an ongoing duck.
     let mut reverb_filter = ReverbFilter::new((config.sample_rate as f32 * 0.05) as usize, 0.5);
     let mut current_attenuation_val = 1.0f64;
+    let mut failed_turns = HashSet::new();
 
     while let Some(message) = subscriber.next().await {
         match serde_json::from_slice::<ChatOutput>(&message.payload) {
@@ -832,6 +844,10 @@ async fn main() -> Result<()> {
                     // ReverbFilter::reset's doc comment for why per-chunk would be wrong
                     // and why never resetting (the previous behavior) was too.
                     reverb_filter.reset();
+                    let failed = take_stream_failure(&mut failed_turns, event.turn_id.as_deref());
+                    if let Err(err) = publish_stream_trailer(&jetstream, &event, failed).await {
+                        error!("voice-agent failed to publish stream trailer: {err:#}");
+                    }
                     continue;
                 }
 
@@ -856,6 +872,7 @@ async fn main() -> Result<()> {
                     // Drop trailing chunks after interruption until stream completion.
                     continue;
                 }
+                let trailer_event = event.clone();
                 if let Err(err) = handle_chat_output(
                     &config,
                     &http,
@@ -875,6 +892,9 @@ async fn main() -> Result<()> {
                 .await
                 {
                     error!("voice-agent failed to process chat.output: {err:#}");
+                    if let Some(turn_id) = trailer_event.turn_id {
+                        failed_turns.insert(turn_id);
+                    }
                 }
             }
             Err(err) => warn!("dropping invalid chat.output payload: {err}"),
@@ -1817,6 +1837,40 @@ async fn publish_pcm(
     Ok(())
 }
 
+async fn publish_stream_trailer(
+    jetstream: &async_nats::jetstream::Context,
+    event: &ChatOutput,
+    failed: bool,
+) -> Result<()> {
+    let turn_id = event.turn_id.clone().unwrap_or_default();
+    let trailer = AudioStreamTrailer {
+        kind: "END_OF_STREAM".to_string(),
+        utterance_id: turn_id.clone(),
+        turn_id,
+        failed,
+    };
+    let mut meta = build_latency_metadata(event);
+    if let Some(object) = meta.as_object_mut() {
+        object.insert("audio_stream_kind".to_string(), json!("trailer"));
+    }
+    let mut headers = HeaderMap::new();
+    headers.insert(HEADER_PAYLOAD_FORMAT, "application/json");
+    headers.insert(HEADER_LATENCY_META, meta.to_string());
+    let ack = jetstream
+        .publish_with_headers(
+            topics::AUDIO_STREAM,
+            headers,
+            Bytes::from(serde_json::to_vec(&trailer)?),
+        )
+        .await?;
+    tokio::spawn(async move {
+        if let Err(err) = ack.await {
+            warn!(error = %err, "JetStream did not acknowledge the outbound audio trailer");
+        }
+    });
+    Ok(())
+}
+
 fn build_latency_metadata(event: &ChatOutput) -> serde_json::Value {
     let now = now_seconds();
     let mut meta = event
@@ -1836,6 +1890,27 @@ fn build_latency_metadata(event: &ChatOutput) -> serde_json::Value {
         // inherited -- a carried-over `latency_metadata` blob from upstream
         // must not leave a stale value here.
         obj.insert("turn_id".to_string(), json!(event.turn_id));
+        obj.insert("utterance_id".to_string(), json!(event.turn_id));
+        if event.done {
+            obj.insert(
+                "character_offset".to_string(),
+                json!(event
+                    .full_response
+                    .as_deref()
+                    .unwrap_or_default()
+                    .chars()
+                    .count()),
+            );
+            obj.insert(
+                "word_index".to_string(),
+                json!(event
+                    .full_response
+                    .as_deref()
+                    .unwrap_or_default()
+                    .split_whitespace()
+                    .count()),
+            );
+        }
         // P4-2: pass-through, not computed here -- brain_agent already knows
         // where this chunk's text ends within the true response
         // (`_char_offset_after_word`), and this process has no way to
@@ -1880,6 +1955,30 @@ mod tests {
         let active: ActiveTurn =
             std::sync::Arc::new(std::sync::Mutex::new(Some("turn-1".to_string())));
         assert!(mesh_signal_applies_to_active_turn(&active, None));
+    }
+
+    #[test]
+    fn self_correction_flush_does_not_abort_the_active_generation() {
+        let stop: contracts::AudioStop =
+            serde_json::from_str(r#"{"interrupt":true,"flush":true,"turn_id":"turn-1"}"#).unwrap();
+        assert!(!stop_aborts_generation(&stop));
+    }
+
+    #[test]
+    fn failed_audio_stream_marks_its_terminal_trailer_once() {
+        let mut failed_turns = HashSet::from(["turn-1".to_string()]);
+
+        assert!(take_stream_failure(&mut failed_turns, Some("turn-1")));
+        assert!(!take_stream_failure(&mut failed_turns, Some("turn-1")));
+        assert!(!take_stream_failure(&mut failed_turns, Some("turn-2")));
+        assert!(!take_stream_failure(&mut failed_turns, None));
+    }
+
+    #[test]
+    fn ordinary_confirmed_stop_still_aborts_the_active_generation() {
+        let stop: contracts::AudioStop =
+            serde_json::from_str(r#"{"interrupt":true,"turn_id":"turn-1"}"#).unwrap();
+        assert!(stop_aborts_generation(&stop));
     }
 
     #[test]

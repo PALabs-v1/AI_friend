@@ -23,9 +23,12 @@ from ..cognitive.somatic import SomaticAppraiser
 from ..config import Config
 from ..contracts import (
     AudioPlaybackBacklog,
+    AudioPlaybackLifecycle,
     AudioPlaybackProgress,
     AudioStop,
     ChatInput,
+    LifecycleApplyResult,
+    PlaybackLifecycleTracker,
     SpeechExpressionWire,
     Topics,
     UserVoiceProperties,
@@ -165,6 +168,7 @@ class BrainAgent(BaseAgent):
         self._active_generation_task: asyncio.Task[Any] | None = None
         self._generation_lock = asyncio.Lock()
         self.last_audio_progress: AudioPlaybackProgress | None = None
+        self._playback_lifecycle = PlaybackLifecycleTracker()
         self.last_assistant_response: str | None = None
         self._active_response_turn_id: str | None = None
         # The turn a new utterance superseded -- usually the reply still
@@ -205,6 +209,7 @@ class BrainAgent(BaseAgent):
         # durable (in-process, not yet persisted -- WorkspaceStore's job)
         # ledger, queryable via `get_outcome_history`.
         self._outcome_history: list[OutcomeRecord] = []
+        self._reply_contexts: dict[str, tuple[str, ActionIntent | None]] = {}
         # Bucket 1 (VOICE_REMEDIATION_PLAN.md): stamped on the first playback
         # progress frame of each turn (see _on_audio_playback_progress) and
         # read by _on_chat_input's barge-in grace period below.
@@ -284,6 +289,12 @@ class BrainAgent(BaseAgent):
             Topics.AUDIO_PLAYBACK_PROGRESS,
             self._on_audio_playback_progress,
             durable=f"{self.name}_audio_playback_progress_live",
+            deliver_policy="new",
+        )
+        await self.subscribe(
+            Topics.AUDIO_PLAYBACK_LIFECYCLE,
+            self._on_audio_playback_lifecycle,
+            durable=f"{self.name}_audio_playback_lifecycle_live",
             deliver_policy="new",
         )
         await self.subscribe(
@@ -607,6 +618,8 @@ class BrainAgent(BaseAgent):
             else:
                 text, progress, intent = reply.text, reply.progress, reply.intent
                 log_task, message_id = reply.log_task, reply.message_id
+                owner = reply.turn_id
+            outcome_already_recorded = bool(owner and self.get_outcome_history(owner))
             if progress and not progress.completed and text:
                 offset = progress.character_offset
                 if 0 < offset < len(text):
@@ -617,12 +630,13 @@ class BrainAgent(BaseAgent):
                         f"Truncating history (via progress): original_length={original_length}, truncated_length={truncated_length}, offset={offset}"
                     )
                     await self._store_heard_reply(truncated_text, log_task, message_id)
-                    await self._emit_outcome_record(
-                        intent,
-                        status="TRUNCATED",
-                        actual_delivered_text=truncated_text,
-                        character_offset=offset,
-                    )
+                    if not outcome_already_recorded:
+                        await self._emit_outcome_record(
+                            intent,
+                            status="TRUNCATED",
+                            actual_delivered_text=truncated_text,
+                            character_offset=offset,
+                        )
             elif not progress and text:
                 # No real playback progress, so we do not know how much of
                 # the reply was actually heard -- and we no longer guess.
@@ -1110,10 +1124,19 @@ class BrainAgent(BaseAgent):
                     self._reply_generating = False
                     self._reply_log_task = log_task
                     self._reply_message_id = message_id
+                self._remember_reply_context(turn_id, full_response)
         elif store is not None:
             self.spawn(
                 store.log_message("assistant", full_response, message_id=message_id)
             )
+
+    def _remember_reply_context(self, turn_id: str, full_response: str) -> None:
+        self._reply_contexts[turn_id] = (
+            full_response,
+            getattr(self, "_active_action_intent", None),
+        )
+        if len(self._reply_contexts) > 128:
+            self._reply_contexts.pop(next(iter(self._reply_contexts)))
 
     async def _on_audio_playback_progress(self, data: dict[str, Any]):
         """Tracks the current word/character progress of the audio playback."""
@@ -1146,40 +1169,72 @@ class BrainAgent(BaseAgent):
                     # starting to play, not just being queued -- the moment
                     # _on_chat_input's grace period below measures from.
                     self._last_audio_onset_at = time.time()
-                owner = getattr(self, "_reply_turn_id", None)
-                if progress.completed and (
-                    owner is None
-                    or (
-                        owner == progress.utterance_id
-                        and not getattr(self, "_reply_resolved", False)
-                    )
-                ):
-                    # Phase 1 causal slice (§22, §38): the turn's terminal,
-                    # non-interrupted outcome. `last_assistant_response` is
-                    # the full text this same handler's playback reports
-                    # finished delivering. Only for the turn that owns that
-                    # text (a proactive turn finishing used to re-record the
-                    # previous user reply), and once.
-                    if owner is not None:
-                        self._reply_resolved = True
-                    delivered = self.last_assistant_response or ""
-                    # FIX-CLD-04: trust the playback-reported offset rather
-                    # than assuming every COMPLETED frame delivered the full
-                    # text -- `min(...)` still clamps to `len(delivered)`
-                    # when the report reaches or exceeds it (the common
-                    # case), rather than indexing past the actual string.
-                    offset = min(progress.character_offset, len(delivered))
-                    await self._emit_outcome_record(
-                        getattr(self, "_active_action_intent", None),
-                        status="COMPLETED",
-                        actual_delivered_text=delivered,
-                        character_offset=offset,
-                    )
             logger.debug(
                 f"🔊 Audio Playback Progress | Word Index: {progress.word_index} | Offset: {progress.character_offset} | Completed: {progress.completed}"
             )
         except Exception as e:
             logger.error(f"Error parsing audio playback progress: {e}")
+
+    async def _on_audio_playback_lifecycle(self, data: dict[str, Any]):
+        """Consume transport's terminal authority; `progress` stays nonterminal."""
+        try:
+            event = AudioPlaybackLifecycle.model_validate(data)
+            result = self._playback_lifecycle.apply(event)
+            if result is LifecycleApplyResult.PROTOCOL_ERROR:
+                logger.error(
+                    "Rejected conflicting playback terminal for utterance=%s turn=%s (protocol_errors=%d)",
+                    event.utterance_id,
+                    event.turn_id,
+                    self._playback_lifecycle.protocol_errors,
+                )
+                return
+            if result is not LifecycleApplyResult.APPLIED:
+                return
+            if event.state in {"STARTED", "PLAYING"}:
+                progress = AudioPlaybackProgress(
+                    utterance_id=event.utterance_id,
+                    character_offset=event.heard_offset,
+                    word_index=event.words_played,
+                    completed=False,
+                )
+                await self._on_audio_playback_progress(progress.model_dump())
+                return
+            if event.state not in {"COMPLETED", "INTERRUPTED", "FAILED"}:
+                return
+            async with self._turn_state_lock:
+                prior = self.get_outcome_history(event.turn_id)
+                context = self._reply_contexts.get(event.turn_id)
+                if prior or context is None:
+                    return
+                delivered, intent = context
+                # A flushed INTERRUPTED is the rejected take of a
+                # self-correction (DR-029): the same turn's retry is still
+                # coming, under its own utterance id, and its terminal is the
+                # reply's outcome. Any other INTERRUPTED, the retry's included,
+                # is a real cut.
+                if event.state == "INTERRUPTED" and event.flushed:
+                    return
+                offset = min(event.heard_offset, len(delivered))
+                self._reply_contexts.pop(event.turn_id, None)
+                if event.state in {"COMPLETED", "FAILED"} and event.turn_id == getattr(
+                    self, "_reply_turn_id", None
+                ):
+                    self._reply_resolved = True
+                await self._emit_outcome_record(
+                    intent,
+                    status={
+                        "COMPLETED": "COMPLETED",
+                        "INTERRUPTED": "TRUNCATED",
+                        "FAILED": "FAILED",
+                    }[event.state],
+                    actual_delivered_text=delivered,
+                    character_offset=offset,
+                    error=(
+                        "playback transport failed" if event.state == "FAILED" else None
+                    ),
+                )
+        except Exception:
+            logger.exception("Error consuming audio playback lifecycle event")
 
     async def _on_playback_backlog(self, data: dict[str, Any]):
         """Bucket 3 (VOICE_REMEDIATION_PLAN.md): tracks transport_agent's
@@ -1208,6 +1263,15 @@ class BrainAgent(BaseAgent):
         try:
             self.last_percept = percept.from_audio_stop(data)
             stop_msg = AudioStop.model_validate(data)
+
+            # A flush stop silences the rejected take while its same-turn
+            # self-correction continues generating (DR-029). The transport
+            # marks that take's INTERRUPTED `flushed`, which is what the
+            # lifecycle handler keys on; nothing here is cancelled or cut.
+            if stop_msg.flush:
+                if not stop_msg.turn_id:
+                    logger.error("Ignoring self-correction flush without turn scope")
+                return
 
             # Truncation, and cancelling the turn that was cut off, only
             # happen on confirmed (non-speculative) interrupts -- a
@@ -1357,6 +1421,11 @@ class BrainAgent(BaseAgent):
         output_msg.expression = self._derive_expression_wire(state_snap)
         output_msg.metadata = incoming_metadata
         output_msg.latency_metadata = incoming_latency_metadata
+        if not is_proactive:
+            # Context is synchronous process state. Keep it visible before
+            # publishing the done marker without inserting a lock wait between
+            # generation completion and the row-id write in _finish_reply.
+            self._remember_reply_context(turn_id, full_response)
         await self.publish(Topics.CHAT_OUTPUT, output_msg.model_dump())
 
     async def _publish_stream_error_fallback(
@@ -1397,6 +1466,8 @@ class BrainAgent(BaseAgent):
         )
         output_msg.metadata = incoming_metadata
         output_msg.latency_metadata = incoming_latency_metadata
+        async with self._turn_state_lock:
+            self._remember_reply_context(turn_id, fallback_text)
         await self.publish(Topics.CHAT_OUTPUT, output_msg.model_dump())
 
     async def _stream_to_speech(
@@ -1463,6 +1534,7 @@ class BrainAgent(BaseAgent):
                 # more than the microscopic saving from skipping it.
                 async with self._turn_state_lock:
                     self.last_assistant_response = full_response
+                    self._remember_reply_context(turn_id, full_response)
 
             # Reviewer finding: this glue step used to run *after* the
             # timer-flush check below. If formation_buffer_s had already
