@@ -25,15 +25,33 @@ def _spawn_fake(seed, archetype, horizon, **kwargs):
 
 
 def _slow_first_fake(seed, archetype, horizon, **kwargs):
+    """One slow cell that finishes only once every other cell has finished.
+
+    A barrier, not a sleep: under coverage on a shared runner, spawning each
+    worker took longer than the old 3 s head start, so the "slow" cell was
+    not reliably last. Here a rolling pool drains the other 3 cells on the
+    free worker and releases the slow one; fixed batches of 2 could not
+    start 1002/1003 while 1000 held its batch, so 1000 would wait out the
+    deadline and finish before them, failing the order check.
+    """
     import time
 
-    time.sleep(3.0 if seed == 1000 else 0.1)
+    done = Path(os.environ["BRAINBENCH_TEST_BARRIER"])
+    if seed != 1000:
+        (done / str(seed)).touch()
+    else:
+        deadline = time.monotonic() + 60
+        while len(list(done.iterdir())) < 3 and time.monotonic() < deadline:
+            time.sleep(0.05)
     return [_outcome(seed, float(seed), probe=f"{archetype}:{horizon}")]
 
 
 def test_parallel_pool_keeps_workers_busy_behind_a_slow_cell(tmp_path, monkeypatch):
     # Fixed batches of `workers` made every worker wait for the batch's
     # slowest cell; a rolling pool starts the next cell as soon as one ends.
+    barrier = tmp_path / "barrier"
+    barrier.mkdir()
+    monkeypatch.setenv("BRAINBENCH_TEST_BARRIER", str(barrier))
     monkeypatch.setitem(
         runner.SUITES,
         "bargein",

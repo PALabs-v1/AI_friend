@@ -69,6 +69,9 @@ async def test_invalid_metadata_is_rejected_before_write(
         ("metadata", json.dumps({"oversized": "x" * 1_000_001})),
         ("created_at", "yesterday-ish"),
     ],
+    # Explicit ids: the default id embeds the 1 MB value, and `pytest -v` in
+    # CI printed it as one log line, after which the job's log stopped.
+    ids=["malformed-json", "oversized-metadata", "bad-timestamp"],
 )
 @pytest.mark.asyncio
 async def test_one_corrupt_row_is_skipped_not_a_failed_search(
