@@ -121,6 +121,7 @@ F-008 and F-014 item 4 are fixed (`167db41b`, `e2b73f89`).
 | DR-036 | CLOSED | lifesim guardrail; Phase 5 honoured it |
 | DR-037 | CLOSED | reflection stays LLM; Phase 6 suites honour it |
 | DR-038 | W11 | persona change needs corroboration across reflections; refines DR-021 |
+| DR-039 | W2 | lifesim `expressed_valence` label (hand-labelled, independent-labeller check) so ADR-002 can be judged; bar unchanged |
 
 ## Everything else
 
