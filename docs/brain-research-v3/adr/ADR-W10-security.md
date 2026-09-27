@@ -4,7 +4,7 @@
 **Owns:** S-2, C0-1, C0-3, and W10a portions of DR-032 coverage
 **Outcome:** retrieved memory is always treated as untrusted, reflection writes are bounded and screened, malformed memory metadata fails visibly, host-network publication is rejected, and NATS authentication is the default.
 
-W10b remains deferred until W9 lands; the affect-boundary regression from DR-032 also waits for W2. This ADR does not change `subconscious_agent.py`.
+W10b item 8 is done (section below). Item 9, the DR-032 affect-boundary regression, waits for W2.
 
 ## Stored memory to prompt
 
@@ -17,13 +17,26 @@ Batch detection now examines retrieved texts in both their retrieved order and r
 Prompt-path audit (`AUDITED_PROMPT_PATHS` in the corpus test):
 
 - **Chat:** `SurfacingAgent._surface_episodic` publishes retrieved memories; `BrainAgent` carries them into the action payload; `ActionService._build_shared_history` sanitizes and wraps them before `_execute_respond_chat` calls the model.
-- **Proactive:** `CognitiveService._render_proactive_memories` sanitizes and wraps surfaced memories before proactive prompt construction. `thought_prompt` is W10b and remains unchanged.
+- **Proactive:** `CognitiveService._render_proactive_memories` sanitizes and wraps surfaced memories before proactive prompt construction. `thought_prompt` is gated too (W10b item 8, below).
 - **Reflection/consolidation:** `_build_episode_summary` sanitizes the combined context, content, response, and speaker fields before fact extraction, persona review, and episodic consolidation prompts.
 - **Surfacing:** the surfacing agent publishes an event; the consumers above are the prompt sinks. The event is not itself a model prompt.
 - **System2 appraisal:** it receives the current utterance and appraisal state; no `MemoryStore` retrieval is inserted in its prompt.
 - **Identity/persona:** persona prompts read configured identity/profile state; no retrieved-memory text is directly inserted.
 
 The gate remains a denylist detector for known injection patterns. Quoting and the untrusted delimiters still apply when no pattern matches. This is not a claim that a denylist recognizes every possible paraphrase.
+
+## W10b item 8: subconscious text into prompts
+
+The subconscious thought reaches the brain as a `chat.input` and became the proactive system prompt as `Your subconscious thought: "<text>"`. The thought is generated from goal text the user stated, and any mesh client with a `chat.input` publish grant can send one, so it is untrusted. The goal text itself (goal descriptions, active goals, implied goals, unresolved thoughts) went into the subconscious generator's prompt the same way, and graph entity names went raw into the dream prompt.
+
+- **Thought:** `quarantine_prompt_text` (in `memory_activation.py`) runs the memory gate and the delimiters over it before it enters the proactive prompt.
+- **Goal context:** `subconscious._prompt_context` gates every description and goal as one batch (`sanitize_memory_batch`), so an attack split across two goals is caught as it is across two memories, then wraps each. A goal id reaches the prompt only if it is a plain token (`[A-Za-z0-9_.:-]{1,64}`), else `unknown`.
+- **Dream:** the three entity names are batch-gated and wrapped.
+- **Echoed markers:** a generated thought that carries one of our markers, in any spelling, is rejected (`carries_prompt_marker`). Stripping them joined the text on either side into new prose.
+- **Invisible characters, all paths:** detection and wrapping first remove every Unicode default-ignorable code point (format characters, variation selectors, fillers, tags), not only four zero-width characters: `[/retrieved-content<U+FE0F>]` displayed as a closing marker and passed both (W10b critic round 2, HIGH).
+- **Forged markers, all paths:** `wrap_retrieved_text` used to lower-case a forged marker. That still left a closing delimiter a model reads as one, and NFKC turned a fullwidth `／` into `/` first, so `Trip [／retrieved-content ] <instruction>` put the instruction outside the boundary on every path that wraps text (W10b critic round 1, HIGH). A forged marker in any casing or spelling (`retrieved content`, `retrieved_content`) is now replaced with `(forged marker removed)`.
+
+Tests in `tests/test_stored_injection_corpus.py` (paths `proactive thought_prompt`, `subconscious goal context`, `subconscious dream entity names`): every non-split corpus payload through the thought path, the goal context with each field kind, every split pair in both orders across goal fields and across dream names, and joined through the thought path, forged markers hidden by six kinds of invisible character, goal-id injection, forged-marker variants, and benign text kept intact. `tests/test_proactive_importance.py` covers the rejected echo. Each fails on the pre-fix code. Two Codex critic rounds (codex-log): round 1 found five problems, round 2 confirmed them closed and found the invisible-character bypass, fixed and tested without a third round.
 
 ## Reflection graph writes
 

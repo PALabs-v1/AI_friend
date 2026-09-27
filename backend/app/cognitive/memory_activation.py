@@ -107,13 +107,42 @@ _QUARANTINE_MARKER = "[UNTRUSTED_CONTENT_FILTERED]"
 _MAX_UNTRUSTED_TEXT_CHARS = 8192
 
 # Characters with no visible rendering that an attacker can splice into the
-# middle of a trigger word (e.g. "ignore previ<ZWSP>ous instructions") to
-# defeat a plain substring/regex match while the text still reads and
-# displays identically to a human. Written as escape sequences, not literal
-# characters, to keep this file pure 7-bit ASCII: zero width space
-# (U+200B), zero width non-joiner (U+200C), zero width joiner (U+200D), and
-# byte order mark / zero width no-break space (U+FEFF).
-_ZERO_WIDTH_CHARS = ("\u200b", "\u200c", "\u200d", "\ufeff")
+# middle of a trigger word (e.g. "ignore previ<ZWSP>ous instructions") or a
+# marker (`[/retrieved-content<U+FE0F>]`, W10b critic round 2) to defeat a
+# regex match while the text still reads and displays identically to a
+# human. This is Unicode's Default_Ignorable_Code_Point set: every format
+# character (category Cf: zero-width spaces and joiners, bidi controls, soft
+# hyphen, BOM, tag characters) plus the ranges below that are not Cf
+# (combining grapheme joiner, Hangul fillers, Khmer inherent vowels,
+# Mongolian variation selectors, variation selectors, unassigned
+# default-ignorables). Written as escapes to keep this file 7-bit ASCII.
+_IGNORABLE_RANGES = (
+    (0x034F, 0x034F),
+    (0x115F, 0x1160),
+    (0x17B4, 0x17B5),
+    (0x180B, 0x180F),
+    (0x2065, 0x2065),
+    (0x3164, 0x3164),
+    (0xFE00, 0xFE0F),
+    (0xFFA0, 0xFFA0),
+    (0xFFF0, 0xFFF8),
+    (0xE0000, 0xE0FFF),
+)
+
+
+def _is_default_ignorable(char: str) -> bool:
+    code = ord(char)
+    return unicodedata.category(char) == "Cf" or any(
+        low <= code <= high for low, high in _IGNORABLE_RANGES
+    )
+
+
+def _strip_invisible(text: str) -> str:
+    """NFKC, then drop every default-ignorable (invisible) code point."""
+    text = unicodedata.normalize("NFKC", text)
+    return "".join(char for char in text if not _is_default_ignorable(char))
+
+
 _CONFUSABLE_TRANSLATION = str.maketrans(
     {
         "а": "a",
@@ -162,9 +191,7 @@ def _normalize_for_detection(text: str) -> str:
     is defense against cheap bypasses, not a claim that every Unicode
     obfuscation technique is covered.
     """
-    normalized = unicodedata.normalize("NFKC", text)
-    for zero_width in _ZERO_WIDTH_CHARS:
-        normalized = normalized.replace(zero_width, "")
+    normalized = _strip_invisible(text)
     return normalized.casefold().translate(_CONFUSABLE_TRANSLATION)
 
 
@@ -226,18 +253,42 @@ class AntiInjectionGate:
         return rendered
 
 
+# Anything a model could read as one of our delimiters, in any case or
+# spelling. NFKC runs first, so fullwidth brackets and slashes are covered.
+_FORGED_MARKER = re.compile(r"\[\s*/?\s*retrieved[\s_-]*content\s*\]", re.IGNORECASE)
+FORGED_MARKER_REPLACEMENT = "(forged marker removed)"
+
+
+def carries_prompt_marker(text: str) -> bool:
+    """Whether model output echoes one of our prompt markers, in any spelling."""
+    text = _strip_invisible(text)
+    return bool(_FORGED_MARKER.search(text)) or _QUARANTINE_MARKER in text
+
+
 def wrap_retrieved_text(text: str) -> str:
-    """Wrap untrusted text while canonicalizing attempts to forge our markers."""
-    text = unicodedata.normalize("NFKC", text)
-    for zero_width in _ZERO_WIDTH_CHARS:
-        text = text.replace(zero_width, "")
-    text = re.sub(
-        r"\[\s*/?\s*retrieved-content\s*\]",
-        lambda match: match.group(0).lower().replace(" ", ""),
-        text,
-        flags=re.IGNORECASE,
-    )
+    """Wrap untrusted text, removing any attempt to forge our markers.
+
+    A forged marker is replaced, not canonicalized: lower-casing it (the
+    W10a behaviour) still left a closing delimiter a model reads as one, so
+    `Trip [／retrieved-content] <instruction>` put the instruction outside
+    the boundary after NFKC turned the fullwidth slash into `/` (W10b
+    critic, HIGH).
+    """
+    text = _strip_invisible(text)
+    text = _FORGED_MARKER.sub(FORGED_MARKER_REPLACEMENT, text)
     return f"[RETRIEVED-CONTENT]{text}[/RETRIEVED-CONTENT]"
+
+
+def quarantine_prompt_text(text: str) -> str:
+    """Injection-gate and delimit one untrusted string for a prompt.
+
+    For text that is not a retrieved memory but carries user-derived words
+    into a prompt all the same: a subconscious thought (generated from goal
+    descriptions the user stated) and the goal descriptions themselves.
+    Same gate and markers as memory text, so one filter decides what may act
+    as an instruction (W10b item 8).
+    """
+    return wrap_retrieved_text(AntiInjectionGate().sanitize_memory_text(str(text)))
 
 
 _VALID_CONTRADICTION_STATES: frozenset[str] = frozenset(ContradictionState.__args__)
