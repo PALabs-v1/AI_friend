@@ -258,6 +258,8 @@ class TestBrainAgentSubconsciousRouting:
         }
 
         await agent._on_chat_input(thought_msg)
+        # V-3 (ADR-W5): the handler returns once the turn is accepted.
+        await agent._active_generation_task
 
         # 1. Ensure user interaction was NOT recorded
         agent.cognitive_core.state.record_user_interaction.assert_not_called()

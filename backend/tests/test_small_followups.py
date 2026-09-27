@@ -334,6 +334,7 @@ async def test_streamed_chunks_carry_the_same_affect_as_the_coordinator_builds()
         "fatigue": 0.12,
     }
     agent.coordinator = SpeechCoordinator(segmenter=None)
+    agent._reply_ledger = {}  # W5 per-reply ledger
     agent.cognitive_core = SimpleNamespace(
         state=SimpleNamespace(get_context_snapshot=lambda: snapshot)
     )

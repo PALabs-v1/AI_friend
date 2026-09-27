@@ -232,7 +232,13 @@ def test_brain_agent_emits_fallback_when_stream_errors_without_content():
 
     agent.cognitive_core.process_event = _error_only_stream
 
-    asyncio.run(agent._on_chat_input({"text": "hello", "turn_id": "turn-404"}))
+    async def accept_and_finish():
+        # V-3 (ADR-W5): the handler returns once the turn is accepted; the
+        # turn itself runs as the generation task.
+        await agent._on_chat_input({"text": "hello", "turn_id": "turn-404"})
+        await agent._active_generation_task
+
+    asyncio.run(accept_and_finish())
 
     agent._publish_speech_chunk.assert_awaited_once()
     fallback_words, fallback_turn_id = agent._publish_speech_chunk.await_args.args

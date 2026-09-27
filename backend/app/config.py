@@ -304,6 +304,11 @@ class AppSettings(BaseSettings):
     PROACTIVE_ACTIVITY_HISTORY_MINIMUM: int = 8
     PROACTIVE_USEFUL_IMPORTANCE_MIN: float = 0.45
     PROACTIVE_SELF_DIRECTED_IMPORTANCE_MIN: float = 0.75
+    PROACTIVE_GRACE_MIN_IMPORTANCE: float = 0.75
+    PROACTIVE_GRACE_WINDOW_S: float = 0.6
+    SELF_THOUGHT_INTERRUPT_MIN_IMPORTANCE: float = 0.9
+    USER_MID_UTTERANCE_TIMEOUT_S: float = 1.2
+    REPLY_TERMINAL_WAIT_S: float = 2.0
     # Three ignored raises drive resurfacing probability to exactly zero;
     # each is reviewed after a day, avoiding a fast tick-driven penalty.
     PROACTIVE_IGNORE_ZERO_AFTER: int = 3

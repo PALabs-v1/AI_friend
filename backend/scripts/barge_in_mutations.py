@@ -37,6 +37,9 @@ BACKEND = Path(__file__).resolve().parent.parent
 BRAIN = "app/agents/brain_agent.py"
 STORE = "app/state/conversation_store.py"
 TEST_MODULES = [
+    "tests/test_bargein_w5_regressions.py",
+    "tests/test_bargein_state_machine_a.py",
+    "tests/test_bargein_state_machine_b.py",
     "tests/test_barge_in_real_flow.py",
     "tests/test_barge_in_truncation.py",
     "tests/test_brain_agent_turn_state_lock.py",
@@ -125,7 +128,13 @@ MUTATIONS = [
     Mutation(
         "M10_insert_ignores_brain_id",
         BRAIN,
+        "                if entry.log_task is None:\n"
+        "                    entry.log_task = self.spawn(\n"
+        "                        store.log_message(\n"
         '                            "assistant", full_response, message_id=message_id\n',
+        "                if entry.log_task is None:\n"
+        "                    entry.log_task = self.spawn(\n"
+        "                        store.log_message(\n"
         '                            "assistant", full_response\n',
     ),
     Mutation(
@@ -167,8 +176,10 @@ MUTATIONS = [
     Mutation(
         "N3_cancelled_twice",
         BRAIN,
-        "        if produced_nothing and not already_resolved:",
-        "        if produced_nothing:",
+        "        if cancelled_a_running_turn and (\n"
+        '            getattr(self, "_reply_generating", None) is False\n'
+        "        ):",
+        "        if cancelled_a_running_turn and False:",
     ),
     Mutation(
         "N4_row_id_in_a_second_section",
@@ -296,8 +307,9 @@ MUTATIONS = [
         BRAIN,
         "            async with self._turn_state_lock:\n"
         "                self.last_assistant_response = full_response\n"
-        "                log_task = (\n",
-        "            async with self._turn_state_lock:\n                log_task = (\n",
+        "                if self._reply_turn_id == turn_id:\n",
+        "            async with self._turn_state_lock:\n"
+        "                if self._reply_turn_id == turn_id:\n",
     ),
     Mutation(
         "N11_replacement_keeps_intent",
@@ -323,10 +335,10 @@ MUTATIONS = [
     Mutation(
         "N18_proactive_turn_takes_the_row_id",
         BRAIN,
-        "        elif store is not None:\n            self.spawn(",
+        "        elif store is not None:\n            log_task = self.spawn(",
         "        elif store is not None:\n"
         "            self._reply_message_id = message_id\n"
-        "            self.spawn(",
+        "            log_task = self.spawn(",
         equivalent="once a proactive turn is active the owner check stops any "
         "cut of the user reply, so the live row id is never read",
     ),
@@ -343,6 +355,88 @@ MUTATIONS = [
         '"WHERE id = $2 AND session_id = $3"',
         equivalent="ids are fresh UUIDs, so the addressed row is always the "
         "assistant row the brain logged",
+    ),
+    Mutation(
+        "W5_ledger_resolved_reply_can_be_cut_twice",
+        BRAIN,
+        "        if any(\n"
+        "            resolution.turn_id == target\n"
+        '            for resolution in getattr(self, "reply_resolutions", ())\n'
+        "        ):\n            return True\n",
+        "        if False:\n            return True\n",
+    ),
+    Mutation(
+        "W5_grace_window_expires_immediately",
+        BRAIN,
+        "            await clock.sleep(Config.PROACTIVE_GRACE_WINDOW_S)\n",
+        "            await clock.sleep(0)\n",
+    ),
+    Mutation(
+        "W5_decline_does_not_respect_mid_utterance",
+        BRAIN,
+        "        if self._is_user_mid_utterance() or (\n",
+        "        if False or (\n",
+    ),
+    Mutation(
+        "W5_self_interrupt_threshold_is_exclusive",
+        BRAIN,
+        "            and importance < Config.SELF_THOUGHT_INTERRUPT_MIN_IMPORTANCE\n",
+        "            and importance <= Config.SELF_THOUGHT_INTERRUPT_MIN_IMPORTANCE\n",
+    ),
+    Mutation(
+        "W5_chat_input_redelivery_is_accepted",
+        BRAIN,
+        "        if not self._remember_accepted_utterance(msg.utterance_id):\n",
+        "        if False:\n",
+    ),
+    Mutation(
+        "W5_terminal_wait_resolves_without_transport",
+        BRAIN,
+        "            await clock.sleep(Config.REPLY_TERMINAL_WAIT_S)\n",
+        "            await clock.sleep(0)\n",
+    ),
+    # Review of W5-A (see ADR-W5 section 8): the user-final stop must stay
+    # unscoped, cut every started reply, and cut nothing while Stage 2 is
+    # still deciding a speculative intent.
+    Mutation(
+        "W5_user_final_stop_scoped_to_active_turn",
+        BRAIN,
+        "                utterance_id=msg.utterance_id,\n            )\n",
+        "                utterance_id=msg.utterance_id,\n"
+        '                turn_id=getattr(self, "_active_response_turn_id", None),\n'
+        "            )\n",
+    ),
+    Mutation(
+        "W5_user_final_cuts_only_unstarted",
+        BRAIN,
+        "                if reply.started and not reply.resolved:\n",
+        "                if False:\n",
+    ),
+    Mutation(
+        "W5_speculative_pending_still_cuts",
+        BRAIN,
+        "            return False\n        # With a speculative intent pending nothing is cut here:",
+        "            return False\n"
+        "        for reply in tuple(self._reply_ledger.values()):\n"
+        "            if reply.started and not reply.resolved:\n"
+        '                await self._cut_reply(reply, "confirmed_user_speech", publish=False)\n'
+        "        # With a speculative intent pending nothing is cut here:",
+    ),
+    Mutation(
+        # Machine B: a self-thought interrupt before the first chunk cut the
+        # user reply without publishing its scoped stop.
+        "W5_self_thought_interrupt_silent_before_first_chunk",
+        BRAIN,
+        "            if not active_reply.started:\n",
+        "            if False:\n",
+    ),
+    Mutation(
+        # Machine B: an unscoped confirmed stop missed the ledger and the
+        # pre-W5 truncation recorded a second outcome (I2).
+        "W5_unscoped_confirmed_stop_bypasses_ledger",
+        BRAIN,
+        "        target = stop_msg.turn_id or active_id\n",
+        "        target = stop_msg.turn_id\n",
     ),
 ]
 

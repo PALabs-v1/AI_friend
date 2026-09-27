@@ -155,7 +155,8 @@ Running record of pre-existing problems found during the Brain V3 cycle (Objecti
 - **Measurement note**: two harness defects produced false V2 failures and were fixed before these numbers (24% false "current turn harmed" and 4% false missing outcomes in the random family). See codex-log C10.
 - **Fix**: W4 (lifecycle contract) and W5 (barge-in end to end), per R8.
 - **Wave A measurement** (`v3waveA-B`, W4 merged, 12 personas x 4 horizons, 50 scenarios per family): replies with no terminal outcome fell from 0.143 per scenario to 0, started replies left without a terminal outcome from 1.416 to 0, and terminal-count violations from 0.143 to 0. "History differs from what was heard" is unchanged at 0.143: an ordinary barge-in still leaves unheard text in history. That half is DR-028 and belongs to W5. See `13-wave-a-results.md`.
-- **Status**: open. The terminal-outcome half is fixed by W4; the history half is W5's.
+- **W5 measurement** (same suite, seed 1000, 50 scenarios per family, 10 families, 500 scenarios, including W5's three new families): history differs from what was heard in 0 scenarios (was 0.143 per scenario after W4, 50/50 `confirmed_barge_in` before it), 0 replies with zero or multiple terminal outcomes, 0 started replies without a terminal, 0 stale or unknown stops applied, 0 hangs, 0 violations of any invariant in any family. The corrected suite still fails the pre-W5 brain (history mismatch in 100% of `confirmed_barge_in` and `stale_stop` scenarios). See ADR-W5 section 8.
+- **Status**: fixed. Terminal outcomes by W4; history by W5: an ordinary barge-in cuts the reply through the per-reply ledger, and the transport's INTERRUPTED lifecycle gives the heard offset its history row is rewritten to (DR-028).
 
 ## F-014: hygiene findings from the Phase 6 suites (low)
 

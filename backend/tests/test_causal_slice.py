@@ -848,6 +848,7 @@ async def test_chat_input_flow_passes_last_percept_into_process_event(
     await agent._on_chat_input(
         {"text": "hello", "turn_id": "turn-9", "utterance_id": "utt-9"}
     )
+    await agent._active_generation_task
 
     assert received["percept"] is not None
     # Bound to the same object _on_chat_input stamped onto last_percept --
@@ -987,7 +988,10 @@ async def test_replace_active_generation_emits_cancelled_outcome_for_preempted_t
     `_replace_active_generation` is the *other* production path that cancels
     an in-flight generation, and must do the same."""
     agent = _make_agent(mock_graph_db, mock_memory_store)
+    await agent._begin_turn("turn-old")
     intent = _seed_active_intent(agent, turn_id="turn-old")
+    agent._reply_ledger["turn-old"].intent = intent
+    agent._reply_generating = True
 
     import asyncio
 
