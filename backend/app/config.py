@@ -168,6 +168,8 @@ class AppSettings(BaseSettings):
     # file (see H2 / issue #113). Containers should point this at a mounted
     # volume, e.g. `/app/data`.
     IDENTITY_BASE_PATH: str | None = None
+    TEMPORAL_MEMORY_DB_PATH: str | None = None
+    TEMPORAL_MEMORY_SUBJECT: str | None = None
     # Whether a fresh write location with no existing personality.json/
     # history.json gets seeded from the shipped `PERSONALITY_SEED_PATH`/
     # `HISTORY_SEED_PATH` (or package-directory defaults) on first use. True in
@@ -215,6 +217,9 @@ class AppSettings(BaseSettings):
         default=True,
         validation_alias=AliasChoices("MEMORY_TRUTH_ENABLED", "PHASE_02_MEMORY_TRUTH"),
     )
+    # Temporal fact projection remains opt-in until its retrieval behavior has
+    # passed the BrainBench memory acceptance arm on the deployment model.
+    MEMORY_TEMPORAL_TRUTH_ENABLED: bool = False
 
     # Global-control scoring and emotion-regulation candidates. Canonical names
     # win when both spellings occur within the same settings source.

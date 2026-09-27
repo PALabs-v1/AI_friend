@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import time
 from typing import Literal, overload
 
@@ -133,9 +134,12 @@ def classify_contradiction(
         new_subject = incoming.subject
         predicate = incoming.predicate
         object_value = incoming.object
+        # Recorded time says when the system learned a claim, not when it
+        # became true. A later write alone must not turn simultaneous,
+        # incompatible evidence into an update.
         has_precedence = (
             incoming.valid_from > existing.valid_from
-            or incoming.recorded_at > existing.recorded_at
+            and incoming.valid_from != incoming.recorded_at
         )
         can_update = incoming.confidence >= existing.confidence and has_precedence
     else:
@@ -150,11 +154,47 @@ def classify_contradiction(
         )
 
     if existing.subject != new_subject or existing.predicate != predicate:
-        raise ValueError("Contradiction classification requires matching subject and predicate")
-    if existing.object == object_value:
+        raise ValueError(
+            "Contradiction classification requires matching subject and predicate"
+        )
+    if _values_equivalent(existing.object, object_value):
         return "ELABORATION"
     if explicit_correction:
         return "CORRECTION"
     if can_update:
         return "UPDATE"
     return "CONFLICT"
+
+
+_LEGAL_SUFFIXES = {
+    "co",
+    "company",
+    "corp",
+    "corporation",
+    "inc",
+    "incorporated",
+    "limited",
+    "ltd",
+    "llc",
+    "plc",
+}
+
+
+def _normalized_words(value: str) -> list[str]:
+    words = re.findall(r"[a-z0-9]+", value.casefold())
+    while words and words[-1] in _LEGAL_SUFFIXES:
+        words.pop()
+    return words
+
+
+def _values_equivalent(left: str, right: str) -> bool:
+    """Compare values after formatting, legal suffix, and acronym normalization."""
+    left_words = _normalized_words(left)
+    right_words = _normalized_words(right)
+    if left_words == right_words:
+        return True
+    if len(left_words) > 1 and len(right_words) == 1:
+        return "".join(word[0] for word in left_words) == right_words[0]
+    if len(right_words) > 1 and len(left_words) == 1:
+        return "".join(word[0] for word in right_words) == left_words[0]
+    return False

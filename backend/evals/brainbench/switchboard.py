@@ -33,6 +33,12 @@ ARMS: dict[str, Arm] = {
     "-memory-truth": Arm(
         "-memory-truth", {"MEMORY_TRUTH_ENABLED": False}, "Disable memory truth"
     ),
+    "-temporal": Arm(
+        "-temporal",
+        {"MEMORY_TEMPORAL_TRUTH_ENABLED": False},
+        "Disable temporal truth",
+        "W1",
+    ),
     "-affect-control": Arm(
         "-affect-control", {"AFFECT_CONTROL_ENABLED": False}, "Disable affect control"
     ),

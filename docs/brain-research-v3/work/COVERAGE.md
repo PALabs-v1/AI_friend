@@ -33,7 +33,7 @@ Every workstream has a spec in this directory: `W1.md`..`W11.md`, `SW.md`,
 
 | ID | Owner | Note |
 |---|---|---|
-| M-5 | W1 | stale facts win retrieval; target obsolete-win <= 0.10 |
+| M-5 | W1 | stale facts win retrieval; implemented behind a flag (ADR-W1). Tune obsolete-win meets <= 0.10 in hard/summary only (0.0833; hard/verbatim 0.2722, hard/unique 0.2500); held-out 0.1148 misses; search latency within ceiling; llm_augmented run outstanding; flag off |
 | M-8 | W8 | surfacing outages never reach the brain (F-015 measured 7/7 invisible) |
 | M-10 | W8 | `surfaced_memories` never cleared (F-015) |
 | M-12 | CLOSED | H-R3 answered no in Phase 4a (`09-gpu-experiment-results.md`): prefixing hurts the `summary` regime; production stays unprefixed |

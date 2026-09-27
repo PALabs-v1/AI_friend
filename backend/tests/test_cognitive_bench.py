@@ -29,6 +29,7 @@ from evals.cognitive.lab import (
     sqlite_recency,
     vector_topn,
 )
+from evals.cognitive.memory_experiments import detector_false_closure_metrics
 from evals.cognitive.metrics import ProbeResult, aggregate
 from evals.cognitive.scenarios import build_history, content_words, register_embeddings
 
@@ -65,6 +66,12 @@ def test_scenarios_are_deterministic_per_seed():
     ]
     assert [(p.key, p.query) for p in a.probes] == [(p.key, p.query) for p in b.probes]
     assert build_history(8, regime="summary").events != a.events
+
+
+def test_e8_detector_reports_false_closure_rate_on_stable_facts():
+    result = detector_false_closure_metrics(("hard",), ("summary",), (1,))
+    assert result["still_true"] > 0
+    assert result["false_closure_rate"] <= 0.02
 
 
 @pytest.mark.parametrize("name", sorted(PROFILES))

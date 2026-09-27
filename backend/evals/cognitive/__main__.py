@@ -54,6 +54,9 @@ def _cmd_memory(args) -> int:
             f"[{name}] {len(arm_names)} arms in {time.time() - t0:.0f}s",
             file=sys.stderr,
         )
+    report["detector_metrics"] = {
+        "e8": mx.detector_false_closure_metrics(args.profiles, args.regimes, seeds)
+    }
     with open(args.out, "w") as fh:
         json.dump(report, fh, indent=1, default=mx._jsonable)
     print(args.out)
@@ -82,12 +85,22 @@ def _cmd_latency(args) -> int:
     from .memory_experiments import git_sha
 
     rows = latency.run(tuple(args.sizes), tuple(args.policies), args.queries)
+    temporal = (
+        latency.run_temporal_projection(5000, args.queries)
+        if args.with_temporal
+        else None
+    )
+    reconcile = (
+        latency.run_temporal_reconcile(args.queries) if args.with_temporal else None
+    )
     report = {
         "suite": "latency",
         "git_sha": git_sha(),
         "python": platform.python_version(),
         "machine": platform.machine(),
         "results": rows,
+        "temporal_projection": temporal,
+        "temporal_reconcile": reconcile,
     }
     for row in rows:
         print(row, file=sys.stderr)
@@ -123,6 +136,7 @@ def main(argv=None) -> int:
     lat.add_argument("--sizes", type=int, nargs="*", default=[200, 1000, 3000, 5000])
     lat.add_argument("--policies", nargs="*", default=["actr_v1", "hybrid"])
     lat.add_argument("--queries", type=int, default=40)
+    lat.add_argument("--with-temporal", action="store_true")
     lat.add_argument("--out", required=True)
     lat.set_defaults(func=_cmd_latency)
     args = parser.parse_args(argv)
