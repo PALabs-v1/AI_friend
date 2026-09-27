@@ -1,0 +1,242 @@
+[
+  {
+    "id": "vocab:ACHIEVEMENTS:won the office quiz",
+    "text": "won the office quiz"
+  },
+  {
+    "id": "vocab:JOB_TITLES:chef",
+    "text": "chef"
+  },
+  {
+    "id": "event:goal_start",
+    "text": "I’ve set myself a new goal: to something"
+  },
+  {
+    "id": "vocab:FEMALE_NAMES:Mira",
+    "text": "Mira"
+  },
+  {
+    "id": "vocab:FAILURES:didn't get the promotion",
+    "text": "didn't get the promotion"
+  },
+  {
+    "id": "vocab:BELIEFS:social media is mostly harmful",
+    "text": "social media is mostly harmful"
+  },
+  {
+    "id": "vocab:OCCASIONS:celebrating good news",
+    "text": "celebrating good news"
+  },
+  {
+    "id": "emotion:thrilled",
+    "text": "I’m thrilled;"
+  },
+  {
+    "id": "vocab:WEATHER:sticky humidity",
+    "text": "sticky humidity"
+  },
+  {
+    "id": "bank:episode#000",
+    "text": "something"
+  },
+  {
+    "id": "vocab:CITIES:Singapore",
+    "text": "Singapore"
+  },
+  {
+    "id": "vocab:ACHIEVEMENTS:finished my first 10k",
+    "text": "finished my first 10k"
+  },
+  {
+    "id": "vocab:ACHIEVEMENTS:got promoted",
+    "text": "got promoted"
+  },
+  {
+    "id": "vocab:FEMALE_NAMES:Ravina",
+    "text": "Ravina"
+  },
+  {
+    "id": "vocab:MALE_NAMES:Nikhil",
+    "text": "Nikhil"
+  },
+  {
+    "id": "bank:loss#004",
+    "text": "I keep thinking about it: something"
+  },
+  {
+    "id": "vocab:BELIEFS:big cities are where life happens",
+    "text": "big cities are where life happens"
+  },
+  {
+    "id": "vocab:JOB_TITLES:teacher",
+    "text": "teacher"
+  },
+  {
+    "id": "event:project_abandoned",
+    "text": "I gave up on something"
+  },
+  {
+    "id": "vocab:FOODS:ramen",
+    "text": "ramen"
+  },
+  {
+    "id": "vocab:HEALTH_MINOR:food poisoning",
+    "text": "food poisoning"
+  },
+  {
+    "id": "event:misunderstanding",
+    "text": "something and I misunderstood each other"
+  },
+  {
+    "id": "vocab:FOODS:fish and chips",
+    "text": "fish and chips"
+  },
+  {
+    "id": "vocab:COMMITMENT_TASKS:submit the tax form",
+    "text": "submit the tax form"
+  },
+  {
+    "id": "event:robot_argument",
+    "text": "I’m angry with you"
+  },
+  {
+    "id": "vocab:FOODS:mushroom risotto",
+    "text": "mushroom risotto"
+  },
+  {
+    "id": "vocab:GOALS:get a scuba certificate",
+    "text": "get a scuba certificate"
+  },
+  {
+    "id": "vocab:FAILURES:lost the client pitch",
+    "text": "lost the client pitch"
+  },
+  {
+    "id": "vocab:FEMALE_NAMES:Zara",
+    "text": "Zara"
+  },
+  {
+    "id": "vocab:WEATHER:a thunderstorm",
+    "text": "a thunderstorm"
+  },
+  {
+    "id": "vocab:OUTINGS:a hike",
+    "text": "a hike"
+  },
+  {
+    "id": "event:robot_nickname",
+    "text": "I’ve decided to call you something"
+  },
+  {
+    "id": "event:pet_adopted",
+    "text": "I adopted a something named something"
+  },
+  {
+    "id": "event:robot_affection",
+    "text": "I’m fond of you"
+  },
+  {
+    "id": "event:funeral",
+    "text": "we held something’s funeral"
+  },
+  {
+    "id": "vocab:OUTINGS:a pottery class",
+    "text": "a pottery class"
+  },
+  {
+    "id": "vocab:CITIES:Auckland",
+    "text": "Auckland"
+  },
+  {
+    "id": "event:pet_death",
+    "text": "my something something died"
+  },
+  {
+    "id": "vocab:NEIGHBOURHOODS:Canal Row",
+    "text": "Canal Row"
+  },
+  {
+    "id": "bank:loss#005",
+    "text": "It still hurts: something"
+  },
+  {
+    "id": "event:done",
+    "text": "I managed to something"
+  },
+  {
+    "id": "event:robot_complaint",
+    "text": "I’m frustrated with how that went"
+  },
+  {
+    "id": "bank:temporary#003",
+    "text": "Just while this lasts, something"
+  },
+  {
+    "id": "vocab:RESTAURANTS:The Green Bowl",
+    "text": "The Green Bowl"
+  },
+  {
+    "id": "event:apology",
+    "text": "I apologized about something"
+  },
+  {
+    "id": "bank:correction#001",
+    "text": "I got that wrong: something"
+  },
+  {
+    "id": "vocab:COMPANIES:Glasshouse Games",
+    "text": "Glasshouse Games"
+  },
+  {
+    "id": "vocab:OCCASIONS:a surprise party",
+    "text": "a surprise party"
+  },
+  {
+    "id": "vocab:PET_NAMES:Biscuit",
+    "text": "Biscuit"
+  },
+  {
+    "id": "event:project_achieved",
+    "text": "I finished something"
+  },
+  {
+    "id": "bank:verbosity_tail#003",
+    "text": "; there’s a bit more to the story."
+  },
+  {
+    "id": "vocab:MALE_NAMES:Kofi",
+    "text": "Kofi"
+  },
+  {
+    "id": "bank:correction_plan#003",
+    "text": "I got the day wrong: something, not something"
+  },
+  {
+    "id": "vocab:CAFES:Kettle & Crumb",
+    "text": "Kettle & Crumb"
+  },
+  {
+    "id": "bank:small_talk#005",
+    "text": "I’m taking a breather."
+  },
+  {
+    "id": "vocab:HEALTH_MINOR:a migraine",
+    "text": "a migraine"
+  },
+  {
+    "id": "event:project_progress",
+    "text": "I made some progress on something"
+  },
+  {
+    "id": "bank:small_talk#002",
+    "text": "The light looks lovely today."
+  },
+  {
+    "id": "bank:style_formal#001",
+    "text": "I would like to mention that something"
+  },
+  {
+    "id": "bank:emotion#002",
+    "text": "I wanted to share some news: something"
+  }
+]

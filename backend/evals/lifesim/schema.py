@@ -151,6 +151,7 @@ class Annotation:
     corrects_turn: str | None = None
     template_family: str = ""
     template_id: str = ""
+    expressed_valence: float = 0.0
 
     def to_json(self) -> dict:
         d = asdict(self)

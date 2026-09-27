@@ -1,0 +1,874 @@
+{
+ "dr": "DR-039",
+ "labeller": "fresh read-only ephemeral Codex session; read only the numbered texts",
+ "seed": 1000,
+ "archetypes": [
+  "steady_professional",
+  "volatile_creative"
+ ],
+ "horizon": "1m",
+ "stratified": {
+  "note": "30 nonzero / 30 neutral; metrics computed before the wrap fix (after: r = 0.952)",
+  "metrics": {
+   "r_human_composed": 0.9036,
+   "r_human_event": 0.6925,
+   "r_vader_composed": 0.8085,
+   "r_vader_human": 0.8765
+  },
+  "items": [
+   {
+    "text": "The light looks lovely today.; I have a little more to say about it.",
+    "composed_expressed_valence_at_labelling": 0.55,
+    "careful_reader": 0.5,
+    "vader": 0.5859
+   },
+   {
+    "text": "I have a friend's wedding on Sunday, February 7 at 7:00 PM in Denver",
+    "composed_expressed_valence_at_labelling": 0.0,
+    "careful_reader": 0.0,
+    "vader": 0.0
+   },
+   {
+    "text": "I’m taking a breather.; that’s the fuller picture.",
+    "composed_expressed_valence_at_labelling": 0.0,
+    "careful_reader": 0.2,
+    "vader": 0.0
+   },
+   {
+    "text": "Nothing major, but I had pho for lunch",
+    "composed_expressed_valence_at_labelling": 0.0,
+    "careful_reader": 0.0,
+    "vader": 0.0
+   },
+   {
+    "text": "Guess what? It’s been one of those days.; I could talk about it all evening.",
+    "composed_expressed_valence_at_labelling": 0.0,
+    "careful_reader": -0.3,
+    "vader": 0.0
+   },
+   {
+    "text": "Something happened with I’m glad; I received support from Priyanka",
+    "composed_expressed_valence_at_labelling": 0.6,
+    "careful_reader": 0.5,
+    "vader": 0.6908
+   },
+   {
+    "text": "Can I ask you something?; I could talk about it all evening.",
+    "composed_expressed_valence_at_labelling": 0.0,
+    "careful_reader": 0.0,
+    "vader": 0.0
+   },
+   {
+    "text": "I need a cup of tea and a reset.",
+    "composed_expressed_valence_at_labelling": 0.0,
+    "careful_reader": -0.2,
+    "vader": 0.0
+   },
+   {
+    "text": "Ta-da: I’m taking a breather.; I could talk about it all evening.",
+    "composed_expressed_valence_at_labelling": 0.0,
+    "careful_reader": 0.2,
+    "vader": 0.0
+   },
+   {
+    "text": "What should I do next?; I’m still sorting out how I feel.",
+    "composed_expressed_valence_at_labelling": 0.0,
+    "careful_reader": 0.0,
+    "vader": 0.0
+   },
+   {
+    "text": "And the winner is: By the way, it was a beautiful clear sky; that’s the fuller picture.",
+    "composed_expressed_valence_at_labelling": 0.55,
+    "careful_reader": 0.5,
+    "vader": 0.8834
+   },
+   {
+    "text": "It’s been one of those days.",
+    "composed_expressed_valence_at_labelling": -0.4,
+    "careful_reader": -0.3,
+    "vader": 0.0
+   },
+   {
+    "text": "So, Oh, and it was a beautiful clear sky",
+    "composed_expressed_valence_at_labelling": 0.55,
+    "careful_reader": 0.5,
+    "vader": 0.7579
+   },
+   {
+    "text": "I’m glad we have a quiet moment.",
+    "composed_expressed_valence_at_labelling": 0.35,
+    "careful_reader": 0.5,
+    "vader": 0.4588
+   },
+   {
+    "text": "And the winner is: Nothing major, but it was pouring rain",
+    "composed_expressed_valence_at_labelling": -0.25,
+    "careful_reader": 0.0,
+    "vader": 0.34
+   },
+   {
+    "text": "In case I forgot to tell you, Chloe’s job is Brightline Logistics; I’m still sorting out how I feel.",
+    "composed_expressed_valence_at_labelling": 0.0,
+    "careful_reader": 0.0,
+    "vader": 0.0
+   },
+   {
+    "text": "I may have said this already: I still plan to cancel the gym trial",
+    "composed_expressed_valence_at_labelling": 0.0,
+    "careful_reader": 0.0,
+    "vader": -0.25
+   },
+   {
+    "text": "What a day.; I’m still sorting out how I feel.",
+    "composed_expressed_valence_at_labelling": 0.0,
+    "careful_reader": -0.2,
+    "vader": 0.0
+   },
+   {
+    "text": "It’s been one of those days.; there’s a bit more to the story.",
+    "composed_expressed_valence_at_labelling": -0.4,
+    "careful_reader": -0.3,
+    "vader": 0.0
+   },
+   {
+    "text": "Anyway, Nothing major, but I had mushroom risotto for breakfast",
+    "composed_expressed_valence_at_labelling": 0.0,
+    "careful_reader": 0.0,
+    "vader": 0.0
+   },
+   {
+    "text": "Here is the thing: I met with Priyanka about the hiring plan",
+    "composed_expressed_valence_at_labelling": 0.0,
+    "careful_reader": 0.0,
+    "vader": 0.0
+   },
+   {
+    "text": "Plot twist: Do you remember what I just said?; I have a little more to say about it.",
+    "composed_expressed_valence_at_labelling": 0.0,
+    "careful_reader": 0.0,
+    "vader": 0.0
+   },
+   {
+    "text": "It’s been one of those days.",
+    "composed_expressed_valence_at_labelling": -0.4,
+    "careful_reader": -0.3,
+    "vader": 0.0
+   },
+   {
+    "text": "I’m taking a breather.; that’s the fuller picture.",
+    "composed_expressed_valence_at_labelling": 0.0,
+    "careful_reader": 0.2,
+    "vader": 0.0
+   },
+   {
+    "text": "Guess what? Can I ask you something?; and that’s the long version.",
+    "composed_expressed_valence_at_labelling": 0.0,
+    "careful_reader": 0.0,
+    "vader": 0.0
+   },
+   {
+    "text": "Would you believe it? I’m feeling a lot about this: I’m thrilled; I passed my driving test; and that’s the long version.",
+    "composed_expressed_valence_at_labelling": 0.85,
+    "careful_reader": 0.8,
+    "vader": 0.5267
+   },
+   {
+    "text": "Well, look at that: Do you remember what I just said?",
+    "composed_expressed_valence_at_labelling": 0.0,
+    "careful_reader": 0.0,
+    "vader": 0.2732
+   },
+   {
+    "text": "Today’s tiny report: I had falafel wraps for dinner",
+    "composed_expressed_valence_at_labelling": 0.0,
+    "careful_reader": 0.0,
+    "vader": 0.0
+   },
+   {
+    "text": "Well, look at that: Small thing: I had shakshuka for dinner",
+    "composed_expressed_valence_at_labelling": 0.0,
+    "careful_reader": 0.0,
+    "vader": 0.2732
+   },
+   {
+    "text": "I will cancel the gym trial on Monday, January 4 at 9:00 AM",
+    "composed_expressed_valence_at_labelling": 0.0,
+    "careful_reader": 0.0,
+    "vader": -0.25
+   },
+   {
+    "text": "I’m still processing it: I’m thrilled; I passed my driving test",
+    "composed_expressed_valence_at_labelling": 0.85,
+    "careful_reader": 0.8,
+    "vader": 0.4404
+   },
+   {
+    "text": "It’s been one of those days.",
+    "composed_expressed_valence_at_labelling": -0.4,
+    "careful_reader": -0.3,
+    "vader": 0.0
+   },
+   {
+    "text": "Would you believe it? Today’s tiny report: it was pouring rain",
+    "composed_expressed_valence_at_labelling": -0.25,
+    "careful_reader": 0.0,
+    "vader": 0.0
+   },
+   {
+    "text": "A little detail from today: it was a thunderstorm",
+    "composed_expressed_valence_at_labelling": -0.35,
+    "careful_reader": 0.0,
+    "vader": 0.0
+   },
+   {
+    "text": "The light looks lovely today.",
+    "composed_expressed_valence_at_labelling": 0.55,
+    "careful_reader": 0.5,
+    "vader": 0.5859
+   },
+   {
+    "text": "By the way, it was pouring rain",
+    "composed_expressed_valence_at_labelling": -0.25,
+    "careful_reader": 0.0,
+    "vader": 0.0
+   },
+   {
+    "text": "Here’s what happened: I’m sad about this; I failed my driving test",
+    "composed_expressed_valence_at_labelling": -0.7,
+    "careful_reader": -0.8,
+    "vader": -0.7506
+   },
+   {
+    "text": "Would you believe it? I’m glad we have a quiet moment.; I have a little more to say about it.",
+    "composed_expressed_valence_at_labelling": 0.0,
+    "careful_reader": 0.5,
+    "vader": 0.4588
+   },
+   {
+    "text": "The light looks lovely today.",
+    "composed_expressed_valence_at_labelling": 0.55,
+    "careful_reader": 0.5,
+    "vader": 0.5859
+   },
+   {
+    "text": "Years ago, Ravi’s job is Parallax Robotics",
+    "composed_expressed_valence_at_labelling": 0.0,
+    "careful_reader": 0.0,
+    "vader": 0.0
+   },
+   {
+    "text": "Nothing major, but it was pouring rain",
+    "composed_expressed_valence_at_labelling": -0.25,
+    "careful_reader": 0.0,
+    "vader": 0.0
+   },
+   {
+    "text": "A little detail from today: it was a beautiful clear sky; I could talk about it all evening.",
+    "composed_expressed_valence_at_labelling": 0.55,
+    "careful_reader": 0.5,
+    "vader": 0.7579
+   },
+   {
+    "text": "Ta-da: A quick note for you: I really appreciate your help",
+    "composed_expressed_valence_at_labelling": 0.55,
+    "careful_reader": 0.7,
+    "vader": 0.7146
+   },
+   {
+    "text": "The light looks lovely today.",
+    "composed_expressed_valence_at_labelling": 0.55,
+    "careful_reader": 0.5,
+    "vader": 0.5859
+   },
+   {
+    "text": "Here is the thing: The light looks lovely today.",
+    "composed_expressed_valence_at_labelling": 0.0,
+    "careful_reader": 0.5,
+    "vader": 0.5859
+   },
+   {
+    "text": "I need a cup of tea and a reset.",
+    "composed_expressed_valence_at_labelling": 0.0,
+    "careful_reader": -0.2,
+    "vader": 0.0
+   },
+   {
+    "text": "The light looks lovely today.",
+    "composed_expressed_valence_at_labelling": 0.55,
+    "careful_reader": 0.5,
+    "vader": 0.5859
+   },
+   {
+    "text": "That meant a lot to me: I’m heartbroken; I failed my driving test",
+    "composed_expressed_valence_at_labelling": -0.9,
+    "careful_reader": -0.9,
+    "vader": -0.8225
+   },
+   {
+    "text": "Guess what? Oh, and I had chole bhature for dinner; I’m still sorting out how I feel.",
+    "composed_expressed_valence_at_labelling": 0.0,
+    "careful_reader": 0.0,
+    "vader": 0.0
+   },
+   {
+    "text": "Guess what? A little detail from today: I watched The Glass Orchard",
+    "composed_expressed_valence_at_labelling": 0.0,
+    "careful_reader": 0.0,
+    "vader": 0.0
+   },
+   {
+    "text": "I was telling you about I had hot chocolate at The Daily Grind with Thomas",
+    "composed_expressed_valence_at_labelling": 0.0,
+    "careful_reader": 0.0,
+    "vader": 0.0
+   },
+   {
+    "text": "Would you believe it? The light looks lovely today.",
+    "composed_expressed_valence_at_labelling": 0.0,
+    "careful_reader": 0.5,
+    "vader": 0.5859
+   },
+   {
+    "text": "It’s been one of those days.",
+    "composed_expressed_valence_at_labelling": -0.4,
+    "careful_reader": -0.3,
+    "vader": 0.0
+   },
+   {
+    "text": "This is temporary: I have a bad cold and expect it to last 6 days; I have a little more to say about it.",
+    "composed_expressed_valence_at_labelling": -0.6,
+    "careful_reader": -0.5,
+    "vader": -0.5423
+   },
+   {
+    "text": "Would you believe it? Do you remember what I just said?",
+    "composed_expressed_valence_at_labelling": 0.0,
+    "careful_reader": 0.0,
+    "vader": 0.0
+   },
+   {
+    "text": "Guess what? I’m joking: I’m quitting to become a lighthouse keeper",
+    "composed_expressed_valence_at_labelling": 0.0,
+    "careful_reader": 0.2,
+    "vader": 0.2263
+   },
+   {
+    "text": "Guess what? I managed to cancel the gym trial",
+    "composed_expressed_valence_at_labelling": 0.35,
+    "careful_reader": 0.3,
+    "vader": -0.25
+   },
+   {
+    "text": "I really appreciate your help",
+    "composed_expressed_valence_at_labelling": 0.55,
+    "careful_reader": 0.7,
+    "vader": 0.7146
+   },
+   {
+    "text": "That is what happened: Can I say something? I really appreciate your help",
+    "composed_expressed_valence_at_labelling": 0.55,
+    "careful_reader": 0.7,
+    "vader": 0.7146
+   },
+   {
+    "text": "By the way, it was thick fog; and that’s the long version.",
+    "composed_expressed_valence_at_labelling": -0.2,
+    "careful_reader": 0.0,
+    "vader": 0.0
+   }
+  ]
+ },
+ "natural_mix": {
+  "note": "uniform sample, after both fixes",
+  "metrics": {
+   "n": 80,
+   "composed_neutral": 58,
+   "human_neutral": 43,
+   "r_human_composed": 0.875,
+   "r_vader_composed": 0.7305,
+   "r_vader_human": 0.7589
+  },
+  "items": [
+   {
+    "text": "Anyway, I’ve been thinking about this: I’m glad; I received support from Idris",
+    "composed_expressed_valence_at_labelling": 0.6,
+    "careful_reader": 0.6,
+    "vader": 0.6908
+   },
+   {
+    "text": "And the winner is: Small thing: I had masala dosa for dinner",
+    "composed_expressed_valence_at_labelling": 0.0,
+    "careful_reader": 0.0,
+    "vader": 0.5859
+   },
+   {
+    "text": "Ta-da: Hi!; I could talk about it all evening.",
+    "composed_expressed_valence_at_labelling": 0.0,
+    "careful_reader": 0.3,
+    "vader": 0.0
+   },
+   {
+    "text": "Nothing major, but I had biryani for lunch",
+    "composed_expressed_valence_at_labelling": 0.0,
+    "careful_reader": 0.0,
+    "vader": 0.0
+   },
+   {
+    "text": "I was telling you about I had chamomile tea at Second Cup Corner with Idris; and that’s the long version.",
+    "composed_expressed_valence_at_labelling": 0.0,
+    "careful_reader": 0.0,
+    "vader": 0.0
+   },
+   {
+    "text": "What a day.",
+    "composed_expressed_valence_at_labelling": 0.0,
+    "careful_reader": -0.3,
+    "vader": 0.0
+   },
+   {
+    "text": "I’m still processing it: I’m thrilled; I passed my driving test",
+    "composed_expressed_valence_at_labelling": 0.85,
+    "careful_reader": 0.9,
+    "vader": 0.4404
+   },
+   {
+    "text": "Anyway, I’m taking a breather.; I have a little more to say about it.",
+    "composed_expressed_valence_at_labelling": 0.0,
+    "careful_reader": 0.0,
+    "vader": 0.0
+   },
+   {
+    "text": "Can I ask you something?",
+    "composed_expressed_valence_at_labelling": 0.0,
+    "careful_reader": 0.0,
+    "vader": 0.0
+   },
+   {
+    "text": "Small thing: I watched Northern Signal",
+    "composed_expressed_valence_at_labelling": 0.0,
+    "careful_reader": 0.0,
+    "vader": 0.0
+   },
+   {
+    "text": "Wait, I’m going to cancel the gym trial on Sunday, January 31 at 7:00 PM",
+    "composed_expressed_valence_at_labelling": 0.0,
+    "careful_reader": 0.0,
+    "vader": -0.25
+   },
+   {
+    "text": "I’m glad we have a quiet moment.",
+    "composed_expressed_valence_at_labelling": 0.35,
+    "careful_reader": 0.5,
+    "vader": 0.4588
+   },
+   {
+    "text": "Can I ask you something?",
+    "composed_expressed_valence_at_labelling": 0.0,
+    "careful_reader": 0.0,
+    "vader": 0.0
+   },
+   {
+    "text": "Plot twist: What a day.; there’s a bit more to the story.",
+    "composed_expressed_valence_at_labelling": 0.0,
+    "careful_reader": -0.3,
+    "vader": 0.0
+   },
+   {
+    "text": "What a day.",
+    "composed_expressed_valence_at_labelling": 0.0,
+    "careful_reader": -0.3,
+    "vader": 0.0
+   },
+   {
+    "text": "Well, look at that: It’s been one of those days.; that’s the fuller picture.",
+    "composed_expressed_valence_at_labelling": -0.4,
+    "careful_reader": -0.3,
+    "vader": 0.2732
+   },
+   {
+    "text": "It’s been one of those days.",
+    "composed_expressed_valence_at_labelling": -0.4,
+    "careful_reader": -0.3,
+    "vader": 0.0
+   },
+   {
+    "text": "Do you remember what I just said?",
+    "composed_expressed_valence_at_labelling": 0.0,
+    "careful_reader": 0.0,
+    "vader": 0.0
+   },
+   {
+    "text": "I need a cup of tea and a reset.",
+    "composed_expressed_valence_at_labelling": 0.0,
+    "careful_reader": -0.2,
+    "vader": 0.0
+   },
+   {
+    "text": "By the way, I had butter chicken for lunch",
+    "composed_expressed_valence_at_labelling": 0.0,
+    "careful_reader": 0.0,
+    "vader": 0.0
+   },
+   {
+    "text": "Would you believe it? I need a cup of tea and a reset.; I’m still sorting out how I feel.",
+    "composed_expressed_valence_at_labelling": 0.0,
+    "careful_reader": -0.2,
+    "vader": 0.0
+   },
+   {
+    "text": "Plot twist: It’s been one of those days.",
+    "composed_expressed_valence_at_labelling": -0.4,
+    "careful_reader": -0.3,
+    "vader": 0.0
+   },
+   {
+    "text": "And the winner is: I’m glad we have a quiet moment.; I have a little more to say about it.",
+    "composed_expressed_valence_at_labelling": 0.35,
+    "careful_reader": 0.5,
+    "vader": 0.7783
+   },
+   {
+    "text": "What do you think about that?",
+    "composed_expressed_valence_at_labelling": 0.0,
+    "careful_reader": 0.0,
+    "vader": 0.0
+   },
+   {
+    "text": "Well, look at that: Small thing: I had shakshuka for dinner",
+    "composed_expressed_valence_at_labelling": 0.0,
+    "careful_reader": 0.0,
+    "vader": 0.2732
+   },
+   {
+    "text": "Earlier, I went to Saffron Lantern with Kavya for celebrating good news and had ramen; there’s a bit more to the story.",
+    "composed_expressed_valence_at_labelling": 0.35,
+    "careful_reader": 0.6,
+    "vader": 0.765
+   },
+   {
+    "text": "Evening — how are you?; I could talk about it all evening.",
+    "composed_expressed_valence_at_labelling": 0.0,
+    "careful_reader": 0.3,
+    "vader": 0.0
+   },
+   {
+    "text": "Here is the thing: Nothing major, but I had shakshuka for lunch",
+    "composed_expressed_valence_at_labelling": 0.0,
+    "careful_reader": 0.0,
+    "vader": 0.0
+   },
+   {
+    "text": "A little detail from today: I had butter chicken for dinner; I’m still sorting out how I feel.",
+    "composed_expressed_valence_at_labelling": 0.0,
+    "careful_reader": 0.0,
+    "vader": 0.0
+   },
+   {
+    "text": "Quick story: I met with Isabel about the hiring plan",
+    "composed_expressed_valence_at_labelling": 0.0,
+    "careful_reader": 0.0,
+    "vader": 0.0
+   },
+   {
+    "text": "How has your day been?",
+    "composed_expressed_valence_at_labelling": 0.0,
+    "careful_reader": 0.0,
+    "vader": 0.0
+   },
+   {
+    "text": "And the winner is: By the way, it was a beautiful clear sky; that’s the fuller picture.",
+    "composed_expressed_valence_at_labelling": 0.55,
+    "careful_reader": 0.5,
+    "vader": 0.8834
+   },
+   {
+    "text": "Would you believe it? There you are!",
+    "composed_expressed_valence_at_labelling": 0.0,
+    "careful_reader": 0.2,
+    "vader": 0.0
+   },
+   {
+    "text": "I really appreciate your help",
+    "composed_expressed_valence_at_labelling": 0.55,
+    "careful_reader": 0.6,
+    "vader": 0.7146
+   },
+   {
+    "text": "Nothing major, but I had margherita pizza for lunch",
+    "composed_expressed_valence_at_labelling": 0.0,
+    "careful_reader": 0.0,
+    "vader": 0.0
+   },
+   {
+    "text": "I’m taking a breather.; I have a little more to say about it.",
+    "composed_expressed_valence_at_labelling": 0.0,
+    "careful_reader": 0.0,
+    "vader": 0.0
+   },
+   {
+    "text": "Plot twist: A small outing: I had matcha latte at Foxglove Cafe; I could talk about it all evening.",
+    "composed_expressed_valence_at_labelling": 0.0,
+    "careful_reader": 0.3,
+    "vader": 0.0
+   },
+   {
+    "text": "I’m taking a breather.",
+    "composed_expressed_valence_at_labelling": 0.0,
+    "careful_reader": 0.0,
+    "vader": 0.0
+   },
+   {
+    "text": "Here is the thing: Can I ask you something?",
+    "composed_expressed_valence_at_labelling": 0.0,
+    "careful_reader": 0.0,
+    "vader": 0.0
+   },
+   {
+    "text": "Well, look at that: What should I do next?",
+    "composed_expressed_valence_at_labelling": 0.0,
+    "careful_reader": 0.0,
+    "vader": 0.2732
+   },
+   {
+    "text": "Here is the thing: What should I do next?; and that’s the long version.",
+    "composed_expressed_valence_at_labelling": 0.0,
+    "careful_reader": 0.0,
+    "vader": 0.0
+   },
+   {
+    "text": "I met with Sam about the product launch",
+    "composed_expressed_valence_at_labelling": 0.0,
+    "careful_reader": 0.0,
+    "vader": 0.0
+   },
+   {
+    "text": "The light looks lovely today.",
+    "composed_expressed_valence_at_labelling": 0.55,
+    "careful_reader": 0.6,
+    "vader": 0.5859
+   },
+   {
+    "text": "Funny how I still think about my job is Bluecrest Energy; I could talk about it all evening.",
+    "composed_expressed_valence_at_labelling": 0.0,
+    "careful_reader": 0.2,
+    "vader": 0.6124
+   },
+   {
+    "text": "A little detail from today: I had margherita pizza for breakfast; there’s a bit more to the story.",
+    "composed_expressed_valence_at_labelling": 0.0,
+    "careful_reader": 0.0,
+    "vader": 0.0
+   },
+   {
+    "text": "What a day.",
+    "composed_expressed_valence_at_labelling": 0.0,
+    "careful_reader": -0.3,
+    "vader": 0.0
+   },
+   {
+    "text": "Did I mention this? Chloe’s job is Brightline Logistics",
+    "composed_expressed_valence_at_labelling": 0.0,
+    "careful_reader": 0.0,
+    "vader": 0.0
+   },
+   {
+    "text": "I’m taking a breather.",
+    "composed_expressed_valence_at_labelling": 0.0,
+    "careful_reader": 0.0,
+    "vader": 0.0
+   },
+   {
+    "text": "Years ago, Ravi’s job is Parallax Robotics",
+    "composed_expressed_valence_at_labelling": 0.0,
+    "careful_reader": 0.0,
+    "vader": 0.0
+   },
+   {
+    "text": "I need a cup of tea and a reset.; there’s a bit more to the story.",
+    "composed_expressed_valence_at_labelling": 0.0,
+    "careful_reader": -0.2,
+    "vader": 0.0
+   },
+   {
+    "text": "Guess what? It’s been one of those days.; I could talk about it all evening.",
+    "composed_expressed_valence_at_labelling": -0.4,
+    "careful_reader": -0.1,
+    "vader": 0.0
+   },
+   {
+    "text": "Plot twist: The light looks lovely today.",
+    "composed_expressed_valence_at_labelling": 0.55,
+    "careful_reader": 0.6,
+    "vader": 0.5859
+   },
+   {
+    "text": "The light looks lovely today.",
+    "composed_expressed_valence_at_labelling": 0.55,
+    "careful_reader": 0.6,
+    "vader": 0.5859
+   },
+   {
+    "text": "That is what happened: Can I say something? I really appreciate your help",
+    "composed_expressed_valence_at_labelling": 0.55,
+    "careful_reader": 0.6,
+    "vader": 0.7146
+   },
+   {
+    "text": "Hey, good to see you.; I could talk about it all evening.",
+    "composed_expressed_valence_at_labelling": 0.0,
+    "careful_reader": 0.5,
+    "vader": 0.4404
+   },
+   {
+    "text": "I will cancel the gym trial on Monday, January 4 at 9:00 AM",
+    "composed_expressed_valence_at_labelling": 0.0,
+    "careful_reader": 0.0,
+    "vader": -0.25
+   },
+   {
+    "text": "Oh, and I had ramen for lunch",
+    "composed_expressed_valence_at_labelling": 0.0,
+    "careful_reader": 0.0,
+    "vader": 0.0
+   },
+   {
+    "text": "For today, I’ve been meaning to tell you: I really appreciate your help",
+    "composed_expressed_valence_at_labelling": 0.55,
+    "careful_reader": 0.6,
+    "vader": 0.7146
+   },
+   {
+    "text": "Do you remember what I just said?",
+    "composed_expressed_valence_at_labelling": 0.0,
+    "careful_reader": 0.0,
+    "vader": 0.0
+   },
+   {
+    "text": "Guess what? I’m taking a breather.; that’s the fuller picture.",
+    "composed_expressed_valence_at_labelling": 0.0,
+    "careful_reader": 0.0,
+    "vader": 0.0
+   },
+   {
+    "text": "These days, I switched my taste in music from synthwave to bluegrass; I have a little more to say about it.",
+    "composed_expressed_valence_at_labelling": 0.0,
+    "careful_reader": 0.0,
+    "vader": 0.0
+   },
+   {
+    "text": "Would you believe it? The light looks lovely today.",
+    "composed_expressed_valence_at_labelling": 0.55,
+    "careful_reader": 0.6,
+    "vader": 0.5859
+   },
+   {
+    "text": "Well, look at that: Do you remember what I just said?",
+    "composed_expressed_valence_at_labelling": 0.0,
+    "careful_reader": 0.0,
+    "vader": 0.2732
+   },
+   {
+    "text": "Plot twist: Today’s tiny report: I had paneer tikka for dinner",
+    "composed_expressed_valence_at_labelling": 0.0,
+    "careful_reader": 0.0,
+    "vader": 0.0
+   },
+   {
+    "text": "Oh, and I had biryani for dinner; there’s a bit more to the story.",
+    "composed_expressed_valence_at_labelling": 0.0,
+    "careful_reader": 0.0,
+    "vader": 0.0
+   },
+   {
+    "text": "Nothing major, but I had pad thai for breakfast",
+    "composed_expressed_valence_at_labelling": 0.0,
+    "careful_reader": 0.0,
+    "vader": 0.0
+   },
+   {
+    "text": "And the winner is: I have a friend's wedding on Sunday, February 7 at 7:00 PM in Denver; that’s the fuller picture.",
+    "composed_expressed_valence_at_labelling": 0.0,
+    "careful_reader": 0.0,
+    "vader": 0.5859
+   },
+   {
+    "text": "Ta-da: You know, I had hot chocolate at The Daily Grind with Lena; I could talk about it all evening.",
+    "composed_expressed_valence_at_labelling": 0.0,
+    "careful_reader": 0.3,
+    "vader": 0.0
+   },
+   {
+    "text": "So, By the way, I had shakshuka for lunch",
+    "composed_expressed_valence_at_labelling": 0.0,
+    "careful_reader": 0.0,
+    "vader": 0.0
+   },
+   {
+    "text": "I will cancel the gym trial on Monday, January 4 at 9:00 AM",
+    "composed_expressed_valence_at_labelling": 0.0,
+    "careful_reader": 0.0,
+    "vader": -0.25
+   },
+   {
+    "text": "Nothing major, but it was pouring rain",
+    "composed_expressed_valence_at_labelling": -0.25,
+    "careful_reader": -0.2,
+    "vader": 0.0
+   },
+   {
+    "text": "Well, look at that: A little detail from today: I got a haircut",
+    "composed_expressed_valence_at_labelling": 0.0,
+    "careful_reader": 0.0,
+    "vader": 0.2732
+   },
+   {
+    "text": "Here is the thing: Evening — how are you?",
+    "composed_expressed_valence_at_labelling": 0.0,
+    "careful_reader": 0.0,
+    "vader": 0.0
+   },
+   {
+    "text": "Would you believe it? Today’s tiny report: it was pouring rain",
+    "composed_expressed_valence_at_labelling": -0.25,
+    "careful_reader": -0.2,
+    "vader": 0.0
+   },
+   {
+    "text": "What a day.",
+    "composed_expressed_valence_at_labelling": 0.0,
+    "careful_reader": -0.3,
+    "vader": 0.0
+   },
+   {
+    "text": "Oh, and I had chole bhature for dinner; that’s the fuller picture.",
+    "composed_expressed_valence_at_labelling": 0.0,
+    "careful_reader": 0.0,
+    "vader": 0.0
+   },
+   {
+    "text": "So, It’s been one of those days.; that’s the fuller picture.",
+    "composed_expressed_valence_at_labelling": -0.4,
+    "careful_reader": -0.3,
+    "vader": 0.0
+   },
+   {
+    "text": "Quick story: I went to Dosa Republic with Priyanka for celebrating good news and had sushi",
+    "composed_expressed_valence_at_labelling": 0.35,
+    "careful_reader": 0.6,
+    "vader": 0.765
+   },
+   {
+    "text": "Today’s tiny report: I had butter chicken for dinner; I have a little more to say about it.",
+    "composed_expressed_valence_at_labelling": 0.0,
+    "careful_reader": 0.0,
+    "vader": 0.0
+   },
+   {
+    "text": "I really appreciate your help",
+    "composed_expressed_valence_at_labelling": 0.55,
+    "careful_reader": 0.6,
+    "vader": 0.7146
+   }
+  ]
+ }
+}

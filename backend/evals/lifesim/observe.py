@@ -9,6 +9,13 @@ from datetime import datetime, timedelta
 
 from .events import Event
 from .schema import Annotation, Claim, Turn
+from .valence import (
+    compose_expressed_valence,
+    event_shape_id,
+    label_for,
+    label_table,
+    payload_labels,
+)
 from .world import ATTRIBUTES
 
 _ATTR_LABELS = {
@@ -728,6 +735,9 @@ def render(sim) -> tuple[list[Turn], list[Annotation]]:
             is_joke = False
             hedged = False
             obj_c = None
+            emotion_opener = None
+            tail_template_id = None
+            style_template_id = None
             if kind == "event":
                 ev = obj
                 line = _event_line(sim, ev)
@@ -735,12 +745,16 @@ def render(sim) -> tuple[list[Turn], list[Annotation]]:
                 if ev.category in ("emotional", "relationship", "loss"):
                     if ev.valence <= -0.7:
                         line = f"I’m heartbroken; {line}"
+                        emotion_opener = "heartbroken"
                     elif ev.valence <= -0.3:
                         line = f"I’m sad about this; {line}"
+                        emotion_opener = "sad"
                     elif ev.valence >= 0.65:
                         line = f"I’m thrilled; {line}"
+                        emotion_opener = "thrilled"
                     elif ev.valence >= 0.3:
                         line = f"I’m glad; {line}"
+                        emotion_opener = "glad"
                 importance = ev.importance
                 valence = ev.valence
                 arousal = ev.arousal
@@ -1088,7 +1102,11 @@ def render(sim) -> tuple[list[Turn], list[Annotation]]:
                 tail, _tpl_tail = _pick_text(
                     sim, "verbosity_tail", rng, avoid["verbosity_tail"]
                 )
+                tail_template_id = _tpl_tail.id
                 text += tail
+            # Before the style wrap: the wrap replaces `tpl`, and the words of
+            # the sentence it wraps keep their own label (DR-039).
+            base_template_id = tpl.id
             style_family = f"style_{sim.persona.style}"
             wrap_p = min(0.6, 0.1 + 0.5 * sim.persona.verbosity)
             if rng.random() < wrap_p:
@@ -1100,10 +1118,36 @@ def render(sim) -> tuple[list[Turn], list[Annotation]]:
                 # discard the wrap rather than ship a stutter.
                 if not _stutters(wrapped):
                     text, tpl = wrapped, wrapped_tpl
+                    style_template_id = wrapped_tpl.id
             if kind == "event" and ev.toward_robot:
                 robot_val = ev.valence
                 competence = int(ev.payload.get("competence_evidence", 0))
             turns.append(Turn(tid, session.session_id, clock, text))
+            # Fragment order follows the emitted wording so equal magnitudes
+            # retain DR-039's first-fragment tie break. The bank template's
+            # literal words precede its inserted line; an emotion opener is
+            # the first part of that line. A style wrapper is outside the
+            # complete utterance and therefore comes first.
+            fragments = []
+            if style_template_id:
+                fragments.append(label_for(style_template_id))
+            fragments.append(label_for(base_template_id))
+            if (
+                emotion_opener
+                and label_table()["emotion_openers"][emotion_opener]["text"].strip()
+                in text
+            ):
+                fragments.append(
+                    float(label_table()["emotion_openers"][emotion_opener]["label"])
+                )
+            if ev is not None:
+                fragments.append(label_for(event_shape_id(ev.kind)))
+            fragments.extend(payload_labels(text))
+            if tail_template_id:
+                fragments.append(label_for(tail_template_id))
+            expressed_valence = compose_expressed_valence(
+                fragments, joke_wrapper=is_joke
+            )
             annotations.append(
                 Annotation(
                     tid,
@@ -1121,6 +1165,7 @@ def render(sim) -> tuple[list[Turn], list[Annotation]]:
                     correction_for,
                     tpl.family,
                     tpl.id,
+                    expressed_valence,
                 )
             )
     # Every claim remains tied to the event time or the historical assertion time.

@@ -1,0 +1,302 @@
+[
+  {
+    "id": "vocab:ACHIEVEMENTS:won the office quiz",
+    "label": 0.65,
+    "reason": "achievement stated"
+  },
+  {
+    "id": "vocab:JOB_TITLES:chef",
+    "label": 0.0,
+    "reason": null
+  },
+  {
+    "id": "event:goal_start",
+    "label": 0.2,
+    "reason": "new goal"
+  },
+  {
+    "id": "vocab:FEMALE_NAMES:Mira",
+    "label": 0.0,
+    "reason": null
+  },
+  {
+    "id": "vocab:FAILURES:didn't get the promotion",
+    "label": -0.7,
+    "reason": "failure stated"
+  },
+  {
+    "id": "vocab:BELIEFS:social media is mostly harmful",
+    "label": -0.25,
+    "reason": "negative evaluation"
+  },
+  {
+    "id": "vocab:OCCASIONS:celebrating good news",
+    "label": 0.35,
+    "reason": "celebratory occasion"
+  },
+  {
+    "id": "emotion:thrilled",
+    "label": 0.85,
+    "reason": "explicit excitement"
+  },
+  {
+    "id": "vocab:WEATHER:sticky humidity",
+    "label": -0.25,
+    "reason": "uncomfortable weather"
+  },
+  {
+    "id": "bank:episode#000",
+    "label": 0.0,
+    "reason": null
+  },
+  {
+    "id": "vocab:CITIES:Singapore",
+    "label": 0.0,
+    "reason": null
+  },
+  {
+    "id": "vocab:ACHIEVEMENTS:finished my first 10k",
+    "label": 0.65,
+    "reason": "achievement stated"
+  },
+  {
+    "id": "vocab:ACHIEVEMENTS:got promoted",
+    "label": 0.65,
+    "reason": "achievement stated"
+  },
+  {
+    "id": "vocab:FEMALE_NAMES:Ravina",
+    "label": 0.0,
+    "reason": null
+  },
+  {
+    "id": "vocab:MALE_NAMES:Nikhil",
+    "label": 0.0,
+    "reason": null
+  },
+  {
+    "id": "bank:loss#004",
+    "label": -0.3,
+    "reason": "lingering concern"
+  },
+  {
+    "id": "vocab:BELIEFS:big cities are where life happens",
+    "label": 0.25,
+    "reason": "positive evaluation"
+  },
+  {
+    "id": "vocab:JOB_TITLES:teacher",
+    "label": 0.0,
+    "reason": null
+  },
+  {
+    "id": "event:project_abandoned",
+    "label": -0.5,
+    "reason": "project abandoned"
+  },
+  {
+    "id": "vocab:FOODS:ramen",
+    "label": 0.0,
+    "reason": null
+  },
+  {
+    "id": "vocab:HEALTH_MINOR:food poisoning",
+    "label": -0.6,
+    "reason": "illness or injury"
+  },
+  {
+    "id": "event:misunderstanding",
+    "label": -0.3,
+    "reason": "mutual confusion"
+  },
+  {
+    "id": "vocab:FOODS:fish and chips",
+    "label": 0.0,
+    "reason": null
+  },
+  {
+    "id": "vocab:COMMITMENT_TASKS:submit the tax form",
+    "label": 0.0,
+    "reason": null
+  },
+  {
+    "id": "event:robot_argument",
+    "label": -0.75,
+    "reason": "anger"
+  },
+  {
+    "id": "vocab:FOODS:mushroom risotto",
+    "label": 0.0,
+    "reason": null
+  },
+  {
+    "id": "vocab:GOALS:get a scuba certificate",
+    "label": 0.0,
+    "reason": null
+  },
+  {
+    "id": "vocab:FAILURES:lost the client pitch",
+    "label": -0.7,
+    "reason": "failure stated"
+  },
+  {
+    "id": "vocab:FEMALE_NAMES:Zara",
+    "label": 0.0,
+    "reason": null
+  },
+  {
+    "id": "vocab:WEATHER:a thunderstorm",
+    "label": -0.35,
+    "reason": "threatening weather"
+  },
+  {
+    "id": "vocab:OUTINGS:a hike",
+    "label": 0.0,
+    "reason": null
+  },
+  {
+    "id": "event:robot_nickname",
+    "label": 0.0,
+    "reason": null
+  },
+  {
+    "id": "event:pet_adopted",
+    "label": 0.45,
+    "reason": "welcoming a pet"
+  },
+  {
+    "id": "event:robot_affection",
+    "label": 0.65,
+    "reason": "fondness"
+  },
+  {
+    "id": "event:funeral",
+    "label": -0.75,
+    "reason": "mourning ritual"
+  },
+  {
+    "id": "vocab:OUTINGS:a pottery class",
+    "label": 0.0,
+    "reason": null
+  },
+  {
+    "id": "vocab:CITIES:Auckland",
+    "label": 0.0,
+    "reason": null
+  },
+  {
+    "id": "event:pet_death",
+    "label": -0.9,
+    "reason": "pet death"
+  },
+  {
+    "id": "vocab:NEIGHBOURHOODS:Canal Row",
+    "label": 0.0,
+    "reason": null
+  },
+  {
+    "id": "bank:loss#005",
+    "label": -0.7,
+    "reason": "explicit hurt"
+  },
+  {
+    "id": "event:done",
+    "label": 0.35,
+    "reason": "task completed"
+  },
+  {
+    "id": "event:robot_complaint",
+    "label": -0.65,
+    "reason": "frustration"
+  },
+  {
+    "id": "bank:temporary#003",
+    "label": 0.0,
+    "reason": null
+  },
+  {
+    "id": "vocab:RESTAURANTS:The Green Bowl",
+    "label": 0.0,
+    "reason": null
+  },
+  {
+    "id": "event:apology",
+    "label": 0.25,
+    "reason": "repair attempt"
+  },
+  {
+    "id": "bank:correction#001",
+    "label": 0.0,
+    "reason": null
+  },
+  {
+    "id": "vocab:COMPANIES:Glasshouse Games",
+    "label": 0.0,
+    "reason": null
+  },
+  {
+    "id": "vocab:OCCASIONS:a surprise party",
+    "label": 0.35,
+    "reason": "celebratory occasion"
+  },
+  {
+    "id": "vocab:PET_NAMES:Biscuit",
+    "label": 0.0,
+    "reason": null
+  },
+  {
+    "id": "event:project_achieved",
+    "label": 0.7,
+    "reason": "project finished"
+  },
+  {
+    "id": "bank:verbosity_tail#003",
+    "label": 0.0,
+    "reason": null
+  },
+  {
+    "id": "vocab:MALE_NAMES:Kofi",
+    "label": 0.0,
+    "reason": null
+  },
+  {
+    "id": "bank:correction_plan#003",
+    "label": 0.0,
+    "reason": null
+  },
+  {
+    "id": "vocab:CAFES:Kettle & Crumb",
+    "label": 0.0,
+    "reason": null
+  },
+  {
+    "id": "bank:small_talk#005",
+    "label": 0.0,
+    "reason": null
+  },
+  {
+    "id": "vocab:HEALTH_MINOR:a migraine",
+    "label": -0.6,
+    "reason": "illness or injury"
+  },
+  {
+    "id": "event:project_progress",
+    "label": 0.45,
+    "reason": "progress"
+  },
+  {
+    "id": "bank:small_talk#002",
+    "label": 0.55,
+    "reason": "lovely light"
+  },
+  {
+    "id": "bank:style_formal#001",
+    "label": 0.0,
+    "reason": null
+  },
+  {
+    "id": "bank:emotion#002",
+    "label": 0.0,
+    "reason": null
+  }
+]

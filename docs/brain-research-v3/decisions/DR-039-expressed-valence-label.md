@@ -52,6 +52,44 @@ does not label):
 5. W2's bake-off and the affect suite then score against
    `expressed_valence` on dev seeds, ToM set unchanged, rule unchanged.
 
+**Validity check (step 4), 2026-09-27: passed.** Labeller A (the labelling
+unit) labelled all 753 fragments; `dr039_sample.py` drew the 60-fragment
+sample (30 nonzero under A). Labeller B was a fresh, read-only, ephemeral
+Codex session run in an empty directory holding only the 60 texts, numbered
+(the fragment ids name vocabulary categories such as `FAILURES`, which would
+hint at valence), with the step-1 rule as its only instruction. Its command
+log shows it read that one file and nothing else.
+
+| Measure | Value |
+|---|---:|
+| Pearson r (gate: >= 0.8) | **0.924** |
+| Sign agreement, both nonzero (n = 28) | 0.964 |
+| Zero/nonzero agreement | 0.917 |
+| Mean absolute difference | 0.084 |
+
+The largest disagreements are correction phrasings (A 0, B -0.5) and an
+apology (A +0.25, B -0.2); both are defensible readings. Labels and figures:
+`results/dr039-labels-a.json`, `results/dr039-labels-b.json`.
+
+**Whole-utterance check, 2026-09-27.** Step 4 validates fragment labels;
+the utterance label is their composition (step 2). The same blind set-up
+labelled whole dev utterances (seed 1000, `steady_professional` +
+`volatile_creative`, `1m`). It exposed two defects in the composition
+code, both fixed with tests: payload vocabulary matched as raw substrings
+(whole words now; no dev label changed), and a style wrapper replaced the
+template the base sentence's label was read from, so every wrapped
+utterance was composed neutral ("Here is the thing: The light looks lovely
+today." composed 0.0). After the fixes:
+
+| Sample | n | r(careful reader, composed label) |
+|---|---:|---:|
+| stratified, half neutral | 60 | 0.952 (0.904 before the wrap fix) |
+| natural mix (58 composed neutral) | 80 | **0.875** |
+
+A careful independent reader clears r >= 0.8 against the label on the
+set's real distribution, so the label is valid for step 5 and the bar is
+attainable. Artifacts: `results/dr039-utterance-check.json`.
+
 **Consequence**: a lifesim schema addition (`Annotation.expressed_valence`),
 new label data in `evals/lifesim/`, a regenerated bank manifest hash, and a
 rerun of W2's bake-off on the new label. Past runs keep their meaning.

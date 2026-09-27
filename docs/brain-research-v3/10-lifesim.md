@@ -32,6 +32,17 @@ recent-and-old/unanswerable/relationship-defining/commitment-due/contradiction-s
 `answer` plus a `derivation` that `probes.recompute` can re-derive from the timeline alone, without
 reading any text.
 
+## Valence labels (DR-039)
+
+Lifesim carries two distinct valence labels. `Annotation.user_valence` remains the oracle valence of
+the underlying life event; use it when evaluating event recall, mood tracking, or other tasks whose
+target is what happened and how it affected the simulated person. `Annotation.expressed_valence` is
+the hand-labelled valence conveyed by the utterance's words; use it when evaluating a text-based
+user-valence estimator. It is composed from the largest-magnitude labelled wording fragment, with
+ties going to the first fragment, a joke wrapper halving the result, and the final value clamped to
+[-1, 1]. The reviewed fragments and reasons live in `evals/lifesim/expressed_valence.json`; the
+separate `user_valence` field and all past runs retain their original meaning.
+
 ## Leakage boundary (R9)
 
 Public files (`public/turns.jsonl`, `public/probes.jsonl`) carry only `turn_id`/`session_id`/`t`/
