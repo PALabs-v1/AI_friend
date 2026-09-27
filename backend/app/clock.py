@@ -105,8 +105,14 @@ class ManualClock:
             await asyncio.sleep(0)
             return
         future: asyncio.Future[None] = asyncio.get_running_loop().create_future()
-        self._sleepers.append((self.monotonic() + seconds, future))
-        await future
+        sleeper = (self.monotonic() + seconds, future)
+        self._sleepers.append(sleeper)
+        try:
+            await future
+        finally:
+            # A cancelled sleeper leaves now, not at the next `set`/`advance`.
+            if sleeper in self._sleepers:
+                self._sleepers.remove(sleeper)
 
     def next_deadline(self) -> float | None:
         """The earliest deadline a `sleep` is still waiting for, if any.

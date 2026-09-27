@@ -278,3 +278,23 @@ async def test_module_sleep_uses_the_current_manual_clock():
         c.advance(5.0)
         await asyncio.sleep(0)
         assert task.done()
+
+
+@pytest.mark.asyncio
+async def test_a_cancelled_sleeper_leaves_without_the_clock_moving():
+    # W5 critic r1 #5: cancelled sleepers stayed in `_sleepers` until the next
+    # `set`/`advance`, so a harness that cancels timers without advancing
+    # (every cut grace timer in the barge-in machines) grew the list forever.
+    c = clock.ManualClock(datetime(2026, 1, 1))
+    tasks = [asyncio.ensure_future(c.sleep(10.0 + i)) for i in range(100)]
+    live = asyncio.ensure_future(c.sleep(50.0))
+    await asyncio.sleep(0)
+    for task in tasks:
+        task.cancel()
+    await asyncio.gather(*tasks, return_exceptions=True)
+
+    assert len(c._sleepers) == 1
+    assert c.next_deadline() == c.monotonic() + 50.0
+    c.advance(50.0)
+    await asyncio.sleep(0)
+    assert live.done() and c._sleepers == []

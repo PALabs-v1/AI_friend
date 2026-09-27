@@ -1180,7 +1180,8 @@ class BargeInMachine(RuleBasedStateMachine):
             if started is not None:
                 elapsed = clock - started[0]
                 window = getattr(Config, "PROACTIVE_GRACE_WINDOW_S", 0.6)
-                assert window <= elapsed <= window + 0.05  # I6 §6 133
+                # ManualClock resolution is 1 µs (a deadline within it is due).
+                assert window - 1e-6 <= elapsed <= window + 0.05  # I6 §6 133
 
     @rule()
     @precondition(

@@ -185,6 +185,7 @@ def _agent(history, scripts):
 
     async def proactive(thought_prompt):
         script = scripts[thought_prompt]
+        await asyncio.sleep(script.get("think", 0))  # generating, nothing said yet
         for piece in script["pieces"]:
             yield {"type": "content", "data": piece}
             await asyncio.sleep(script.get("delay", 0))
@@ -524,7 +525,7 @@ async def test_superseded_reply_progress_never_becomes_the_new_turns_progress():
     await _progress(agent, "A", 30)
     live = agent.last_audio_progress
     assert live is None or live.character_offset != 30  # A's frame stayed out
-    assert agent._superseded_reply.progress.character_offset == 30
+    assert agent._reply_ledger["A"].progress.character_offset == 30  # A's own entry
     await turn_b
     await _settle(agent)
 
@@ -839,11 +840,12 @@ async def test_a_stop_queued_behind_the_end_of_generation_still_cuts_the_row():
         while len(lock._waiters or ()) < n:
             await asyncio.sleep(0)
 
-    # The stop is scoped by the reply ledger while the legacy state lock is held.
+    # The flow is queued on the lock. The stop is scoped by the reply
+    # ledger, which got the row id before the flow queued, so the stop does
+    # not wait for the lock; it cancels the queued flow and cuts the reply.
     await asyncio.wait_for(queued(1), timeout=2)
     stop = asyncio.create_task(_startle(agent, "A"))
     await asyncio.sleep(0.01)
-    assert not stop.done()
     release.set()
     await asyncio.gather(turn_a, held, stop, return_exceptions=True)
     await _settle(agent, 0.2)

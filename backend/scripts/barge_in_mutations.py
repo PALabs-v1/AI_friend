@@ -47,6 +47,7 @@ TEST_MODULES = [
     "tests/test_causal_slice.py",
     "tests/test_brain_v2_regressions.py",
     "tests/test_playback_progress.py",
+    "tests/test_clock_seam.py",
 ]
 RUN_TIMEOUT_S = 600  # a mutant that hangs the tests is an error, not a verdict
 _ROW = "\"WHERE id = $2 AND session_id = $3 AND role = 'assistant'\""
@@ -63,50 +64,6 @@ class Mutation:
 
 
 MUTATIONS = [
-    Mutation(
-        "M1_superseded_progress_leaks",
-        BRAIN,
-        "                    superseded.progress = progress\n                    return\n",
-        "                    superseded.progress = progress\n"
-        "                    self.last_audio_progress = progress\n                    return\n",
-    ),
-    Mutation(
-        "M2_superseded_stop_not_consumed",
-        BRAIN,
-        "                        self._superseded_turn_id = None\n",
-        "",
-    ),
-    Mutation(
-        "M3_stale_stop_guard_deleted",
-        BRAIN,
-        "                    and stop_msg.turn_id != active_turn_id\n"
-        "                    and not accepts_superseded",
-        "                    and False",
-    ),
-    Mutation(
-        "M4_completed_ignores_owner",
-        BRAIN,
-        "            context = self._reply_contexts.get(event.turn_id)\n",
-        '            context = self._reply_contexts.get(getattr(self, "_reply_turn_id", event.turn_id))\n',
-    ),
-    Mutation(
-        "M5_completed_not_once",
-        BRAIN,
-        "            if result is not LifecycleApplyResult.APPLIED:\n                return\n",
-        "            if result is LifecycleApplyResult.PROTOCOL_ERROR:\n                return\n",
-        additional=(
-            (
-                "            if prior or context is None:\n",
-                "            if context is None:\n",
-            ),
-        ),
-    ),
-    Mutation(
-        "M6_cancelled_ignores_generating",
-        BRAIN,
-        '            getattr(self, "_reply_generating", None) is False\n        ):',
-        "            False\n        ):",
-    ),
     Mutation(
         "M7_cut_not_addressed_by_id",
         BRAIN,
@@ -126,166 +83,10 @@ MUTATIONS = [
         "        if False:\n",
     ),
     Mutation(
-        "M10_insert_ignores_brain_id",
-        BRAIN,
-        "                if entry.log_task is None:\n"
-        "                    entry.log_task = self.spawn(\n"
-        "                        store.log_message(\n"
-        '                            "assistant", full_response, message_id=message_id\n',
-        "                if entry.log_task is None:\n"
-        "                    entry.log_task = self.spawn(\n"
-        "                        store.log_message(\n"
-        '                            "assistant", full_response\n',
-    ),
-    Mutation(
         "M11_store_rewrites_every_other_row",
         STORE,
         _ROW,
         "\"WHERE id != $2 AND session_id = $3 AND role = 'assistant'\"",
-    ),
-    Mutation(
-        "M12_replacement_does_not_resolve",
-        BRAIN,
-        "                self._reply_resolved = True\n                self._reply_generating = False\n"
-        '            await self._emit_outcome_record(intent, status="CANCELLED", error=reason)',
-        "                self._reply_generating = False\n"
-        '            await self._emit_outcome_record(intent, status="CANCELLED", error=reason)',
-        equivalent="the same section nulls the intent, so no later record can be "
-        "attributed to the reply",
-    ),
-    Mutation(
-        "M13_generation_never_ends",
-        BRAIN,
-        "                if self._reply_turn_id == turn_id:\n"
-        "                    self._reply_generating = False\n",
-        "                if self._reply_turn_id == turn_id:\n",
-    ),
-    Mutation(
-        "M14_snapshot_drops_row_id",
-        BRAIN,
-        'getattr(self, "_reply_message_id", None) if owns_reply else None',
-        "None",
-    ),
-    Mutation(
-        "M15_stop_leaves_generating_set",
-        BRAIN,
-        "            # record this reply CANCELLED again.\n"
-        "            self._reply_generating = False\n",
-        "            # record this reply CANCELLED again.\n",
-    ),
-    Mutation(
-        "N3_cancelled_twice",
-        BRAIN,
-        "        if cancelled_a_running_turn and (\n"
-        '            getattr(self, "_reply_generating", None) is False\n'
-        "        ):",
-        "        if cancelled_a_running_turn and False:",
-    ),
-    Mutation(
-        "N4_row_id_in_a_second_section",
-        BRAIN,
-        "                if self._reply_turn_id == turn_id:\n"
-        "                    self._reply_generating = False\n"
-        "                    self._reply_log_task = log_task\n"
-        "                    self._reply_message_id = message_id\n",
-        "                if self._reply_turn_id == turn_id:\n"
-        "                    self._reply_generating = False\n"
-        "            await asyncio.sleep(0)\n"
-        "            async with self._turn_state_lock:\n"
-        "                if self._reply_turn_id == turn_id:\n"
-        "                    self._reply_log_task = log_task\n"
-        "                    self._reply_message_id = message_id\n",
-    ),
-    Mutation(
-        "N5_cut_ignores_text_owner",
-        BRAIN,
-        '                if getattr(self, "_reply_resolved", False) or (\n'
-        "                    owner is not None and active is not None and owner != active\n"
-        "                ):",
-        '                if getattr(self, "_reply_resolved", False):',
-    ),
-    Mutation(
-        "N6_offset_at_end_is_a_cut",
-        BRAIN,
-        "                if 0 < offset < len(text):",
-        "                if 0 < offset <= len(text):",
-    ),
-    Mutation(
-        "N7_snapshot_carries_resolved_reply",
-        BRAIN,
-        '                and getattr(self, "_reply_turn_id", None) == interrupted_turn_id\n'
-        '                and not getattr(self, "_reply_resolved", False)\n',
-        '                and getattr(self, "_reply_turn_id", None) == interrupted_turn_id\n',
-    ),
-    Mutation(
-        "N8_superseded_accepts_any_stop",
-        BRAIN,
-        '                        stop_msg.reason == "confirmed_command"\n'
-        "                        and stop_msg.turn_id is not None",
-        "                        stop_msg.turn_id is not None",
-    ),
-    Mutation(
-        "N13_generating_false_from_the_start",
-        BRAIN,
-        "                self._reply_resolved = False\n                self._reply_generating = True\n",
-        "                self._reply_resolved = False\n                self._reply_generating = False\n",
-    ),
-    Mutation(
-        "N14_completed_does_not_resolve",
-        BRAIN,
-        '                if event.state in {"COMPLETED", "FAILED"} and event.turn_id == getattr(\n'
-        '                    self, "_reply_turn_id", None\n'
-        "                ):\n                    self._reply_resolved = True\n",
-        '                if event.state in {"COMPLETED", "FAILED"} and event.turn_id == getattr(\n'
-        '                    self, "_reply_turn_id", None\n'
-        "                ):\n                    self._reply_resolved = False\n",
-    ),
-    Mutation(
-        "N17_row_id_never_recorded",
-        BRAIN,
-        "                    self._reply_message_id = message_id\n",
-        "                    self._reply_message_id = None\n",
-    ),
-    Mutation(
-        "X12_snapshot_ignores_text_owner",
-        BRAIN,
-        "                interrupted_turn_id is not None\n"
-        '                and getattr(self, "_reply_turn_id", None) == interrupted_turn_id\n',
-        "                interrupted_turn_id is not None\n",
-    ),
-    Mutation(
-        "X17_reset_keeps_resolved",
-        BRAIN,
-        "                self._reply_turn_id = turn_id\n                self._reply_resolved = False\n",
-        "                self._reply_turn_id = turn_id\n",
-    ),
-    Mutation(
-        "N2_cancel_before_content_does_not_resolve",
-        BRAIN,
-        "            if produced_nothing:\n                self._reply_resolved = True\n",
-        "",
-    ),
-    Mutation(
-        "Z17_superseded_cut_does_not_wait_for_insert",
-        BRAIN,
-        "                log_task, message_id = reply.log_task, reply.message_id\n",
-        "                log_task, message_id = None, reply.message_id\n",
-    ),
-    Mutation(
-        "Z42_superseded_slot_takes_any_old_frame",
-        BRAIN,
-        "                    and progress.utterance_id == superseded.turn_id\n",
-        "                    and superseded.turn_id is not None\n",
-    ),
-    Mutation(
-        "Y20_record_offset_is_trimmed_length",
-        BRAIN,
-        '                            status="TRUNCATED",\n'
-        "                            actual_delivered_text=truncated_text,\n"
-        "                            character_offset=offset,\n",
-        '                            status="TRUNCATED",\n'
-        "                            actual_delivered_text=truncated_text,\n"
-        "                            character_offset=len(truncated_text),\n",
     ),
     Mutation(
         "N9_timed_out_wait_still_writes",
@@ -301,46 +102,11 @@ MUTATIONS = [
         "                self._active_action_intent = None\n",
         "                self.last_assistant_response = None\n"
         "                self._active_action_intent = None\n",
-    ),
-    Mutation(
-        "Y19_final_reply_text_not_recorded",
-        BRAIN,
-        "            async with self._turn_state_lock:\n"
-        "                self.last_assistant_response = full_response\n"
-        "                if self._reply_turn_id == turn_id:\n",
-        "            async with self._turn_state_lock:\n"
-        "                if self._reply_turn_id == turn_id:\n",
-    ),
-    Mutation(
-        "N11_replacement_keeps_intent",
-        BRAIN,
-        "                self._active_action_intent = None\n"
-        "                self._reply_resolved = True\n",
-        "                self._reply_resolved = True\n",
-        equivalent="the reply is resolved in the same section and the next "
-        "user turn's reset nulls the intent before its pipeline commits one",
-    ),
-    Mutation(
-        "N12_end_of_generation_ignores_owner",
-        BRAIN,
-        "                if self._reply_turn_id == turn_id:\n"
-        "                    self._reply_generating = False\n"
-        "                    self._reply_log_task = log_task\n",
-        "                if True:\n"
-        "                    self._reply_generating = False\n"
-        "                    self._reply_log_task = log_task\n",
-        equivalent="a user turn reaches this section only as the owner it set at "
-        "its own reset; a newer turn would first have cancelled this flow",
-    ),
-    Mutation(
-        "N18_proactive_turn_takes_the_row_id",
-        BRAIN,
-        "        elif store is not None:\n            log_task = self.spawn(",
-        "        elif store is not None:\n"
-        "            self._reply_message_id = message_id\n"
-        "            log_task = self.spawn(",
-        equivalent="once a proactive turn is active the owner check stops any "
-        "cut of the user reply, so the live row id is never read",
+        equivalent=(
+            "since the W5 ledger `last_audio_progress` is diagnostic only: every "
+            "cut reads its own reply's progress from the ledger entry, and a "
+            "resolution clears the field for its own turn"
+        ),
     ),
     Mutation(
         "S3_store_insert_ignores_id",
@@ -357,13 +123,10 @@ MUTATIONS = [
         "assistant row the brain logged",
     ),
     Mutation(
-        "W5_ledger_resolved_reply_can_be_cut_twice",
+        "W5_one_interruption_felt_twice",
         BRAIN,
-        "        if any(\n"
-        "            resolution.turn_id == target\n"
-        '            for resolution in getattr(self, "reply_resolutions", ())\n'
-        "        ):\n            return True\n",
-        "        if False:\n            return True\n",
+        "        if reply.interruption_felt:\n            return True\n",
+        "",
     ),
     Mutation(
         "W5_grace_window_expires_immediately",
@@ -437,6 +200,176 @@ MUTATIONS = [
         BRAIN,
         "        target = stop_msg.turn_id or active_id\n",
         "        target = stop_msg.turn_id\n",
+    ),
+    # ---- W5 ledger ports of gates the single-slot deletion moved ----
+    Mutation(
+        "W5_stale_progress_leaks_into_the_active_turn",  # was M1, Z42
+        BRAIN,
+        "                if active_turn_id and progress.utterance_id != active_turn_id:\n",
+        "                if False:\n",
+    ),
+    Mutation(
+        "W5_stale_stop_is_addressed",  # was M3, N8
+        BRAIN,
+        'addressed = target == active_id or stop_msg.reason == "confirmed_command"',
+        "addressed = True",
+    ),
+    Mutation(
+        "W5_unstarted_flow_end_does_not_resolve",  # was N2, M12, M13
+        BRAIN,
+        "            return\n        reason = entry.cancel_reason or ended\n",
+        "            return\n        return\n        reason = None\n",
+    ),
+    Mutation(
+        "W5_cancel_reason_not_recorded",  # was N3
+        BRAIN,
+        "                    prior_entry.cancel_reason = reason\n",
+        "                    pass\n",
+    ),
+    Mutation(
+        "W5_row_id_only_inside_the_lock",  # was N4, N17, M14
+        BRAIN,
+        "            if entry is not None:\n"
+        "                message_id = entry.message_id or message_id\n"
+        "                entry.message_id = message_id\n"
+        "                log_task = entry.log_task\n",
+        "",
+        additional=(
+            (
+                (
+                    "            if entry is not None:\n"
+                    "                entry.log_task = log_task\n"
+                    "        async with self._turn_state_lock:\n"
+                ),
+                "        async with self._turn_state_lock:\n",
+            ),
+        ),
+    ),
+    Mutation(
+        "W5_pacing_user_reply_not_in_flight",  # the pacing-window bug
+        BRAIN,
+        'active_reply and active_reply.source == "user" and not active_reply.resolved\n',
+        'active_reply and active_reply.source == "user" and not active_reply.resolved\n'
+        "            and active_reply.started\n",
+    ),
+    Mutation(
+        "W5_proactive_reply_takes_the_user_turns_intent",  # was N18
+        BRAIN,
+        "                if not is_subconscious:\n"
+        '                    entry.intent = getattr(self, "_active_action_intent", None)\n',
+        "                if True:\n"
+        '                    entry.intent = getattr(self, "_active_action_intent", None)\n',
+    ),
+    Mutation(
+        "W5_out_of_order_lifecycle_applied",  # was M5
+        BRAIN,
+        "            if result is not LifecycleApplyResult.APPLIED:\n                return\n",
+        "            if result is LifecycleApplyResult.PROTOCOL_ERROR:\n                return\n",
+    ),
+    Mutation(
+        "W5_insert_ignores_brain_id",  # was M10
+        BRAIN,
+        'store.log_message("assistant", full_response, message_id=message_id)\n'
+        "                )\n            if entry is not None:\n",
+        'store.log_message("assistant", full_response)\n'
+        "                )\n            if entry is not None:\n",
+    ),
+    Mutation(
+        "W5_record_offset_is_trimmed_length",  # was Y20
+        BRAIN,
+        "            actual_delivered_text=heard,\n            character_offset=heard_offset,\n",
+        "            actual_delivered_text=heard,\n            character_offset=len(heard),\n",
+    ),
+    Mutation(
+        "W5_fully_heard_reply_is_rewritten",  # was N6
+        BRAIN,
+        "        if heard != text:  # a reply never stored has no row",
+        "        if True:  # a reply never stored has no row",
+    ),
+    Mutation(
+        "W5_flushed_take_resolves_the_reply",
+        BRAIN,
+        '                if event.state == "INTERRUPTED" and event.flushed:\n'
+        "                    return\n                entry.started = True\n",
+        "                entry.started = True\n",
+    ),
+    Mutation(
+        "W5_final_text_reaches_the_entry_after_done",  # was Y19
+        BRAIN,
+        "        # end of generation and the row-id write in `_finish_reply`.\n"
+        "        entry = self._reply_ledger.get(turn_id)\n"
+        "        if entry is not None and not entry.resolved:\n"
+        "            entry.text = full_response\n",
+        "        entry = None\n",
+    ),
+    # --- Codex cold critic round 1 (ADR-W5 section 9) ---
+    Mutation(
+        "W5_failed_first_chunk_stays_started",  # critic r1 #1
+        BRAIN,
+        "                entry.started = False\n            raise\n",
+        "                pass\n            raise\n",
+    ),
+    Mutation(
+        "W5_resolved_reply_leaves_the_ledger_last",  # critic r1 #2
+        BRAIN,
+        "        self._reply_ledger.pop(entry.turn_id, None)\n"
+        '        resolved = getattr(self, "_resolved_replies", None)\n',
+        '        resolved = getattr(self, "_resolved_replies", None)\n',
+        additional=(
+            (
+                (
+                    "            await self._store_heard_reply(heard, entry.log_task, "
+                    "entry.message_id)\n"
+                ),
+                (
+                    "            await self._store_heard_reply(heard, entry.log_task, "
+                    "entry.message_id)\n        self._reply_ledger.pop(entry.turn_id, None)\n"
+                ),
+            ),
+        ),
+    ),
+    Mutation(
+        "W5_overflow_write_not_shielded",  # critic r1 #2
+        BRAIN,
+        "            await asyncio.shield(\n                self.spawn(\n"
+        "                    self._resolve_reply(\n",
+        "            await (\n                (\n                    self._resolve_reply(\n",
+    ),
+    Mutation(
+        "W5_teardown_unbounded",  # critic r1 #3
+        BRAIN,
+        "await asyncio.wait({task}, timeout=GENERATION_TEARDOWN_WAIT_S)",
+        "await asyncio.wait({task})",
+    ),
+    Mutation(
+        "W5_no_publish_fence",  # critic r1 #3
+        BRAIN,
+        "        return task is not None and task.cancelling() > 0\n",
+        "        return False\n",
+    ),
+    Mutation(
+        "W5_timed_out_teardown_leaves_the_reply",  # critic r1 #3
+        BRAIN,
+        '            await self._end_generation(entry.turn_id, "generation_cancelled", task)\n',
+        "            pass\n",
+    ),
+    Mutation(
+        "W5_fallback_is_not_the_reply_text",  # critic r1 #4
+        BRAIN,
+        '                full_response = f"{spoken} {fallback_text}" if spoken else fallback_text\n',
+        "                full_response = full_response\n",
+    ),
+    Mutation(
+        "W5_cut_reply_not_addressable_after_resolving",  # stop felt once, not by timing
+        BRAIN,
+        '            if done is not None and done.status == "TRUNCATED":\n',
+        "            if False:\n",
+    ),
+    Mutation(
+        "W5_cancelled_sleeper_retained",  # critic r1 #5
+        "app/clock.py",
+        "            if sleeper in self._sleepers:\n                self._sleepers.remove(sleeper)\n",
+        "            pass\n",
     ),
 ]
 

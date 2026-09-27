@@ -13,34 +13,69 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from app.agents.brain_agent import BrainAgent
+from app.agents.brain_agent import BrainAgent, _ReplyLedgerEntry
+from app.config import Config
 
 REPLY = "I looked it up and the museum opens at ten, so we have plenty of time."
 
 
+@pytest.fixture(autouse=True)
+def _short_terminal_wait(monkeypatch):
+    monkeypatch.setattr(Config, "REPLY_TERMINAL_WAIT_S", 0.01)
+
+
+def _progress(offset, completed=False):
+    return SimpleNamespace(
+        utterance_id="t1", completed=completed, character_offset=offset
+    )
+
+
 def _agent(progress=None, response=REPLY):
-    agent = object.__new__(BrainAgent)
-    agent.last_audio_progress = progress
-    agent.last_assistant_response = response
+    """Turn "t1"'s reply, started and stored under a known row id, as the
+    turn flow leaves it (ADR-W5 §3): a cut rewrites that row and no other."""
+    agent = BrainAgent(graph_db=None, memory_store=None, conversation_store=None)
     agent.conversation_store = SimpleNamespace(rewrite_assistant_message=AsyncMock())
-    # P1-4: a confirmed stop now also cancels the interrupted turn's
-    # generation task (`_on_audio_stop` -> `_cancel_active_generation`),
-    # which reads this state -- set here the same way BrainAgent.__init__
-    # does, since these tests build the agent via object.__new__.
-    agent._active_generation_task = None
-    agent._generation_lock = asyncio.Lock()
-    # P2-14/M1-A14: _truncate_interrupted_reply now serializes the
-    # read-compute-write against concurrent writers (chat.input's turn
-    # reset, audio.playback.progress's tracker) via this lock -- set here
-    # for the same reason the two locks above are, since object.__new__
-    # skips BrainAgent.__init__ entirely.
-    agent._turn_state_lock = asyncio.Lock()
-    # The reply is turn "t1"'s and stored under a known row id, as
-    # `_process_chat_input_flow` leaves it; the cut rewrites that row only.
-    agent._reply_turn_id = "t1"
+    agent.cognitive_core = SimpleNamespace(
+        state=SimpleNamespace(release_adrenaline=AsyncMock())
+    )
+    agent.publish = AsyncMock()
     agent._active_response_turn_id = "t1"
-    agent._reply_message_id = "row-1"
+    agent._reply_ledger["t1"] = _ReplyLedgerEntry(
+        turn_id="t1",
+        source="user",
+        text=response,
+        progress=progress,
+        message_id="row-1",
+        started=True,
+        speaking=progress is not None,
+    )
+    agent.last_audio_progress = progress
     return agent
+
+
+def _lifecycle(state, heard):
+    return {
+        "utterance_id": "t1",
+        "turn_id": "t1",
+        "seq": 0,
+        "state": state,
+        "words_played": 1,
+        "words_streamed": 1,
+        "heard_offset": heard,
+        "streamed_offset": len(REPLY),
+    }
+
+
+def _run(agent, *steps):
+    """Deliver each (handler, payload) in order, then let the terminal wait
+    of any cut expire, so every cut has resolved when this returns."""
+
+    async def go():
+        for handler, payload in steps:
+            await getattr(agent, handler)(payload)
+        await asyncio.sleep(Config.REPLY_TERMINAL_WAIT_S * 3)
+
+    asyncio.run(go())
 
 
 def _stop(speculative=False):
@@ -87,11 +122,7 @@ def test_a_speculative_stop_does_not_cancel_generation():
 
 
 def _agent_with_endocrine_state(progress=None, response=REPLY):
-    agent = _agent(progress=progress, response=response)
-    agent.cognitive_core = SimpleNamespace(
-        state=SimpleNamespace(release_adrenaline=AsyncMock())
-    )
-    return agent
+    return _agent(progress=progress, response=response)  # adrenaline is a mock
 
 
 def test_a_confirmed_stop_releases_adrenaline():
@@ -139,23 +170,27 @@ def test_an_endocrine_failure_does_not_prevent_truncation():
     whether truncation -- the part that keeps memory honest about what was
     actually said -- happens. Mirrors `cognitive/pipeline.py`'s own
     broad-except reasoning for every other hormone release site."""
-    agent = _agent_with_endocrine_state(progress=None)
+    agent = _agent_with_endocrine_state(progress=_progress(26))
     agent._cancel_active_generation = AsyncMock()
     agent.cognitive_core.state.release_adrenaline = AsyncMock(
         side_effect=RuntimeError("endocrine backend down")
     )
 
-    asyncio.run(agent._on_audio_stop(_stop()))
+    _run(agent, ("_on_audio_stop", _stop()))
 
     agent._cancel_active_generation.assert_awaited_once()
+    agent.conversation_store.rewrite_assistant_message.assert_awaited_once_with(
+        REPLY[:26].strip(), message_id="row-1"
+    )
 
 
 def test_real_playback_progress_still_truncates_where_it_says():
-    """The accurate path must keep working; it is the only one that knows."""
-    progress = SimpleNamespace(completed=False, character_offset=26)
-    agent = _agent(progress)
+    """The accurate path must keep working; it is the only one that knows.
+    When the transport's terminal is lost, the cut resolves at the last
+    progress offset once REPLY_TERMINAL_WAIT_S elapses (ADR-W5 §4)."""
+    agent = _agent(_progress(26))
 
-    asyncio.run(agent._on_audio_stop(_stop()))
+    _run(agent, ("_on_audio_stop", _stop()))
 
     agent.conversation_store.rewrite_assistant_message.assert_awaited_once()
     call = agent.conversation_store.rewrite_assistant_message.await_args
@@ -164,22 +199,27 @@ def test_real_playback_progress_still_truncates_where_it_says():
     assert stored == REPLY[:26].strip()
 
 
-def test_an_interruption_without_progress_does_not_invent_a_cut_point(caplog):
-    """This replaces a hardcoded 15 characters/second estimate.
+def test_an_interruption_without_progress_does_not_invent_a_cut_point():
+    """This replaced a hardcoded 15 characters/second estimate.
 
     Real speech rate varies with prosody, pauses and the synthesiser, so the
     estimate cut wherever the arithmetic landed and nothing downstream could
-    tell the sentence had been reconstructed. Keeping the full text is also
-    imperfect — the agent may believe it said more than was heard — but it is
-    wrong honestly and visibly rather than by fabrication.
+    tell the sentence had been reconstructed. With no progress the cut
+    waits: nothing is rewritten until the transport, which owns playout,
+    reports how much was heard (DR-028), and that offset is the cut point.
     """
     agent = _agent(progress=None)
 
-    with caplog.at_level("INFO"):
-        asyncio.run(agent._on_audio_stop(_stop()))
+    async def go():
+        await agent._on_audio_stop(_stop())
+        agent.conversation_store.rewrite_assistant_message.assert_not_awaited()
+        await agent._on_audio_playback_lifecycle(_lifecycle("INTERRUPTED", 40))
 
-    agent.conversation_store.rewrite_assistant_message.assert_not_awaited()
-    assert any("keeping the full" in r.getMessage() for r in caplog.records)
+    asyncio.run(go())
+
+    agent.conversation_store.rewrite_assistant_message.assert_awaited_once_with(
+        REPLY[:40].strip(), message_id="row-1"
+    )
 
 
 def test_a_speculative_stop_never_rewrites_history():
@@ -188,28 +228,35 @@ def test_a_speculative_stop_never_rewrites_history():
     Truncating on one would edit the transcript because the agent *thought* it
     heard the user start talking.
     """
-    progress = SimpleNamespace(completed=False, character_offset=26)
-    agent = _agent(progress)
+    agent = _agent(_progress(26))
 
-    asyncio.run(agent._on_audio_stop(_stop(speculative=True)))
+    _run(agent, ("_on_audio_stop", _stop(speculative=True)))
 
     agent.conversation_store.rewrite_assistant_message.assert_not_awaited()
 
 
-def test_progress_is_cleared_even_when_nothing_was_truncated():
+def test_a_stop_after_the_reply_completed_cuts_nothing():
     """Otherwise a stale offset survives into the next interruption.
 
-    The reset lived only on the branch that truncated, so a stop matching none
-    of the guards left the marker in place — and the *next* barge-in would cut
-    the new reply at an offset measured against a reply that had already ended.
+    A reply the transport finished is resolved COMPLETED and leaves the
+    ledger, its progress with it; a stop arriving later finds nothing to cut
+    and cannot rewrite the row at an offset measured against a reply that
+    had already ended.
     """
-    progress = SimpleNamespace(completed=True, character_offset=26)  # completed
-    agent = _agent(progress)
+    agent = _agent(_progress(26))
 
-    asyncio.run(agent._on_audio_stop(_stop()))
+    _run(
+        agent,
+        ("_on_audio_playback_lifecycle", _lifecycle("COMPLETED", len(REPLY))),
+        ("_on_audio_stop", _stop()),
+    )
 
     agent.conversation_store.rewrite_assistant_message.assert_not_awaited()
     assert agent.last_audio_progress is None
+    assert "t1" not in agent._reply_ledger
+    assert [(r.turn_id, r.status) for r in agent.reply_resolutions] == [
+        ("t1", "COMPLETED")
+    ]
 
 
 def test_the_response_start_timestamp_is_gone():
@@ -228,19 +275,29 @@ def test_the_response_start_timestamp_is_gone():
     assert "self.assistant_response_start_time = time.time()" not in source
 
 
-@pytest.mark.parametrize("offset", [0, len(REPLY), len(REPLY) + 50])
-def test_an_out_of_range_offset_leaves_the_reply_alone(offset):
-    """A zero or past-the-end offset means "nothing useful is known".
+@pytest.mark.parametrize("offset", [len(REPLY), len(REPLY) + 50])
+def test_a_full_or_past_the_end_offset_leaves_the_reply_alone(offset):
+    """Past-the-end is clamped to the text: the reply was heard in full, and
+    stripping its trailing whitespace would rewrite it for no reason."""
+    agent = _agent(_progress(offset))
 
-    Zero would store an empty message; past-the-end would strip the trailing
-    whitespace off a reply that was heard in full and rewrite it for no reason.
-    """
-    progress = SimpleNamespace(completed=False, character_offset=offset)
-    agent = _agent(progress)
-
-    asyncio.run(agent._on_audio_stop(_stop()))
+    _run(agent, ("_on_audio_stop", _stop()))
 
     agent.conversation_store.rewrite_assistant_message.assert_not_awaited()
+
+
+def test_a_cut_at_offset_zero_records_that_nothing_was_heard():
+    """DR-027/DR-028: history is what was heard. Before W5 a zero offset was
+    read as "unknown" and the full reply was kept, so the agent believed it
+    had said a sentence the user never heard. Offset zero is the transport
+    reporting that playout had not reached the first word."""
+    agent = _agent(_progress(0))
+
+    _run(agent, ("_on_audio_stop", _stop()))
+
+    agent.conversation_store.rewrite_assistant_message.assert_awaited_once_with(
+        "", message_id="row-1"
+    )
 
 
 def _chat_input_agent():

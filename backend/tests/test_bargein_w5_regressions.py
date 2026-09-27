@@ -2,10 +2,13 @@
 
 import asyncio
 import time
+import uuid
 
 import pytest
 from test_barge_in_real_flow import REPLY_A, History, _agent, _progress, _settle
 
+from app.agents import brain_agent as brain_module
+from app.cognitive.action_intent import build_action_intent
 from app.config import Config
 from app.contracts import Topics
 
@@ -577,3 +580,462 @@ async def test_user_final_cut_resolves_at_the_last_heard_offset_when_the_termina
     ] == ["TRUNCATED"]
     assert history.rows[1] == ["assistant", cut.heard_text]
     await _finish_generation(agent)
+
+
+@pytest.mark.asyncio
+async def test_typed_user_final_cancels_a_proactive_reply_still_generating():
+    # A proactive reply still generating when a typed user final lands (no
+    # partial came first, so `_on_user_speech_partial` never ran) is cut
+    # CANCELLED by the replacement (§5, user final row). The replacement
+    # gated that on `_reply_generating`, the *user* reply's flag: after an
+    # earlier user reply had finished, the proactive entry was never
+    # resolved and sat in the ledger until an overflow recorded it FAILED.
+    agent = _agent(
+        History(),
+        {
+            "answer": {"pieces": [REPLY_A]},
+            "thought": {"pieces": ["a slow thought"], "think": 1.0},
+            "next": {"pieces": ["ok"]},
+        },
+    )
+    await _accept(agent, "answer", "user-a")
+    await _finish_generation(agent)
+    await agent._on_audio_playback_lifecycle(
+        {
+            "utterance_id": "user-a",
+            "turn_id": "user-a",
+            "seq": 0,
+            "state": "COMPLETED",
+            "words_played": 10,
+            "words_streamed": 10,
+            "heard_offset": len(REPLY_A),
+            "streamed_offset": len(REPLY_A),
+        }
+    )
+    assert _resolution(agent, "user-a").status == "COMPLETED"
+
+    await _accept(agent, "thought", "thought-a", subconscious=True, importance=0.5)
+    await asyncio.sleep(0.01)
+    assert not agent._reply_ledger["thought-a"].started
+
+    await _accept(agent, "next", "user-b")
+    await _finish_generation(agent)
+
+    assert "thought-a" not in agent._reply_ledger
+    cut = _resolution(agent, "thought-a")
+    assert (cut.status, cut.source) == ("CANCELLED", "proactive")
+    assert [item.turn_id for item in agent.reply_resolutions].count("thought-a") == 1
+
+
+@pytest.mark.asyncio
+async def test_a_user_reply_in_its_pacing_sleep_is_in_flight_for_a_thought():
+    # The user's turn has begun but sleeps its pre-response silence
+    # (300-900 ms in production) before generating. "In flight" was keyed on
+    # a generating flag the flow set only after that sleep, so a routine
+    # thought (importance < SELF_THOUGHT_INTERRUPT_MIN_IMPORTANCE) landing
+    # then was let in and ceded the user's reply CANCELLED: the question
+    # went unanswered. DR-026: only a significant thought may interrupt.
+    agent = _agent(
+        History(),
+        {"answer": {"pieces": [REPLY_A]}, "thought": {"pieces": ["by the way"]}},
+    )
+    agent.conversational_runtime.pacing_ms = 200.0
+    await _accept(agent, "answer", "user-a")
+    await asyncio.sleep(0.01)
+    assert not agent._reply_ledger["user-a"].started  # still pacing
+
+    await _accept(agent, "thought", "thought-a", subconscious=True, importance=0.5)
+
+    assert "thought-a" in agent.declined_proactive_inputs
+    assert "user-a" not in {item.turn_id for item in agent.reply_resolutions}
+    await _finish_generation(agent)
+    assert "user-a" in agent.finished_turns
+    assert "thought-a" not in agent._reply_ledger
+
+
+@pytest.mark.asyncio
+async def test_a_terminal_that_beats_the_end_of_the_flow_hears_the_whole_reply():
+    # A short proactive reply can play out before its flow reaches
+    # `_finish_reply`: the transport's COMPLETED arrives while the done
+    # marker is still being published. The reply's text must already be on
+    # its ledger entry then, or it resolves COMPLETED with nothing heard and
+    # the full row is stored afterwards with no entry to own it.
+    thought = "I remembered your appointment is tomorrow"
+    agent = _agent(History(), {"thought": {"pieces": [thought]}})
+    publish = agent.publish
+
+    async def fast_transport(subject, data):
+        await publish(subject, data)
+        if subject == Topics.CHAT_OUTPUT and data.get("done"):
+            await agent._on_audio_playback_lifecycle(
+                {
+                    "utterance_id": data["turn_id"],
+                    "turn_id": data["turn_id"],
+                    "seq": 0,
+                    "state": "COMPLETED",
+                    "words_played": len(thought.split()),
+                    "words_streamed": len(thought.split()),
+                    "heard_offset": len(thought),
+                    "streamed_offset": len(thought),
+                }
+            )
+
+    agent.publish = fast_transport
+    await _accept(agent, "thought", "thought-a", subconscious=True, importance=0.5)
+    await _finish_generation(agent)
+
+    done = _resolution(agent, "thought-a")
+    assert (done.status, done.heard_text) == ("COMPLETED", thought)
+
+
+@pytest.mark.asyncio
+async def test_a_stop_while_the_cut_writes_history_is_not_a_second_interruption():
+    # A resolved reply stays in the ledger while its history rewrite waits
+    # for the reply's own insert (bounded by REPLY_INSERT_WAIT_S). A second,
+    # different stop for it landing then found it, cancelled the generation
+    # again and released adrenaline a second time: one interruption felt
+    # twice.
+    history = History()
+    gate = asyncio.Event()
+    real_log = history.log_message
+
+    async def slow_log(role, content, message_id=None):
+        if role == "assistant":
+            await gate.wait()
+        await real_log(role, content, message_id)
+
+    history.log_message = slow_log
+    agent = _agent(history, {"answer": {"pieces": [REPLY_A]}})
+    await _accept(agent, "answer", "reply-a")
+    await agent._active_generation_task  # its insert is spawned, still gated
+    await _progress(agent, "reply-a", 14)
+
+    def stop(reason):
+        return {
+            "interrupt": True,
+            "speculative": False,
+            "reason": reason,
+            "turn_id": "reply-a",
+        }
+
+    await agent._on_audio_stop(stop("confirmed_command"))
+    resolving = asyncio.create_task(
+        agent._on_audio_playback_lifecycle(
+            {
+                "utterance_id": "reply-a",
+                "turn_id": "reply-a",
+                "seq": 0,
+                "state": "INTERRUPTED",
+                "words_played": 3,
+                "words_streamed": 10,
+                "heard_offset": 14,
+                "streamed_offset": len(REPLY_A),
+            }
+        )
+    )
+    await asyncio.sleep(0.01)
+    # Resolved and out of the ledger (critic r1 #2), its row still being cut.
+    assert "reply-a" not in agent._reply_ledger
+    assert _resolution(agent, "reply-a").status == "TRUNCATED"
+    assert history.rows[-1] != ["assistant", REPLY_A[:14].strip()]
+
+    await agent._on_audio_stop(stop("facial_reflex_startle"))
+    gate.set()
+    await resolving
+    await _settle(agent)
+
+    agent.cognitive_core.state.release_adrenaline.assert_awaited_once()
+    assert [r.turn_id for r in agent.reply_resolutions].count("reply-a") == 1
+    assert history.rows[-1] == ["assistant", REPLY_A[:14].strip()]
+
+
+@pytest.mark.asyncio
+async def test_a_stale_stop_for_a_superseded_reply_still_playing_cuts_nothing():
+    # I4: B took the floor with a speculative intent pending, so A was not
+    # cut and plays on while Stage 2 decides. A facial-startle stop published
+    # for A before B took over lands now. It is stale (not Stage 2's command,
+    # not the active turn): A must not be cut, time out TRUNCATED, or be
+    # felt as an interruption. Every other stale-stop test had A finished.
+    agent = _agent(
+        History(), {"answer": {"pieces": [REPLY_A]}, "hmm": {"pieces": ["okay"]}}
+    )
+    await _accept(agent, "answer", "reply-a")
+    await _finish_generation(agent)
+    await _progress(agent, "reply-a", 14)
+    agent.cognitive_core.state.last_speculative_intent = {
+        "name": "STOP",
+        "keywords": ["stop"],
+        "text": "hmm",
+    }
+    await _accept(agent, "hmm", "reply-b")
+    await _finish_generation(agent)
+    assert agent._active_response_turn_id == "reply-b"
+
+    await agent._on_audio_stop(
+        {
+            "interrupt": True,
+            "speculative": False,
+            "reason": "facial_reflex_startle",
+            "turn_id": "reply-a",
+        }
+    )
+    await asyncio.sleep(Config.REPLY_TERMINAL_WAIT_S * 3)
+    await _settle(agent)
+
+    entry = agent._reply_ledger["reply-a"]
+    assert not entry.cut_pending and not entry.resolved
+    agent.cognitive_core.state.release_adrenaline.assert_not_awaited()
+
+
+# --- Codex cold critic, round 1 (ADR-W5 section 9) ---------------------------
+
+
+@pytest.mark.asyncio
+async def test_a_reply_whose_chunks_never_reach_the_broker_is_resolved_once():
+    # Critic r1 #1: `started` was set before the chunk's publish and kept when
+    # it raised, so with the fallback's publish failing too, the flow's end
+    # skipped the reply as started and it never resolved: no OutcomeRecord.
+    agent = _agent(History(), {"answer": {"pieces": [REPLY_A]}})
+    publish = agent.publish
+
+    async def broker_down(subject, payload):
+        if subject == Topics.CHAT_OUTPUT:
+            raise RuntimeError("broker down")
+        await publish(subject, payload)
+
+    agent.publish = broker_down
+    await _accept(agent, "answer", "no-broker")
+    task = agent._active_generation_task
+    with pytest.raises(RuntimeError):
+        await task
+    await _settle(agent)
+
+    assert "no-broker" not in agent._reply_ledger
+    resolution = _resolution(agent, "no-broker")
+    assert (resolution.status, resolution.reason) == ("CANCELLED", "generation_failed")
+    assert [r.turn_id for r in agent.reply_resolutions].count("no-broker") == 1
+    outcomes = agent.get_outcome_history("no-broker")
+    assert [o.status for o in outcomes] == ["CANCELLED"]
+
+
+@pytest.mark.asyncio
+async def test_a_cancel_during_an_overflow_write_keeps_the_ledger_bounded():
+    # Critic r1 #2: the overflowed reply was marked resolved, then its history
+    # write awaited, then it left the ledger. Cancelled in the write, it stayed
+    # forever: later overflows picked it, returned at once, and the ledger grew.
+    history = History()
+    gate, entered, written = asyncio.Event(), asyncio.Event(), []
+
+    async def blocked_rewrite(text, *, message_id):
+        entered.set()
+        await gate.wait()
+        written.append((text, message_id))
+
+    history.rewrite_assistant_message = blocked_rewrite
+    agent = _agent(history, {})
+    for i in range(brain_module.REPLY_LEDGER_MAX):
+        await agent._begin_turn(f"t{i}")
+    oldest = agent._reply_ledger["t0"]
+    oldest.started, oldest.text, oldest.message_id = True, "reply text", uuid.uuid4()
+
+    pending = asyncio.create_task(agent._begin_turn("t32"))
+    await entered.wait()
+    pending.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await pending
+
+    assert "t0" not in agent._reply_ledger
+    assert agent.reply_ledger_size() == brain_module.REPLY_LEDGER_MAX
+    assert [r.turn_id for r in agent.reply_resolutions] == ["t0"]
+    gate.set()
+    await _settle(agent)
+    assert written == [("", oldest.message_id)]  # the shielded write still landed
+    for i in range(33, 40):
+        await agent._begin_turn(f"t{i}")
+    assert agent.reply_ledger_size() == brain_module.REPLY_LEDGER_MAX
+
+
+@pytest.mark.asyncio
+async def test_a_flow_cancelled_while_its_overflow_resolves_resolves_its_own_reply():
+    # Critic r1 #2, second half: `_begin_turn` ran outside the flow's cleanup,
+    # so a flow cancelled in its overflow left its own new entry behind.
+    history = History()
+    gate, entered = asyncio.Event(), asyncio.Event()
+
+    async def blocked_rewrite(text, *, message_id):
+        entered.set()
+        await gate.wait()
+
+    history.rewrite_assistant_message = blocked_rewrite
+    agent = _agent(history, {"late": {"pieces": ["never said"]}})
+    for i in range(brain_module.REPLY_LEDGER_MAX):
+        await agent._begin_turn(f"t{i}")
+    oldest = agent._reply_ledger["t0"]
+    oldest.started, oldest.text, oldest.message_id = True, "reply text", uuid.uuid4()
+
+    await _accept(agent, "late", "late")
+    flow = agent._active_generation_task
+    await entered.wait()
+    flow.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await flow
+    gate.set()
+    await _settle(agent)
+
+    assert "late" not in agent._reply_ledger
+    assert _resolution(agent, "late").status == "CANCELLED"
+    assert agent.reply_ledger_size() == brain_module.REPLY_LEDGER_MAX - 1
+
+
+def _stalling_generator(entered_cleanup, release, *, keep_talking=False):
+    async def process_event(raw_event, **_):
+        turn = raw_event["metadata"]["turn_id"]
+        intent = build_action_intent(
+            turn_id=turn,
+            workspace_epoch=0,
+            workspace_revision=0,
+            kind="SPEAK",
+            behavior_decision={},
+        )
+        yield {"type": "action_intent", "data": intent.model_dump()}
+        if raw_event["content"] != "first":
+            yield {"type": "content", "data": "second reply. "}
+            yield {"type": "done"}
+            return
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            entered_cleanup.set()
+            await release.wait()
+            if not keep_talking:
+                raise
+        # A generator that swallows its cancellation and keeps going.
+        yield {"type": "content", "data": "zombie words from the first reply. "}
+        yield {"type": "done"}
+
+    return process_event
+
+
+@pytest.mark.asyncio
+async def test_a_generation_stalled_in_its_cancel_cleanup_does_not_hold_chat_input(
+    monkeypatch,
+):
+    # Critic r1 #3: the replacement awaited the cancelled task without bound
+    # while holding `_generation_lock`, so every later chat.input waited on a
+    # generator's cleanup.
+    monkeypatch.setattr(brain_module, "GENERATION_TEARDOWN_WAIT_S", 0.05, raising=False)
+    release, entered_cleanup = asyncio.Event(), asyncio.Event()
+    agent = _agent(History(), {})
+    agent.cognitive_core.process_event = _stalling_generator(entered_cleanup, release)
+    await _accept(agent, "first", "first")
+    await asyncio.sleep(0.01)
+
+    replacement = asyncio.create_task(_accept(agent, "second", "second"))
+    await asyncio.wait_for(entered_cleanup.wait(), 0.5)
+    # `asyncio.wait`, not `wait_for`: a timeout must not cancel the handler,
+    # since that cancel would reach the stalled task and unstick it.
+    await asyncio.wait({replacement}, timeout=0.5)
+    stalled = not replacement.done()
+    release.set()
+    await replacement
+    assert not stalled, "chat.input waited on the old generation's cleanup"
+
+    assert _resolution(agent, "first").status == "CANCELLED"
+    assert "first" not in agent._reply_ledger
+    await _finish_generation(agent)
+    await _settle(agent)
+    assert [r.turn_id for r in agent.reply_resolutions].count("first") == 1
+
+
+@pytest.mark.asyncio
+async def test_a_handler_cancelled_while_it_waits_for_teardown_stays_cancelled(
+    monkeypatch,
+):
+    # Found while fixing critic r1 #3: `except asyncio.CancelledError: pass`
+    # around `await prior_task` also swallowed the handler's OWN cancellation
+    # (shutdown, a NATS callback timeout), and it went on to start a new turn.
+    monkeypatch.setattr(brain_module, "GENERATION_TEARDOWN_WAIT_S", 5.0, raising=False)
+    release, entered_cleanup = asyncio.Event(), asyncio.Event()
+    agent = _agent(History(), {})
+    agent.cognitive_core.process_event = _stalling_generator(entered_cleanup, release)
+    await _accept(agent, "first", "first")
+    await asyncio.sleep(0.01)
+
+    replacement = asyncio.create_task(_accept(agent, "second", "second"))
+    await asyncio.wait_for(entered_cleanup.wait(), 0.5)
+    replacement.cancel()
+    await asyncio.wait({replacement}, timeout=1.0)
+    release.set()
+    await _settle(agent)
+
+    assert replacement.cancelled()
+    assert "second" not in agent._reply_ledger
+    assert all(r.turn_id != "second" for r in agent.reply_resolutions)
+
+
+@pytest.mark.asyncio
+async def test_a_generation_that_swallows_its_cancel_cannot_speak_afterwards(
+    monkeypatch,
+):
+    # Critic r1 #3, the fence: once a successor has the floor, the old
+    # generation can finish its cleanup but may not put its reply on the wire.
+    monkeypatch.setattr(brain_module, "GENERATION_TEARDOWN_WAIT_S", 0.05, raising=False)
+    release, entered_cleanup = asyncio.Event(), asyncio.Event()
+    agent = _agent(History(), {})
+    agent.cognitive_core.process_event = _stalling_generator(
+        entered_cleanup, release, keep_talking=True
+    )
+    await _accept(agent, "first", "first")
+    await asyncio.sleep(0.01)
+    first_flow = agent._active_generation_task
+
+    replacement = asyncio.create_task(_accept(agent, "second", "second"))
+    await asyncio.wait({replacement}, timeout=0.5)  # never cancels the handler
+    release.set()
+    await replacement
+    await asyncio.wait({first_flow}, timeout=1.0)
+    await _finish_generation(agent)
+    await _settle(agent)
+
+    said = [
+        payload
+        for subject, payload in agent.published
+        if subject == Topics.CHAT_OUTPUT and payload.get("turn_id") == "first"
+    ]
+    assert said == []
+    assert [r.turn_id for r in agent.reply_resolutions].count("first") == 1
+
+
+@pytest.mark.asyncio
+async def test_a_stream_error_fallback_is_the_text_its_terminal_resolves():
+    # Critic r1 #4: the fallback was published but never put on the reply's
+    # entry, so its COMPLETED terminal resolved the reply as "" (or the
+    # partial text) and the OutcomeRecord said nothing was delivered.
+    history = History()
+    agent = _agent(history, {"answer": {"pieces": [], "raise": True}})
+    await _accept(agent, "answer", "fallback-a")
+    await _finish_generation(agent)
+    fallback = "I'm having trouble thinking right now..."
+    assert any(
+        s == Topics.CHAT_OUTPUT and p.get("content") == fallback
+        for s, p in agent.published
+    )
+
+    await agent._on_audio_playback_lifecycle(
+        {
+            "utterance_id": "fallback-a",
+            "turn_id": "fallback-a",
+            "seq": 0,
+            "state": "COMPLETED",
+            "words_played": len(fallback.split()),
+            "words_streamed": len(fallback.split()),
+            "heard_offset": len(fallback),
+            "streamed_offset": len(fallback),
+        }
+    )
+    await _settle(agent)
+
+    assert _resolution(agent, "fallback-a").heard_text == fallback
+    outcome = agent.get_outcome_history("fallback-a")
+    assert [o.actual_delivered_text for o in outcome] == [fallback]
+    assert history.rows[-1] == ["assistant", fallback]
