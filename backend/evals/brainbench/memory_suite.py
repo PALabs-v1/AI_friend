@@ -47,8 +47,77 @@ def _contains_in_retrieval(retrieved: Sequence[dict[str, Any]], value: str) -> b
     )
 
 
-def score_probe(retrieved: Sequence[dict[str, Any]], answer: Any) -> dict[str, float]:
-    """Score one ProbeAnswer against the top five retrieved memory contents."""
+def stale_values_for(answer: Any, annotations_by_turn: dict[str, Any], sim: Any):
+    """The superseded values a stale_trap probe is trying to trap into the top 5.
+
+    A stale turn's truthful claims on the probe's own entity and attribute name
+    the old value (same source `probes.py` used to pick the stale turns). The
+    current value is excluded: a value the user still holds is not obsolete.
+    """
+    if answer.category != "stale_trap" or not answer.stale_turn_ids:
+        return []
+    from evals.lifesim.probes import _value
+
+    entity = answer.derivation.get("entity")
+    attribute = answer.derivation.get("attribute")
+    current = {answer.answer[0].lower()} if answer.answer else set()
+    values: list[str] = []
+    for turn_id in answer.stale_turn_ids:
+        annotation = annotations_by_turn.get(turn_id)
+        if annotation is None:
+            continue
+        for claim in annotation.claims:
+            if (
+                claim.truthful
+                and claim.entity == entity
+                and claim.attribute == attribute
+            ):
+                value = _value(sim, claim.value)
+                if value.lower() not in current and value not in values:
+                    values.append(value)
+    return values
+
+
+def _obsolete_win(
+    rows: Sequence[dict[str, Any]], current_value: str, stale_values: Sequence[str]
+) -> float:
+    """1.0 when a stale value beats the current one in the top 5, else 0.0.
+
+    Same rule as `evals.cognitive.metrics` (the memory benchmark BrainBench's
+    W1 targets are stated against): the current value missing from the top 5
+    while a stale one is present counts as a win for the stale value, and a
+    memory that names both at the same rank is not a win.
+    """
+    contents = [str(row.get("content", "")) for row in rows[:5]]
+
+    def first_rank(values: Sequence[str]) -> int | None:
+        return next(
+            (
+                index
+                for index, content in enumerate(contents, start=1)
+                if any(_contains_value(content, value) for value in values)
+            ),
+            None,
+        )
+
+    best_stale = first_rank(stale_values)
+    if best_stale is None:
+        return 0.0
+    current_rank = first_rank([current_value])
+    return 1.0 if current_rank is None or best_stale < current_rank else 0.0
+
+
+def score_probe(
+    retrieved: Sequence[dict[str, Any]],
+    answer: Any,
+    stale_values: Sequence[str] | None = None,
+) -> dict[str, float]:
+    """Score one ProbeAnswer against the top five retrieved memory contents.
+
+    `stale_values` (resolved by `stale_values_for`) adds `obsolete_win` to a
+    stale_trap probe. It is left out, not zero, when no stale value could be
+    resolved, so the suite mean averages only probes where it can happen.
+    """
     rows = list(retrieved[:5])
     metrics: dict[str, float] = {"n_retrieved": float(len(retrieved))}
 
@@ -91,6 +160,10 @@ def score_probe(retrieved: Sequence[dict[str, Any]], answer: Any) -> dict[str, f
                 f"answerable {answer.category} probe has no canonical value"
             )
         _score_hit_and_rank(rows, [answer.answer[0]], metrics)
+        if stale_values:
+            metrics["obsolete_win"] = _obsolete_win(
+                rows, answer.answer[0], stale_values
+            )
     else:
         raise ValueError(
             f"unsupported memory probe scoring combination: {answer.category}/{answer.expected}"
@@ -128,7 +201,8 @@ async def run_memory_suite(
     progress_every: int = 100,
 ) -> list[SuiteOutcome]:
     """Replay one built lifesim and return one retrieval outcome per probe."""
-    sim, turns, _annotations, probes, answers = simulation
+    sim, turns, annotations, probes, answers = simulation
+    annotations_by_turn = {annotation.turn_id: annotation for annotation in annotations}
     if service.mode != "llm_augmented":
         raise ValueError("the memory suite requires an llm_augmented BrainBenchService")
     if progress_every <= 0:
@@ -184,7 +258,9 @@ async def run_memory_suite(
             retrieved = await service.memory_store.search_memories(
                 probe.text, limit=5, current_time=sim_clock.now()
             )
-            metrics = score_probe(retrieved, answer)
+            metrics = score_probe(
+                retrieved, answer, stale_values_for(answer, annotations_by_turn, sim)
+            )
             outcome = SuiteOutcome(
                 probe_key=probe.probe_id,
                 persona_seed=seed,

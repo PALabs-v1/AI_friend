@@ -14,6 +14,7 @@ from evals.brainbench.memory_suite import (
     ABSTAIN_RELEVANCE_THRESHOLD,
     run_memory_suite_for_seed,
     score_probe,
+    stale_values_for,
 )
 from evals.lifesim.generate import build
 
@@ -101,6 +102,70 @@ def test_n_retrieved_reports_actual_count_even_when_scoring_only_top_five():
     metrics = score_probe(rows, answer)
     assert metrics["n_retrieved"] == 6.0
     assert metrics["hit@5"] == 0.0
+
+
+def _stale_answer() -> SimpleNamespace:
+    return SimpleNamespace(
+        category="stale_trap",
+        expected="answer",
+        answer=["filter coffee"],
+        stale_turn_ids=["t-old"],
+        derivation={"entity": "self", "attribute": "coffee"},
+    )
+
+
+@pytest.mark.parametrize(
+    ("contents", "expected"),
+    [
+        # A stale value ranked above the current one wins.
+        (["I order oat flat white", "I now drink filter coffee"], 1.0),
+        # The current value missing from the top 5 while a stale one is there.
+        (["I order oat flat white", "unrelated"], 1.0),
+        # The current value ranked first is not a stale win.
+        (["I now drink filter coffee", "I order oat flat white"], 0.0),
+        # One memory naming both at the same rank is not a win (strict <).
+        (["I switched from oat flat white to filter coffee"], 0.0),
+        # No stale value retrieved at all.
+        (["I now drink filter coffee", "unrelated"], 0.0),
+        (["unrelated"], 0.0),
+    ],
+)
+def test_obsolete_win_follows_the_memory_benchmark_rule(contents, expected):
+    metrics = score_probe(
+        [_memory(content) for content in contents],
+        _stale_answer(),
+        stale_values=["oat flat white"],
+    )
+    assert metrics["obsolete_win"] == expected
+
+
+def test_obsolete_win_is_left_out_when_no_stale_value_resolved():
+    """Absent, not 0.0: the suite mean must average only probes where a stale
+    win is possible, or a missing annotation would look like a clean result."""
+    rows = [_memory("I order oat flat white")]
+    assert "obsolete_win" not in score_probe(rows, _stale_answer())
+    assert "obsolete_win" not in score_probe(rows, _stale_answer(), stale_values=[])
+
+
+def test_stale_values_for_ignores_probes_that_are_not_stale_traps():
+    """Only a stale_trap probe has a superseded value to trap; every other
+    category resolves none, so it never gains an `obsolete_win` metric."""
+    answer = _answer("current", "answer", ["art"])
+    answer.stale_turn_ids = ["t-old"]
+    answer.derivation = {"entity": "self", "attribute": "coffee"}
+    assert stale_values_for(answer, {}, None) == []
+    assert "obsolete_win" not in score_probe([_memory("art")], answer)
+
+
+def test_stale_values_resolve_from_real_lifesim_and_exclude_the_current_value():
+    sim, _turns, annotations, _probes, answers = build(1000, "chatty_student", "6m")
+    by_turn = {annotation.turn_id: annotation for annotation in annotations}
+    stale = [answer for answer in answers if answer.category == "stale_trap"]
+    assert stale, "the panel seed must contain stale_trap probes"
+    for answer in stale:
+        values = stale_values_for(answer, by_turn, sim)
+        assert values, f"no stale value resolved for {answer.probe_id}"
+        assert answer.answer[0].lower() not in {value.lower() for value in values}
 
 
 @pytest.mark.asyncio
