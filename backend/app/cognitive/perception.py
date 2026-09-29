@@ -4,6 +4,14 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
+# Written only by CognitivePipeline's own validated user-valence estimator
+# (pipeline.py, gated on Config.AFFECT_USER_INPUT_ENABLED), never by a raw
+# event's caller. decision.py trusts these two keys unconditionally to gate
+# regulation candidates and speaking urgency (W2 critic round 2, finding 1),
+# so a raw event carrying them must never reach a CognitiveEvent with them
+# still attached.
+_PIPELINE_OWNED_METADATA_KEYS = ("affect_significant_event", "affect_user_valence")
+
 
 @dataclass
 class CognitiveEvent:
@@ -36,7 +44,17 @@ class PerceptionService:
         event_id = raw_event.get("id", "unknown")
         event_type = raw_event.get("type", "USER_MESSAGE")
         content = raw_event.get("content", "")
-        metadata = raw_event.get("metadata", {})
+        raw_metadata = raw_event.get("metadata", {})
+        if not isinstance(raw_metadata, dict):
+            raw_metadata = {}
+        # Copy, and drop any pipeline-owned affect keys a caller supplied: an
+        # untrusted raw event must never be able to forge the estimator's
+        # output and reach decision.py's acute-distress/urgency checks.
+        metadata = {
+            key: value
+            for key, value in raw_metadata.items()
+            if key not in _PIPELINE_OWNED_METADATA_KEYS
+        }
 
         # 2. Extract Intent
         # H9: USER_MESSAGE intent classification (REMEMBER vs CHAT, including the

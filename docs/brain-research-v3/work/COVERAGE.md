@@ -39,11 +39,11 @@ Every workstream has a spec in this directory: `W1.md`..`W11.md`, `SW.md`,
 | M-12 | CLOSED | H-R3 answered no in Phase 4a (`09-gpu-experiment-results.md`): prefixing hurts the `summary` regime; production stays unprefixed |
 | M-13 | W8 | `learning.py` ignores `add_memory`'s return |
 | M-14 | W8 | Qdrant wing filter at query time; verify against R-10's claimed fix on live Qdrant (`08-live-infra-validation.md` deferred it to W1/W8) |
-| A-1 | W2 | user words never move valence |
+| A-1 | W2 | user words never move valence — implemented behind default-off flag; candidate adoption pending ADR-002 |
 | A-3 | W3 | trust rises under hostility (F-010) |
-| A-4 | W2 | arousal written back into energy |
-| A-5 | W2 | tick decay uses message interval, not elapsed time |
-| A-6 | W2 | acute distress tests the agent's state; DR-025 trigger |
+| A-4 | W2 | arousal written back into energy — fixed; round-trip regression passes |
+| A-5 | W2 | tick decay uses message interval, not elapsed time — fixed; elapsed-time regression passes |
+| A-6 | W2 | acute distress tests the agent's state; DR-025 trigger — significant user-distress metadata now reaches regulation; regression passes |
 | A-7 | SW | `learning_gain`, `evaluate_directive`, calibration: wire or delete |
 | V-2 | W4 | self-correction stop cancels its own retry; DR-029 flush semantics |
 | V-3 | W5 | serial `chat.input` makes preemption unreachable |
@@ -62,7 +62,7 @@ Every workstream has a spec in this directory: `W1.md`..`W11.md`, `SW.md`,
 | F-005 | W2 | `llama3.2:3b` classification parse rate; weighs W2's estimator choice (model choice is pluggable, not a product defect) |
 | F-006 | SW | JSON extractor cannot read thinking-mode output |
 | F-007 | W7 | throttled or concurrent reflection drops episodes |
-| F-009 | W2 | System2 semantic-drift appraisal echoes its prompt template |
+| F-009 | W2 | duplicate System2 semantic-drift appraisal removed; regression pins removal |
 | F-010 | W3 | trust is a turn counter; saturates at turn 6/13 |
 | F-011 | W9 | V-4 flood, 60 outreaches per idle hour |
 | F-012 | W11 | evolution frozen, or the whole adaptive self replaced in a week |
@@ -76,6 +76,8 @@ Every workstream has a spec in this directory: `W1.md`..`W11.md`, `SW.md`,
 | F-020 | W10 | shared `_INBOX.>` subscribe and per-stream consumer rights: any runtime user reads other agents' deliveries |
 | F-021 | W2 | facial reflex labels expressions "unambiguously" positive/negative (contradicts Barrett et al. 2019); stale "not wired" docstring |
 | F-022 | SW | `human_realism_eval.py` falls back to hard-coded constants and prints them as measurements |
+| F-023 | W10 | `test_stored_injection_corpus_is_quarantined_on_every_prompt_path` is intermittently flaky only inside a full-suite run |
+| F-024 | SW | lifesim `relationship#005` template nests a full rendered sentence inside a noun-phrase slot |
 
 F-008 and F-014 item 4 are fixed (`167db41b`, `e2b73f89`).
 

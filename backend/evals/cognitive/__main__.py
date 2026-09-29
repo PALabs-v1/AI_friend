@@ -130,7 +130,7 @@ def main(argv=None) -> int:
     a = sub.add_parser("affect")
     a.add_argument("--turns", type=int, default=60)
     a.add_argument("--seeds", type=int, nargs="*", default=[0, 1, 2])
-    a.add_argument("--out", required=True)
+    a.add_argument("--out", default="/tmp/affect-w2.json")
     a.set_defaults(func=_cmd_affect)
     lat = sub.add_parser("latency")
     lat.add_argument("--sizes", type=int, nargs="*", default=[200, 1000, 3000, 5000])

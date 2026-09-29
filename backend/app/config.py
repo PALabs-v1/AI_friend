@@ -229,6 +229,17 @@ class AppSettings(BaseSettings):
             "AFFECT_CONTROL_ENABLED", "PHASE_03_AFFECT_CONTROL"
         ),
     )
+    # W2 user-word-to-affect path. It stays off until a candidate clears the
+    # pre-registered ADR-002 estimator gate for both held-in evaluation sets.
+    AFFECT_USER_INPUT_ENABLED: bool = False
+    AFFECT_VALENCE_ESTIMATOR: str = (
+        "ensemble:vader,j-hartmann/emotion-english-distilroberta-base,"
+        "SamLowe/roberta-base-go_emotions"
+    )
+    # Maximum end-to-end wait for one interactive user-text estimate. This
+    # leaves most of DR-024's 300-500 ms first-audio budget to appraisal and
+    # response generation; expiry falls back to prior mood for this turn.
+    AFFECT_VALENCE_ESTIMATOR_TIMEOUT_S: float = Field(default=0.15, gt=0)
 
     # Authoritative workspace instance: production turns supply an authoritative workspace instance
     # to ActionIntent rather than falling back to (0, 0) -- see
@@ -325,6 +336,16 @@ class AppSettings(BaseSettings):
     PSYCH_DELTA: float = 0.1
     PSYCH_EPSILON: float = 0.03
     PSYCH_LAMBDA_DECAY: float = 0.05
+
+    # Trust's pull back toward `trust_baseline` (agent_state.py, the input
+    # `relationship_sentiment` derives from). DR-010 places relationship
+    # sentiment on a weeks-to-months timescale, far slower than mood's
+    # hours-to-days PSYCH_LAMBDA_DECAY above. ln(2)/672 gives a 4-week
+    # half-life -- provisional, pending W3's own trust/relationship-sentiment
+    # design (DR-015); this round only fixes the drift being tick-count-
+    # scaled instead of elapsed-time-scaled (W2 critic round 2, finding 3),
+    # not the final rate.
+    TRUST_BASELINE_DRIFT_LAMBDA_PER_HOUR: float = 0.001031
 
     ACTR_DECAY_RATE: float = 0.5
     ACTR_SPREAD_WEIGHT: float = 1.0

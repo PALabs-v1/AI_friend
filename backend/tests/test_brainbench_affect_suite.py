@@ -15,6 +15,7 @@ import pytest
 from app.config import Config
 from evals.brainbench.affect_suite import (
     run_affect_suite,
+    state_bound_rates,
     system2_completion_rate,
     user_valence_reaches_mood,
 )
@@ -31,6 +32,7 @@ def _outcome(turn_id: str, valence_delta: float, oracle: float, completed: float
         metrics={
             "valence_delta": valence_delta,
             "oracle_user_valence": oracle,
+            "oracle_expressed_valence": oracle,
             "system2_completed": completed,
         },
         mode="llm_augmented",
@@ -53,6 +55,104 @@ def test_user_valence_reaches_mood_reports_expected_direction():
     assert result["cliffs_delta"] == 1.0
     assert result["n_positive"] == 2
     assert result["n_negative"] == 2
+
+
+def test_user_valence_reaches_mood_flags_a_perfect_effect_size_as_not_significant_off_one_seed():
+    """W2 critic round 2, finding 4: a perfect Cliff's delta off a single
+    persona seed per group must not be reported as significant -- the
+    critic's own repro used one positive and one negative observation and
+    got `cliffs_delta: 1.0` with no significance field to say the sample
+    couldn't support that number. `_outcome` fixes persona_seed=1000 for
+    every row, so even this file's own passing-direction test above is,
+    without the fix, exactly this failure mode.
+    """
+    outcomes = [
+        _outcome("negative-1", -0.4, -0.8),
+        _outcome("positive-1", 0.5, 0.8),
+    ]
+
+    result = user_valence_reaches_mood(outcomes)
+
+    assert result["cliffs_delta"] == 1.0
+    assert result["significant"] is False
+    assert result["p_value"] == 1.0
+    assert result["ci95"] is None
+    assert result["n_positive_clusters"] == 1
+    assert result["n_negative_clusters"] == 1
+
+
+def test_user_valence_reaches_mood_can_report_significant_with_enough_seeds():
+    """The same mechanism must also be able to say yes: a consistent effect
+    across several independent persona seeds should clear significance,
+    proving the guard above is about insufficient evidence, not a gate that
+    can never open."""
+    outcomes = []
+    for seed in range(1000, 1008):
+        outcomes.append(
+            SuiteOutcome(
+                probe_key=f"negative-{seed}",
+                persona_seed=seed,
+                suite="affect",
+                categories=("test",),
+                metrics={
+                    "valence_delta": -0.4,
+                    "oracle_user_valence": -0.8,
+                    "oracle_expressed_valence": -0.8,
+                },
+            )
+        )
+        outcomes.append(
+            SuiteOutcome(
+                probe_key=f"positive-{seed}",
+                persona_seed=seed,
+                suite="affect",
+                categories=("test",),
+                metrics={
+                    "valence_delta": 0.4,
+                    "oracle_user_valence": 0.8,
+                    "oracle_expressed_valence": 0.8,
+                },
+            )
+        )
+
+    result = user_valence_reaches_mood(outcomes)
+
+    assert result["n_positive_clusters"] == 8
+    assert result["n_negative_clusters"] == 8
+    assert result["significant"] is True
+    assert result["p_value"] < 0.05
+
+
+def test_user_valence_reaches_mood_uses_expressed_label_when_available():
+    outcomes = [
+        SuiteOutcome(
+            probe_key="event-negative-surface-positive",
+            persona_seed=1000,
+            suite="affect",
+            categories=("test",),
+            metrics={
+                "valence_delta": 0.4,
+                "oracle_user_valence": -0.8,
+                "oracle_expressed_valence": 0.8,
+            },
+        ),
+        SuiteOutcome(
+            probe_key="event-positive-surface-negative",
+            persona_seed=1000,
+            suite="affect",
+            categories=("test",),
+            metrics={
+                "valence_delta": -0.4,
+                "oracle_user_valence": 0.8,
+                "oracle_expressed_valence": -0.8,
+            },
+        ),
+    ]
+
+    result = user_valence_reaches_mood(outcomes)
+
+    assert result["positive_mean_delta"] == pytest.approx(0.4)
+    assert result["negative_mean_delta"] == pytest.approx(-0.4)
 
 
 def test_user_valence_reaches_mood_excludes_near_neutral_turns():
@@ -99,14 +199,49 @@ def test_system2_completion_rate_summarizes_and_handles_empty_input():
     assert system2_completion_rate([]) == {
         "n_turns": 0,
         "completed": 0,
-        "completion_rate": 0.0,
+        "completion_rate": None,
+    }
+
+
+def test_state_bound_rates_reports_each_affect_layer():
+    outcomes = [
+        SuiteOutcome(
+            probe_key="one",
+            persona_seed=1000,
+            suite="affect",
+            categories=("test",),
+            metrics={
+                "mood_at_bound": True,
+                "momentary_valence_at_bound": False,
+                "relationship_sentiment_at_bound": True,
+            },
+        ),
+        SuiteOutcome(
+            probe_key="two",
+            persona_seed=1001,
+            suite="affect",
+            categories=("test",),
+            metrics={
+                "mood_at_bound": False,
+                "momentary_valence_at_bound": False,
+                "relationship_sentiment_at_bound": False,
+            },
+        ),
+    ]
+
+    assert state_bound_rates(outcomes) == {
+        "mood_at_bound_rate": 0.5,
+        "momentary_valence_at_bound_rate": 0.0,
+        "relationship_sentiment_at_bound_rate": 0.5,
     }
 
 
 def _fake_replay(process_event):
     now = datetime(2025, 1, 1, tzinfo=UTC)
     turn = SimpleNamespace(turn_id="turn-1", t=now, text="A test message")
-    annotation = SimpleNamespace(turn_id="turn-1", tags=["test"], user_valence=0.7)
+    annotation = SimpleNamespace(
+        turn_id="turn-1", tags=["test"], user_valence=0.7, expressed_valence=0.9
+    )
     state = SimpleNamespace(current_state=SimpleNamespace(valence=0.2))
     pipeline = SimpleNamespace(_system2_task=None)
     cognitive = SimpleNamespace(
@@ -141,7 +276,23 @@ async def test_run_affect_suite_success_without_failure_log_records_mood_delta()
     assert len(outcomes) == 1
     assert outcomes[0].metrics == {
         "valence_delta": pytest.approx(0.45),
+        "mood": 0.65,
+        "mood_at_bound": False,
+        "momentary_valence": 0.0,
+        "momentary_valence_delta": 0.0,
+        "momentary_valence_at_bound": False,
+        "relationship_sentiment": 0.0,
+        "relationship_sentiment_delta": 0.0,
+        "relationship_sentiment_at_bound": False,
         "oracle_user_valence": 0.7,
+        "oracle_expressed_valence": 0.9,
+        "trajectory_time_hours": 0.0,
+        "trajectory_baseline_mood": 0.0,
+        "trajectory_baseline_momentary_valence": 0.0,
+        "trajectory_baseline_relationship_sentiment": 0.0,
+        "trajectory_post_mood": 0.65,
+        "trajectory_post_momentary_valence": 0.0,
+        "trajectory_post_relationship_sentiment": 0.0,
         "system2_completed": 1.0,
     }
 
@@ -166,27 +317,15 @@ async def test_run_affect_suite_failure_log_marks_returned_task_incomplete():
 
 
 @pytest.mark.asyncio
-async def test_run_affect_suite_catches_the_inner_semantic_drift_failure_too():
-    """appraise_semantic_drift (app/cognitive/appraisal.py) has its own
-    try/except around the LLM call: on failure it logs "Semantic drift
-    evaluation failed" under the app.cognitive.appraisal logger and returns
-    current_pad unchanged, without raising -- so the outer pipeline.py
-    wrapper never sees an exception and never logs its own failure message.
-    A watcher scoped to only app.cognitive.pipeline is blind to this, the
-    far more common failure mode (an LLM call that fails or returns
-    unparsable JSON), and would report false 100% completion. This is the
-    regression test for a real bug this suite's own first draft had -- found
-    by a real home-gpu replay reporting 100% completion with an exact 0.0
-    mood delta on every one of 80 turns."""
+async def test_removed_semantic_drift_logger_does_not_mark_background_task_failed():
+    """The old semantic-drift path is gone; its former log is not a live metric."""
 
     async def process_event(_event):
         async def appraisal_with_inner_drift_failure():
             logging.getLogger("app.cognitive.appraisal").error(
                 "[System 2 Appraisal] Semantic drift evaluation failed: bad json"
             )
-            # No exception raised, no pipeline.py-level log line -- exactly
-            # what appraise_semantic_drift's own except block does before
-            # falling through to `return current_pad`.
+            # No current affect path emits this legacy message.
 
         pipeline._system2_task = asyncio.create_task(
             appraisal_with_inner_drift_failure()
@@ -198,7 +337,7 @@ async def test_run_affect_suite_catches_the_inner_semantic_drift_failure_too():
     outcomes = await run_affect_suite(simulation, service)
 
     assert len(outcomes) == 1
-    assert outcomes[0].metrics["system2_completed"] == 0.0
+    assert outcomes[0].metrics["system2_completed"] == 1.0
 
 
 @pytest.mark.asyncio

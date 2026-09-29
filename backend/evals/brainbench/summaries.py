@@ -24,7 +24,16 @@ SUMMARY_SCORERS: dict[str, tuple[str, ...]] = {
     "bargein": ("invariant_violation_rates", "outcome_accounting"),
     "resources": ("latency_percentiles", "growth_curves", "unbounded_structures"),
     "memory": ("score_probe",),
-    "affect": ("user_valence_reaches_mood", "system2_completion_rate"),
+    "affect": (
+        "user_valence_reaches_mood",
+        "system2_completion_rate",
+        "state_bound_rates",
+        "persistence",
+        "decay",
+        "recovery",
+        "saturation",
+        "one_conversation_long_term_effect",
+    ),
     "personality": ("tier_integrity", "evolution_throughput", "adaptive_drift"),
     "metacognition": (
         "uncertainty_calibration",
@@ -43,6 +52,11 @@ _EMPTY_KEYS: dict[str, tuple[str, ...]] = {
         "cliffs_delta",
         "n_positive",
         "n_negative",
+        "n_positive_clusters",
+        "n_negative_clusters",
+        "ci95",
+        "p_value",
+        "significant",
     ),
 }
 

@@ -1,0 +1,293 @@
+{
+  "suite": "affect-estimator-bakeoff",
+  "adr_002_rule": "r >= 0.8 AND sign agreement >= 0.9 on non-neutral messages AND hostile final trust <= 0.5",
+  "lifesim_verdict_label": "expressed_valence",
+  "lifesim_comparison_label": "user_valence (event valence)",
+  "llm": {
+    "model": "qwen3:8b",
+    "url": "http://127.0.0.1:11434"
+  },
+  "lifesim_sample": {
+    "seeds": [
+      1000
+    ],
+    "archetypes": [
+      "steady_professional",
+      "volatile_creative"
+    ],
+    "horizon": "1m"
+  },
+  "mapping": {
+    "cardiffnlp/twitter-roberta-base-sentiment-latest": "P(positive) - P(negative), neutral maps to 0",
+    "j-hartmann/emotion-english-distilroberta-base": "probability-weighted label scores: joy/love=+1; anger/disgust/fear/sadness=-1; neutral/surprise=0",
+    "SamLowe/roberta-base-go_emotions": "probability-weighted label scores: positive emotion labels=+1; negative emotion labels=-1; unlisted labels=0"
+  },
+  "results": [
+    {
+      "estimator": "vader",
+      "initialization_ms": 0.002,
+      "tom": {
+        "n": 21,
+        "pearson_r": 0.9049,
+        "sign_agreement_nonneutral": 0.9333333333333333,
+        "p50_ms": 0.011,
+        "p95_ms": 0.022,
+        "failure_rate": 0.0
+      },
+      "lifesim_dev_expressed_valence": {
+        "n": 278,
+        "pearson_r": 0.7362,
+        "sign_agreement_nonneutral": 0.7205882352941176,
+        "p50_ms": 0.007,
+        "p95_ms": 0.018,
+        "failure_rate": 0.0
+      },
+      "lifesim_dev_event_user_valence": {
+        "n": 278,
+        "pearson_r": 0.4987,
+        "sign_agreement_nonneutral": 0.8518518518518519,
+        "p50_ms": 0.007,
+        "p95_ms": 0.018,
+        "failure_rate": 0.0
+      },
+      "hostile_final_trust_by_seed": [
+        {
+          "seed": 0,
+          "final_trust": 0.6724
+        },
+        {
+          "seed": 1,
+          "final_trust": 0.6838
+        },
+        {
+          "seed": 2,
+          "final_trust": 0.6723
+        }
+      ],
+      "hostile_final_trust_mean": 0.6762,
+      "adr_002_pass": false
+    },
+    {
+      "estimator": "cardiffnlp/twitter-roberta-base-sentiment-latest",
+      "initialization_ms": 3025.547,
+      "tom": {
+        "n": 21,
+        "pearson_r": 0.9839,
+        "sign_agreement_nonneutral": 1.0,
+        "p50_ms": 12.45,
+        "p95_ms": 13.649,
+        "failure_rate": 0.0
+      },
+      "lifesim_dev_expressed_valence": {
+        "n": 278,
+        "pearson_r": 0.6855,
+        "sign_agreement_nonneutral": 0.8970588235294118,
+        "p50_ms": 12.281,
+        "p95_ms": 14.54,
+        "failure_rate": 0.0
+      },
+      "lifesim_dev_event_user_valence": {
+        "n": 278,
+        "pearson_r": 0.4298,
+        "sign_agreement_nonneutral": 1.0,
+        "p50_ms": 12.281,
+        "p95_ms": 14.54,
+        "failure_rate": 0.0
+      },
+      "hostile_final_trust_by_seed": [
+        {
+          "seed": 0,
+          "final_trust": 0.3333
+        },
+        {
+          "seed": 1,
+          "final_trust": 0.3333
+        },
+        {
+          "seed": 2,
+          "final_trust": 0.3333
+        }
+      ],
+      "hostile_final_trust_mean": 0.3333,
+      "adr_002_pass": false
+    },
+    {
+      "estimator": "j-hartmann/emotion-english-distilroberta-base",
+      "initialization_ms": 68.73,
+      "tom": {
+        "n": 21,
+        "pearson_r": 0.945,
+        "sign_agreement_nonneutral": 1.0,
+        "p50_ms": 6.766,
+        "p95_ms": 7.294,
+        "failure_rate": 0.0
+      },
+      "lifesim_dev_expressed_valence": {
+        "n": 278,
+        "pearson_r": 0.6145,
+        "sign_agreement_nonneutral": 0.8676470588235294,
+        "p50_ms": 6.905,
+        "p95_ms": 8.134,
+        "failure_rate": 0.0
+      },
+      "lifesim_dev_event_user_valence": {
+        "n": 278,
+        "pearson_r": 0.4782,
+        "sign_agreement_nonneutral": 1.0,
+        "p50_ms": 6.905,
+        "p95_ms": 8.134,
+        "failure_rate": 0.0
+      },
+      "hostile_final_trust_by_seed": [
+        {
+          "seed": 0,
+          "final_trust": 0.3333
+        },
+        {
+          "seed": 1,
+          "final_trust": 0.3333
+        },
+        {
+          "seed": 2,
+          "final_trust": 0.3333
+        }
+      ],
+      "hostile_final_trust_mean": 0.3333,
+      "adr_002_pass": false
+    },
+    {
+      "estimator": "SamLowe/roberta-base-go_emotions",
+      "initialization_ms": 80.672,
+      "tom": {
+        "n": 21,
+        "pearson_r": 0.9839,
+        "sign_agreement_nonneutral": 1.0,
+        "p50_ms": 13.339,
+        "p95_ms": 13.971,
+        "failure_rate": 0.0
+      },
+      "lifesim_dev_expressed_valence": {
+        "n": 278,
+        "pearson_r": 0.7027,
+        "sign_agreement_nonneutral": 0.7352941176470589,
+        "p50_ms": 13.232,
+        "p95_ms": 15.372,
+        "failure_rate": 0.0
+      },
+      "lifesim_dev_event_user_valence": {
+        "n": 278,
+        "pearson_r": 0.4584,
+        "sign_agreement_nonneutral": 1.0,
+        "p50_ms": 13.232,
+        "p95_ms": 15.372,
+        "failure_rate": 0.0
+      },
+      "hostile_final_trust_by_seed": [
+        {
+          "seed": 0,
+          "final_trust": 0.334
+        },
+        {
+          "seed": 1,
+          "final_trust": 0.3364
+        },
+        {
+          "seed": 2,
+          "final_trust": 0.334
+        }
+      ],
+      "hostile_final_trust_mean": 0.3348,
+      "adr_002_pass": false
+    },
+    {
+      "estimator": "ensemble:vader,cardiffnlp/twitter-roberta-base-sentiment-latest",
+      "initialization_ms": 52.186,
+      "tom": {
+        "n": 21,
+        "pearson_r": 0.9798,
+        "sign_agreement_nonneutral": 1.0,
+        "p50_ms": 12.295,
+        "p95_ms": 14.246,
+        "failure_rate": 0.0
+      },
+      "lifesim_dev_expressed_valence": {
+        "n": 278,
+        "pearson_r": 0.7663,
+        "sign_agreement_nonneutral": 0.8970588235294118,
+        "p50_ms": 12.58,
+        "p95_ms": 14.492,
+        "failure_rate": 0.0
+      },
+      "lifesim_dev_event_user_valence": {
+        "n": 278,
+        "pearson_r": 0.4956,
+        "sign_agreement_nonneutral": 1.0,
+        "p50_ms": 12.58,
+        "p95_ms": 14.492,
+        "failure_rate": 0.0
+      },
+      "hostile_final_trust_by_seed": [
+        {
+          "seed": 0,
+          "final_trust": 0.5543
+        },
+        {
+          "seed": 1,
+          "final_trust": 0.6452
+        },
+        {
+          "seed": 2,
+          "final_trust": 0.6004
+        }
+      ],
+      "hostile_final_trust_mean": 0.6,
+      "adr_002_pass": false
+    },
+    {
+      "estimator": "ensemble:vader,j-hartmann/emotion-english-distilroberta-base,SamLowe/roberta-base-go_emotions",
+      "initialization_ms": 121.605,
+      "tom": {
+        "n": 21,
+        "pearson_r": 0.9742,
+        "sign_agreement_nonneutral": 1.0,
+        "p50_ms": 20.954,
+        "p95_ms": 23.593,
+        "failure_rate": 0.0
+      },
+      "lifesim_dev_expressed_valence": {
+        "n": 278,
+        "pearson_r": 0.7477,
+        "sign_agreement_nonneutral": 0.75,
+        "p50_ms": 19.244,
+        "p95_ms": 21.67,
+        "failure_rate": 0.0
+      },
+      "lifesim_dev_event_user_valence": {
+        "n": 278,
+        "pearson_r": 0.529,
+        "sign_agreement_nonneutral": 1.0,
+        "p50_ms": 19.244,
+        "p95_ms": 21.67,
+        "failure_rate": 0.0
+      },
+      "hostile_final_trust_by_seed": [
+        {
+          "seed": 0,
+          "final_trust": 0.3992
+        },
+        {
+          "seed": 1,
+          "final_trust": 0.4776
+        },
+        {
+          "seed": 2,
+          "final_trust": 0.4382
+        }
+      ],
+      "hostile_final_trust_mean": 0.4383,
+      "adr_002_pass": false
+    }
+  ],
+  "failure_scoring": "Non-finite or missing predictions are imputed as neutral 0.0 for Pearson and sign scoring; failure_rate reports raw failures. Neutral predictions disagree with all non-neutral gold signs.",
+  "hostile_trust_rule": "ADR-002 passes only when every reported hostile seed final_trust is <= 0.5; the mean is descriptive only."
+}

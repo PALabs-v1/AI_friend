@@ -3,6 +3,7 @@ import inspect
 import logging
 import math
 import re
+import time
 from collections.abc import AsyncGenerator
 from typing import Any, Protocol, get_args, runtime_checkable
 
@@ -12,6 +13,7 @@ from ..persona.policy import PersonaPolicy
 from ..state.session_state import SessionState, persist_session_state
 from .action_intent import ActionIntent, ActionKind, build_action_intent
 from .behavior_contracts import BehaviorDecision
+from .decision import is_significant_valence
 from .memory_activation import MemoryActivation, memories_to_activations
 from .percept import PerceptEnvelope
 
@@ -108,6 +110,16 @@ class CognitivePipeline:
         self.llm = llm_service
         self.reappraisal = reappraisal
         self._system2_task = None
+        self._user_valence_estimator = None
+        if Config.AFFECT_USER_INPUT_ENABLED:
+            from .user_valence import build_estimator
+
+            self._user_valence_estimator = build_estimator(
+                Config.AFFECT_VALENCE_ESTIMATOR
+            )
+            prepare = getattr(self._user_valence_estimator, "prepare", None)
+            if prepare is not None:
+                prepare()
         # Phase 2B: a `WorkingMemoryStore` for per-turn `SessionState`.
         # Optional, like `reappraisal` above -- a pipeline built without one
         # (most unit tests) just skips session persistence, same reasoning as
@@ -259,6 +271,57 @@ class CognitivePipeline:
             time.perf_counter() - t_start
         ) * 1000.0
 
+    async def _estimate_user_valence(
+        self, event: Any, stage_times: dict[str, Any]
+    ) -> float | None:
+        from .user_valence import build_estimator
+
+        timeout_s = Config.AFFECT_VALENCE_ESTIMATOR_TIMEOUT_S
+        estimate_started = time.perf_counter()
+        try:
+            estimator = self._user_valence_estimator
+            if estimator is None:
+                estimator = build_estimator(Config.AFFECT_VALENCE_ESTIMATOR)
+                self._user_valence_estimator = estimator
+                prepare = getattr(estimator, "prepare", None)
+                if prepare is not None:
+                    remaining = timeout_s - (time.perf_counter() - estimate_started)
+                    if remaining <= 0:
+                        raise TimeoutError
+                    await asyncio.wait_for(
+                        asyncio.to_thread(prepare), timeout=remaining
+                    )
+            remaining = timeout_s - (time.perf_counter() - estimate_started)
+            if remaining <= 0:
+                raise TimeoutError
+            value = await asyncio.wait_for(
+                estimator.estimate(event.raw_content),
+                timeout=remaining,
+            )
+            if not math.isfinite(value):
+                raise ValueError("user-valence estimator returned non-finite output")
+            stage_times["user_valence_estimator_ms"] = (
+                time.perf_counter() - estimate_started
+            ) * 1000.0
+            event.metadata["user_valence"] = value
+            event.metadata["user_valence_estimator"] = estimator.name
+            return value
+        except TimeoutError:
+            stage_times["user_valence_estimator_ms"] = (
+                time.perf_counter() - estimate_started
+            ) * 1000.0
+            logger.warning(
+                "User-valence estimation timed out after %.3f seconds; "
+                "using prior affect",
+                timeout_s,
+            )
+            stage_times["user_valence_estimator_timed_out"] = True
+            return None
+        except Exception:
+            logger.exception("User-valence estimation failed; using prior affect")
+            stage_times["user_valence_estimator_failed"] = True
+            return None
+
     async def _update_state_from_appraisal(
         self,
         event,
@@ -269,8 +332,8 @@ class CognitivePipeline:
         stage_times: dict[str, Any],
         result: dict[str, Any],
     ) -> AsyncGenerator[dict[str, Any], None]:
-        """Stage 5: reappraisal outcome eval, ToM update, apply appraisal to
-        state, kick off System 2. Yields the state.update mesh_signal for a
+        """Stage 5: reappraisal outcome eval, ToM update, and apply appraisal
+        to state. Yields the state.update mesh_signal for a
         USER_MESSAGE turn. `result["state_snapshot"]` carries the (possibly
         refreshed) snapshot back out -- an async generator can't both yield
         chunks and return a value (see `_stream_action_pass`)."""
@@ -297,16 +360,6 @@ class CognitivePipeline:
 
             weights = self.reappraisal.get_weights() if self.reappraisal else None
             await self.state.update_from_appraisal(appraisal_vector, weights=weights)
-
-            # Trigger System 2 deep appraisal in background (non-blocking).
-            # A2: cancel any still-running prior appraisal so overlapping
-            # tasks cannot clobber each other's writes to short-term affect.
-            if self.llm and getattr(Config, "SYSTEM2_APPRAISAL_ENABLED", True):
-                if self._system2_task and not self._system2_task.done():
-                    self._system2_task.cancel()
-                self._system2_task = asyncio.create_task(
-                    self._async_system2_appraisal(event.raw_content)
-                )
 
             state_snapshot = self.state.get_context_snapshot()
             stage_times["stage_5_state_update_ms"] = (
@@ -1135,6 +1188,11 @@ class CognitivePipeline:
         t_start = time.perf_counter()
         state_snapshot = self.state.get_context_snapshot()
         emotional_bias = state_snapshot.get("mood", 0.0)
+        user_valence = None
+        if raw_event_type == "USER_MESSAGE" and Config.AFFECT_USER_INPUT_ENABLED:
+            user_valence = await self._estimate_user_valence(event, stage_times)
+            if user_valence is not None:
+                emotional_bias = user_valence
         user_voice_properties = raw_event.get("user_voice_properties")
         appraisal_vector = self.appraisal.appraise(
             event_content=event.raw_content,
@@ -1144,6 +1202,14 @@ class CognitivePipeline:
             identity_boundaries=self.identity.immutable_core["boundaries"],
             user_voice_properties=user_voice_properties,
         )
+        if user_valence is not None:
+            appraisal_vector.user_valence = user_valence
+            appraisal_vector.significant_event = is_significant_valence(user_valence)
+            event.metadata["affect_significant_event"] = (
+                appraisal_vector.significant_event
+            )
+            if appraisal_vector.significant_event:
+                event.metadata["affect_user_valence"] = user_valence
         stage_times["stage_4_appraisal_ms"] = (time.perf_counter() - t_start) * 1000.0
         yield {"type": "appraisal", "data": appraisal_vector}
 
@@ -1337,27 +1403,3 @@ class CognitivePipeline:
             )
         except Exception as e:
             logger.warning("[Endocrine] Self-correction release failed: %s", e)
-
-    async def _async_system2_appraisal(self, user_utterance: str):
-        try:
-            current_pad = {
-                "valence": self.state.current_state.valence,
-                "arousal": self.state.current_state.arousal,
-                "dominance": self.state.current_state.dominance,
-            }
-            new_pad = await self.appraisal.appraise_semantic_drift(
-                user_utterance, self.llm, current_pad
-            )
-            # Update state with drifted mood values under the state lock (A2)
-            # so this background write cannot race the synchronous appraisal path.
-            await self.state.apply_semantic_appraisal(new_pad)
-            logger.info(
-                "[System 2 Appraisal] Mood drifted: V=%.2f, Ar=%.2f, D=%.2f",
-                self.state.current_state.valence,
-                self.state.current_state.arousal,
-                self.state.current_state.dominance,
-            )
-        except Exception as e:
-            logger.error(
-                f"[System 2 Appraisal] Background semantic appraisal failed: {e}"
-            )

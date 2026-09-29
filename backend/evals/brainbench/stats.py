@@ -165,6 +165,70 @@ def bootstrap_p_value(
     return min(1.0, 2 * min(p_low, p_high))
 
 
+def unpaired_cluster_delta(
+    a_values: list[float],
+    a_clusters: list,
+    b_values: list[float],
+    b_clusters: list,
+    seed: int = 99,
+    n: int = 2000,
+) -> dict:
+    """Independent-groups cluster bootstrap for mean(b) - mean(a).
+
+    Unlike `paired_delta` (the same probes, before/after an ablation), the
+    two groups here are different probes entirely -- e.g. positive- vs
+    negative-oracle-valence turns within one run -- so there is no shared
+    index to pair on. Each group's mean is bootstrapped by resampling its
+    own persona-seed clusters (independent seeds so the two resamples are
+    uncorrelated), then the elementwise difference of the two resampled
+    distributions gives the sampling distribution of the delta.
+
+    Requires at least 2 distinct clusters in EACH group. With only one
+    persona seed contributing to a group, `_resample_cluster_means` falls
+    back to resampling raw values with no clustering, which understates
+    variance and can report a perfect Cliff's delta as "significant" off a
+    single observation (W2 critic round 2, finding 4 -- the critic's own
+    repro used one positive and one negative observation and got
+    `cliffs_delta: 1.0` with no significance field at all). Returned as
+    `n_clusters` short of 2 with `p_value: 1.0` and no `ci95`/`delta` sign
+    claimed, rather than a number the sample cannot support.
+    """
+    n_a_clusters = len(set(a_clusters))
+    n_b_clusters = len(set(b_clusters))
+    if not a_values or not b_values or n_a_clusters < 2 or n_b_clusters < 2:
+        return {
+            "n_a": len(a_values),
+            "n_b": len(b_values),
+            "n_a_clusters": n_a_clusters,
+            "n_b_clusters": n_b_clusters,
+            "delta": None,
+            "ci95": None,
+            "p_value": 1.0,
+            "significant": False,
+        }
+    means_a = _resample_cluster_means(a_values, a_clusters, seed, n)
+    means_b = _resample_cluster_means(b_values, b_clusters, seed + 1, n)
+    diffs = means_b - means_a
+    p_low = float(np.mean(diffs <= 0))
+    p_high = float(np.mean(diffs >= 0))
+    p_value = min(1.0, 2 * min(p_low, p_high))
+    return {
+        "n_a": len(a_values),
+        "n_b": len(b_values),
+        "n_a_clusters": n_a_clusters,
+        "n_b_clusters": n_b_clusters,
+        "delta": round(
+            sum(b_values) / len(b_values) - sum(a_values) / len(a_values), 4
+        ),
+        "ci95": {
+            "lo": round(float(np.quantile(diffs, 0.025)), 4),
+            "hi": round(float(np.quantile(diffs, 0.975)), 4),
+        },
+        "p_value": round(p_value, 4),
+        "significant": p_value < 0.05,
+    }
+
+
 def cliffs_delta(a: list[float], b: list[float]) -> float:
     """Cliff's delta: P(b_i > a_i) - P(b_i < a_i) over all pairs, in [-1, 1].
 

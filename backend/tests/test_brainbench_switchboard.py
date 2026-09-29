@@ -68,7 +68,7 @@ def test_all_union_is_registry_derived_and_conflicts_raise(monkeypatch):
     # Planned fields are intentionally absent; all still carries the full union.
     assert ARMS["all"].overrides == expected
     assert not is_runnable(ARMS["all"])
-    with pytest.raises(ArmUnavailable, match="W2, W3, W6, W7"):
+    with pytest.raises(ArmUnavailable, match="W3, W6, W7"):
         resolve_arm("all")
     for key in expected:
         monkeypatch.setitem(

@@ -14,6 +14,9 @@
 mss>=10.2.0,<11.0.0
 opencv-python>=5.0.0.93,<6.0.0.0
 pillow>=12.3.0,<13.0.0
+# W2's selectable deterministic user-valence estimator; small runtime package,
+# guarded by AFFECT_USER_INPUT_ENABLED and useful without any model weights.
+vaderSentiment==3.3.2
 # Bucket 13 (voice remediation Phase 3): Face Landmarker for the CPU-only
 # facial reflex channel (app/vision/reflex.py). Pinned below 1.0 deliberately,
 # not just floored: mediapipe==1.0.1 crashes outright on this task on macOS

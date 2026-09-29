@@ -158,6 +158,19 @@ def test_a_longer_half_life_holds_the_startle_longer():
     assert slow.adrenaline_phasic > quick.adrenaline_phasic
 
 
+def test_reading_then_writing_derived_arousal_does_not_bake_transients_into_energy():
+    """A-4: transient arousal components stay out of base energy."""
+    state = AgentState(energy=0.5, fatigue=0.5)
+    state.release_adrenaline(0.4)
+    energy_before = state.energy
+    displayed_arousal = state.arousal
+
+    state.arousal = displayed_arousal
+
+    assert state.energy == pytest.approx(energy_before)
+    assert state.arousal == pytest.approx(displayed_arousal)
+
+
 def test_adrenaline_clears_between_dopamine_and_cortisol_by_default():
     """The plan's own framing: a 1-3 minute timescale sitting between
     dopamine's reward glow and cortisol's stress hangover. If this ordering
@@ -295,9 +308,7 @@ async def test_facial_reflex_does_not_deadlock_on_the_release_wrapper():
     service._persist_sensory_state_if_due = AsyncMock(return_value=None)
 
     await asyncio.wait_for(
-        service.apply_facial_reflex(
-            {"name": "startle", "arousal_delta": 0.06}
-        ),
+        service.apply_facial_reflex({"name": "startle", "arousal_delta": 0.06}),
         timeout=5.0,
     )
     assert not service._state_lock.locked()
