@@ -3,7 +3,7 @@ import uuid
 
 import pytest
 
-from app.agents.brain_agent import BrainAgent
+from app.agents.brain_agent import BrainAgent, _ReplyLedgerEntry
 from app.state import ConversationHistoryStore
 
 
@@ -35,11 +35,17 @@ async def test_dialogue_truncation_on_interruption(
         conversation_store=store,
     )
 
-    # Set agent's state as the turn flow leaves a stored reply: owned by the
-    # playing turn and addressed by its history row id (ADR-003).
+    # As the turn flow leaves a stored reply: the active turn's ledger entry,
+    # started and addressed by its history row id (ADR-W5 §3).
     agent.last_assistant_response = original_text
-    agent._reply_turn_id = agent._active_response_turn_id = "utt-1"
-    agent._reply_message_id = row_id
+    agent._active_response_turn_id = "utt-1"
+    agent._reply_ledger["utt-1"] = _ReplyLedgerEntry(
+        turn_id="utt-1",
+        source="user",
+        text=original_text,
+        message_id=row_id,
+        started=True,
+    )
 
     # Simulate receiving audio.playback.progress
     # Slice at "I was planning to buy a coffee" (length 30)
@@ -61,6 +67,26 @@ async def test_dialogue_truncation_on_interruption(
         "intent_type": "VOICE_INTERRUPTION",
     }
     await agent._on_audio_stop(stop_data)
+    # The transport flushes the reply and reports how much was heard.
+    await agent._on_audio_playback_lifecycle(
+        {
+            "utterance_id": "utt-1",
+            "turn_id": "utt-1",
+            "seq": 0,
+            "state": "INTERRUPTED",
+            "words_played": 6,
+            "words_streamed": 11,
+            "heard_offset": 30,
+            "streamed_offset": len(original_text),
+        }
+    )
+
+    # I5 (W5 critic round 2): the rewrite is spawned, not awaited, by
+    # `_resolve_reply` now (a stuck store must never hang the lifecycle
+    # handler that called it), so it can still be in flight right after
+    # `_on_audio_playback_lifecycle` returns.
+    while agent._background_tasks:
+        await asyncio.gather(*list(agent._background_tasks), return_exceptions=True)
 
     # Verify database has the truncated text
     new_brief = await store.get_last_interaction_brief()

@@ -480,7 +480,10 @@ class TestRetrievedContentIsDelimited:
             [{"content": injected, "source": "user"}]
         )
         assert injected not in block
-        assert "[RETRIEVED-CONTENT][UNTRUSTED_CONTENT_FILTERED][/RETRIEVED-CONTENT]" in block
+        assert (
+            "[RETRIEVED-CONTENT][UNTRUSTED_CONTENT_FILTERED][/RETRIEVED-CONTENT]"
+            in block
+        )
 
     def test_a_memory_containing_the_marker_cannot_forge_an_early_close(self):
         """Without escaping, a memory containing the literal close marker
@@ -495,7 +498,10 @@ class TestRetrievedContentIsDelimited:
         )
         # Exactly one real close marker: the one this method adds at the end.
         assert block.count("[/RETRIEVED-CONTENT]") == 1
-        assert "[/retrieved-content]" in block
+        assert "(forged marker removed)" in block
+        assert "[/retrieved-content]" not in block.lower().replace(
+            "[/retrieved-content]", "", 1
+        )
 
     def test_visual_context_is_wrapped_when_present(self):
         block = ActionService._build_visual_context(

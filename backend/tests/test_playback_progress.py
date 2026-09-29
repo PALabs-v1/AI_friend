@@ -1,7 +1,7 @@
 """
 P4-2: `audio.playback.progress` was contract-and-subscriber-only -- nothing
-ever published it, so `_truncate_interrupted_reply`'s progress-known branch
-never ran in production. This covers the pipeline that makes it run:
+ever published it, so a cut's progress-known path never ran in
+production. This covers the pipeline that makes it run:
 
   brain_agent computes (character_offset, word_index) as it publishes each
   speech chunk -> voice-agent passes them through unchanged (Rust side,
@@ -15,12 +15,17 @@ never ran in production. This covers the pipeline that makes it run:
 
 import asyncio
 import contextlib
+import itertools
 import uuid
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from app.agents.brain_agent import BrainAgent, _char_offset_after_word
+from app.agents.brain_agent import (
+    BrainAgent,
+    _char_offset_after_word,
+    _ReplyLedgerEntry,
+)
 from app.agents.transport_agent import TransportAgent
 from app.cognitive.action_intent import build_action_intent
 from app.contracts import AudioPlaybackLifecycle, Topics
@@ -73,6 +78,32 @@ def _agent(mock_llm_service, mock_graph_db, mock_memory_store):
         graph_db=mock_graph_db,
         memory_store=mock_memory_store,
         conversation_store=None,
+    )
+
+
+def _seed_reply(agent, turn_id, text, intent, message_id=None):
+    """A reply as the turn flow leaves it once its chunks are published:
+    the active turn's ledger entry (ADR-W5 §3)."""
+    agent._active_response_turn_id = turn_id
+    agent.last_assistant_response = text
+    agent._active_action_intent = intent
+    agent._reply_ledger[turn_id] = _ReplyLedgerEntry(
+        turn_id=turn_id,
+        source="user",
+        text=text,
+        intent=intent,
+        message_id=message_id,
+        started=True,
+    )
+
+
+def _speak_intent(turn_id):
+    return build_action_intent(
+        turn_id=turn_id,
+        workspace_epoch=0,
+        workspace_revision=0,
+        kind="SPEAK",
+        behavior_decision={},
     )
 
 
@@ -236,27 +267,43 @@ async def test_stream_to_speech_empty_generation_fallback_is_tracked_against_its
     assert meta["word_index"] == len(result.split())
 
 
+@pytest.mark.parametrize(
+    "pieces",
+    [
+        ["partial "],  # buffered, never published: only the fallback is spoken
+        ["I went to the market today. ", "Then I bought apples, ", "and "],
+    ],
+)
 @pytest.mark.asyncio
-async def test_stream_to_speech_exception_fallback_omits_offsets(
-    mock_llm_service, mock_graph_db, mock_memory_store
+async def test_stream_to_speech_exception_fallback_is_tracked_against_what_was_spoken(
+    pieces, mock_llm_service, mock_graph_db, mock_memory_store
 ):
-    """Deliberately untracked -- see the comment at that call site.
-    `last_assistant_response` will not equal the fallback text spoken here,
-    so a fabricated offset would be actively misleading."""
+    """W5 critic r1 #4 (supersedes the untracked P4-2 fallback): the reply is
+    the words published before the error, then the fallback. Every chunk's
+    offset indexes that text, the done marker carries it, and it is what the
+    turn returns (so `last_assistant_response` and the history row hold it)."""
     agent = _agent(mock_llm_service, mock_graph_db, mock_memory_store)
     agent.publish = AsyncMock()
 
     async def _broken_stream():
-        yield {"type": "content", "data": "partial "}
+        for piece in pieces:
+            yield {"type": "content", "data": piece}
         raise RuntimeError("boom")
 
-    await agent._stream_to_speech(_broken_stream(), turn_id="turn-1")
+    result = await agent._stream_to_speech(_broken_stream(), turn_id="turn-1")
 
-    # Two chat.output publishes: the fallback speech chunk, then the done signal.
-    chat_output_calls = _chat_output_calls(agent.publish)
-    _, payload = chat_output_calls[0].args
-    meta = payload.get("metadata")
-    assert meta is None or "character_offset" not in (meta or {})
+    fallback = "I'm having trouble thinking right now..."
+    payloads = [call.args[1] for call in _chat_output_calls(agent.publish)]
+    chunks, done = payloads[:-1], payloads[-1]
+    assert done["done"] is True and done["full_response"] == result
+    assert result.endswith(fallback)
+    spoken = " ".join(p["content"] for p in chunks)
+    assert spoken.split() == result.split()
+    offsets = [
+        (p["metadata"]["character_offset"], p["metadata"]["word_index"]) for p in chunks
+    ]
+    assert offsets[-1] == (len(result), len(result.split()))
+    assert all(a[0] < b[0] for a, b in itertools.pairwise(offsets))
 
 
 # --------------------------------------------------------------------------
@@ -495,20 +542,7 @@ async def test_brain_records_one_completed_outcome_from_lifecycle(
     mock_llm_service, mock_graph_db, mock_memory_store
 ):
     agent = _agent(mock_llm_service, mock_graph_db, mock_memory_store)
-    agent._active_response_turn_id = "turn-1"
-    agent._reply_turn_id = "turn-1"
-    agent.last_assistant_response = "A complete reply."
-    agent._active_action_intent = build_action_intent(
-        turn_id="turn-1",
-        workspace_epoch=0,
-        workspace_revision=0,
-        kind="SPEAK",
-        behavior_decision={},
-    )
-    agent._reply_contexts["turn-1"] = (
-        agent.last_assistant_response,
-        agent._active_action_intent,
-    )
+    _seed_reply(agent, "turn-1", "A complete reply.", _speak_intent("turn-1"))
     lifecycle = {
         "utterance_id": "turn-1",
         "turn_id": "turn-1",
@@ -571,20 +605,10 @@ async def test_completed_lifecycle_prevents_a_late_stop_from_cutting_history(
 ):
     agent = _agent(mock_llm_service, mock_graph_db, mock_memory_store)
     text = "This reply is complete."
-    agent._active_response_turn_id = "turn-1"
-    agent._reply_turn_id = "turn-1"
-    agent.last_assistant_response = text
-    agent._reply_message_id = uuid.uuid4()
     agent.conversation_store = MagicMock()
     agent.conversation_store.rewrite_assistant_message = AsyncMock()
-    intent = build_action_intent(
-        turn_id="turn-1",
-        workspace_epoch=0,
-        workspace_revision=0,
-        kind="SPEAK",
-        behavior_decision={},
-    )
-    agent._reply_contexts["turn-1"] = (text, intent)
+    agent.cognitive_core.state.release_adrenaline = AsyncMock()
+    _seed_reply(agent, "turn-1", text, _speak_intent("turn-1"), uuid.uuid4())
 
     def event(seq, state, offset, words):
         return {
@@ -603,9 +627,18 @@ async def test_completed_lifecycle_prevents_a_late_stop_from_cutting_history(
     await agent._on_audio_playback_lifecycle(
         event(2, "COMPLETED", len(text), len(text.split()))
     )
-    await agent._truncate_interrupted_reply()
+    # A confirmed stop for the reply lands after it finished playing.
+    await agent._on_audio_stop(
+        {
+            "interrupt": True,
+            "speculative": False,
+            "reason": "confirmed_command",
+            "turn_id": "turn-1",
+        }
+    )
 
     agent.conversation_store.rewrite_assistant_message.assert_not_awaited()
+    agent.cognitive_core.state.release_adrenaline.assert_not_awaited()
     assert [record.status for record in agent.get_outcome_history("turn-1")] == [
         "COMPLETED"
     ]
@@ -616,28 +649,20 @@ async def test_self_correction_flush_does_not_cancel_brain_generation(
     mock_llm_service, mock_graph_db, mock_memory_store
 ):
     agent = _agent(mock_llm_service, mock_graph_db, mock_memory_store)
+    _seed_reply(agent, "turn-1", "Corrected reply.", _speak_intent("turn-1"))
     agent._cancel_active_generation = AsyncMock()
-    agent._truncate_interrupted_reply = AsyncMock()
+    agent._cut_reply = AsyncMock()
 
     await agent._on_audio_stop({"flush": True, "interrupt": True, "turn_id": "turn-1"})
 
     agent._cancel_active_generation.assert_not_awaited()
-    agent._truncate_interrupted_reply.assert_not_awaited()
+    agent._cut_reply.assert_not_awaited()
 
 
 def _flushed_turn_agent(mock_llm_service, mock_graph_db, mock_memory_store):
     """A brain mid-reply on turn-1 that has just flushed a rejected take."""
     agent = _agent(mock_llm_service, mock_graph_db, mock_memory_store)
-    agent._active_response_turn_id = "turn-1"
-    agent._reply_turn_id = "turn-1"
-    agent._active_action_intent = build_action_intent(
-        turn_id="turn-1",
-        workspace_epoch=0,
-        workspace_revision=0,
-        kind="SPEAK",
-        behavior_decision={},
-    )
-    agent._reply_contexts["turn-1"] = ("Corrected reply.", agent._active_action_intent)
+    _seed_reply(agent, "turn-1", "Corrected reply.", _speak_intent("turn-1"))
     return agent
 
 
@@ -669,7 +694,7 @@ async def test_flushed_take_is_not_the_outcome_the_retry_is(
         _turn1_lifecycle("turn-1", 1, "INTERRUPTED", 0, 0, flushed=True)
     )
     assert agent.get_outcome_history("turn-1") == []
-    assert "turn-1" in agent._reply_contexts
+    assert "turn-1" in agent._reply_ledger  # still waiting for the retry
 
     await agent._on_audio_playback_lifecycle(
         _turn1_lifecycle("turn-1:1", 0, "STARTED", 0, 0)
@@ -709,7 +734,7 @@ async def test_a_real_barge_in_on_the_retry_is_recorded_as_truncated(
     outcomes = agent.get_outcome_history("turn-1")
     assert [o.status for o in outcomes] == ["TRUNCATED"]
     assert outcomes[0].character_offset == 9
-    assert "turn-1" not in agent._reply_contexts
+    assert "turn-1" not in agent._reply_ledger
 
 
 @pytest.mark.asyncio

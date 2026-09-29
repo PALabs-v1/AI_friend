@@ -2,6 +2,8 @@ import asyncio
 import inspect
 import logging
 import math
+import re
+import time
 from collections.abc import AsyncGenerator
 from typing import Any, Protocol, get_args, runtime_checkable
 
@@ -9,12 +11,17 @@ from ..config import Config
 from ..contracts import StateUpdate
 from ..persona.policy import PersonaPolicy
 from ..state.session_state import SessionState, persist_session_state
+from .action import _SAFE_FALLBACK_LINE
 from .action_intent import ActionIntent, ActionKind, build_action_intent
 from .behavior_contracts import BehaviorDecision
+from .decision import is_significant_valence
 from .memory_activation import MemoryActivation, memories_to_activations
 from .percept import PerceptEnvelope
 
 logger = logging.getLogger(__name__)
+_FIRST_PERSON_QUERY = re.compile(r"\b(?:i|me|my|mine|we|us|our|ours)\b", re.IGNORECASE)
+# Superseded values per slot a turn checks unlinked memories against.
+OBSOLETE_CLAIMS_PER_SLOT = 16
 
 
 @runtime_checkable
@@ -104,6 +111,16 @@ class CognitivePipeline:
         self.llm = llm_service
         self.reappraisal = reappraisal
         self._system2_task = None
+        self._user_valence_estimator = None
+        if Config.AFFECT_USER_INPUT_ENABLED:
+            from .user_valence import build_estimator
+
+            self._user_valence_estimator = build_estimator(
+                Config.AFFECT_VALENCE_ESTIMATOR
+            )
+            prepare = getattr(self._user_valence_estimator, "prepare", None)
+            if prepare is not None:
+                prepare()
         # Phase 2B: a `WorkingMemoryStore` for per-turn `SessionState`.
         # Optional, like `reappraisal` above -- a pipeline built without one
         # (most unit tests) just skips session persistence, same reasoning as
@@ -255,6 +272,57 @@ class CognitivePipeline:
             time.perf_counter() - t_start
         ) * 1000.0
 
+    async def _estimate_user_valence(
+        self, event: Any, stage_times: dict[str, Any]
+    ) -> float | None:
+        from .user_valence import build_estimator
+
+        timeout_s = Config.AFFECT_VALENCE_ESTIMATOR_TIMEOUT_S
+        estimate_started = time.perf_counter()
+        try:
+            estimator = self._user_valence_estimator
+            if estimator is None:
+                estimator = build_estimator(Config.AFFECT_VALENCE_ESTIMATOR)
+                self._user_valence_estimator = estimator
+                prepare = getattr(estimator, "prepare", None)
+                if prepare is not None:
+                    remaining = timeout_s - (time.perf_counter() - estimate_started)
+                    if remaining <= 0:
+                        raise TimeoutError
+                    await asyncio.wait_for(
+                        asyncio.to_thread(prepare), timeout=remaining
+                    )
+            remaining = timeout_s - (time.perf_counter() - estimate_started)
+            if remaining <= 0:
+                raise TimeoutError
+            value = await asyncio.wait_for(
+                estimator.estimate(event.raw_content),
+                timeout=remaining,
+            )
+            if not math.isfinite(value):
+                raise ValueError("user-valence estimator returned non-finite output")
+            stage_times["user_valence_estimator_ms"] = (
+                time.perf_counter() - estimate_started
+            ) * 1000.0
+            event.metadata["user_valence"] = value
+            event.metadata["user_valence_estimator"] = estimator.name
+            return value
+        except TimeoutError:
+            stage_times["user_valence_estimator_ms"] = (
+                time.perf_counter() - estimate_started
+            ) * 1000.0
+            logger.warning(
+                "User-valence estimation timed out after %.3f seconds; "
+                "using prior affect",
+                timeout_s,
+            )
+            stage_times["user_valence_estimator_timed_out"] = True
+            return None
+        except Exception:
+            logger.exception("User-valence estimation failed; using prior affect")
+            stage_times["user_valence_estimator_failed"] = True
+            return None
+
     async def _update_state_from_appraisal(
         self,
         event,
@@ -265,8 +333,8 @@ class CognitivePipeline:
         stage_times: dict[str, Any],
         result: dict[str, Any],
     ) -> AsyncGenerator[dict[str, Any], None]:
-        """Stage 5: reappraisal outcome eval, ToM update, apply appraisal to
-        state, kick off System 2. Yields the state.update mesh_signal for a
+        """Stage 5: reappraisal outcome eval, ToM update, and apply appraisal
+        to state. Yields the state.update mesh_signal for a
         USER_MESSAGE turn. `result["state_snapshot"]` carries the (possibly
         refreshed) snapshot back out -- an async generator can't both yield
         chunks and return a value (see `_stream_action_pass`)."""
@@ -293,16 +361,6 @@ class CognitivePipeline:
 
             weights = self.reappraisal.get_weights() if self.reappraisal else None
             await self.state.update_from_appraisal(appraisal_vector, weights=weights)
-
-            # Trigger System 2 deep appraisal in background (non-blocking).
-            # A2: cancel any still-running prior appraisal so overlapping
-            # tasks cannot clobber each other's writes to short-term affect.
-            if self.llm and getattr(Config, "SYSTEM2_APPRAISAL_ENABLED", True):
-                if self._system2_task and not self._system2_task.done():
-                    self._system2_task.cancel()
-                self._system2_task = asyncio.create_task(
-                    self._async_system2_appraisal(event.raw_content)
-                )
 
             state_snapshot = self.state.get_context_snapshot()
             stage_times["stage_5_state_update_ms"] = (
@@ -388,6 +446,28 @@ class CognitivePipeline:
                     yield chunk
                 full_response = retry_result["response"]
                 done_chunk = retry_result["done"]
+                if full_response:
+                    # The retry used to be trusted unchecked, so a model that
+                    # violated the boundary twice had the second violation
+                    # emitted and stored as what the agent said. Same recovery
+                    # as the action layer's own retry: speak the safe line and
+                    # keep the violating text out of memory (DR-032).
+                    still_valid, still_reason = await self.identity.validate_response(
+                        full_response, plan.goal
+                    )
+                    if not still_valid:
+                        logger.warning(
+                            f"[Identity] Retry also failed validation: {still_reason}. "
+                            "Yielding safe fallback."
+                        )
+                        full_response = _SAFE_FALLBACK_LINE
+                        fallback_chunk: dict[str, Any] = {
+                            "type": "content",
+                            "data": _SAFE_FALLBACK_LINE,
+                        }
+                        if is_spec:
+                            fallback_chunk["speculative"] = True
+                        yield fallback_chunk
         result["full_response"] = full_response
         result["done_chunk"] = done_chunk
 
@@ -658,13 +738,308 @@ class CognitivePipeline:
         event: Any,
     ) -> list[MemoryActivation] | None:
         activations = memory_activations
-        if Config.MEMORY_TRUTH_ENABLED and activations is None:
+        if (
+            Config.MEMORY_TRUTH_ENABLED or Config.MEMORY_TEMPORAL_TRUTH_ENABLED
+        ) and activations is None:
             activations = memories_to_activations(surfaced_memories)
-        if Config.MEMORY_TRUTH_ENABLED and activations:
+        if (
+            Config.MEMORY_TRUTH_ENABLED or Config.MEMORY_TEMPORAL_TRUTH_ENABLED
+        ) and activations:
             event.metadata["retrieval_degraded"] = any(
                 activation.outage_flag for activation in activations
             )
         return activations
+
+    @staticmethod
+    def _merge_memory_activations(
+        existing: list[MemoryActivation] | None,
+        additions: list[MemoryActivation],
+    ) -> list[MemoryActivation] | None:
+        """Add newly retrieved typed rows without duplicating caller activations."""
+        if not additions:
+            return existing
+        present = {activation.record_id for activation in existing or []}
+        return [
+            *(existing or []),
+            *(item for item in additions if item.record_id not in present),
+        ]
+
+    @staticmethod
+    def _scope_memory_candidates(
+        surfaced_memories: list[dict[str, Any]] | None,
+        activations: list[MemoryActivation] | None,
+        ambiguous_subject: bool,
+    ) -> tuple[list[dict[str, Any]], list[MemoryActivation] | None]:
+        """Fail closed across both memory paths when a first-person owner is unknown."""
+        if ambiguous_subject:
+            return [], []
+        return surfaced_memories or [], activations
+
+    @staticmethod
+    def _scope_linked_temporal(query, memories, activations):
+        """Scope linked fact candidates without another temporal-store query."""
+        memories = memories or []
+        if not Config.MEMORY_TEMPORAL_TRUTH_ENABLED:
+            return memories, activations
+        linked = [
+            item
+            for item in memories
+            if isinstance(item.get("metadata", {}).get("temporal_belief"), dict)
+        ]
+        subjects = {
+            str(item["metadata"]["temporal_belief"].get("subject", ""))
+            for item in linked
+        }
+        target = CognitivePipeline._linked_temporal_subject(query, subjects)
+        if target is None:
+            return memories, activations
+        filtered = []
+        removed_contents = set()
+        for item in memories:
+            link = item.get("metadata", {}).get("temporal_belief")
+            if isinstance(link, dict) and link.get("subject") != target:
+                removed_contents.add(item.get("content"))
+            else:
+                filtered.append(item)
+        if activations and removed_contents:
+            activations = [
+                item
+                for item in activations
+                if item.structured_value.get("content") not in removed_contents
+            ]
+        return filtered, activations
+
+    @staticmethod
+    def _linked_temporal_subject(query, subjects):
+        """Resolve a safe owner from the query or configured identity."""
+        subjects.discard("")
+        words = set(re.findall(r"[\w'-]+", query.casefold()))
+        mentioned = {
+            subject
+            for subject in subjects
+            if set(re.findall(r"[\w'-]+", subject.casefold())) <= words
+        }
+        if len(mentioned) == 1:
+            return next(iter(mentioned))
+        if len(mentioned) > 1:
+            return ""
+        proper_tokens = re.findall(r"\b[A-Z][a-z][\w'-]*\b", query)
+        first_word = re.search(r"\b\w+\b", query)
+        capitalized = {
+            token.casefold()
+            for token in proper_tokens
+            if first_word is None or token != first_word.group(0)
+        }
+        known_subject_words = {
+            word
+            for subject in subjects
+            for word in re.findall(r"[\w'-]+", subject.casefold())
+        }
+        if capitalized - known_subject_words:
+            return ""
+        if not _FIRST_PERSON_QUERY.search(query):
+            return None
+        configured = getattr(Config, "TEMPORAL_MEMORY_SUBJECT", None)
+        return configured if configured in subjects else ""
+
+    async def _reconcile_temporal_memories(
+        self,
+        query: str,
+        memories: list[dict[str, Any]],
+        activations: list[MemoryActivation] | None,
+    ) -> tuple[list[dict[str, Any]], list[MemoryActivation] | None]:
+        """Check what retrieval surfaced against the typed projection.
+
+        Linked rows are already filtered inside MemoryStore from their
+        write-time status. That leaves two gaps (W1 critic r2 #2, #3):
+        - Rows with no link, such as memories written before the flag
+          existed, passed as current. "Ari worked at Acme" surfaced for
+          "where does Ari work now?" after Acme was superseded. For a
+          present-tense query, a row naming a superseded value of the
+          resolved slot is dropped.
+        - Typed history was never retrieved. For a historical query, the
+          superseded beliefs are added. For a present one, the current
+          beliefs are added.
+
+        Bounded: at most three beliefs, each with a capped slot lookup.
+        The cost is reported as `stage_3_temporal_reconcile_ms`.
+        """
+        if (
+            not Config.MEMORY_TEMPORAL_TRUTH_ENABLED
+            or self.temporal_memory_store is None
+        ):
+            return memories, activations
+        try:
+            typed, obsolete_claims, fail_closed = await self._temporal_belief_memories(
+                query
+            )
+        except Exception as error:
+            logger.warning("Temporal reconciliation skipped: %s", error)
+            return memories, activations
+        if fail_closed:
+            # The owner is ambiguous; `_scope_linked_temporal` already
+            # scoped the linked rows, and nothing typed is added.
+            return memories, activations
+        if obsolete_claims:
+            memories = self._filter_superseded_memories(memories, obsolete_claims)
+            activations = self._filter_superseded_activations(
+                activations, obsolete_claims
+            )
+        if typed:
+            present = {memory.get("id") for memory in memories}
+            added = [memory for memory in typed if memory["id"] not in present]
+            memories = [*memories, *added]
+            if activations is not None:
+                activations = self._merge_memory_activations(
+                    activations, memories_to_activations(added)
+                )
+        return memories, activations
+
+    async def _temporal_belief_memories(
+        self,
+        query: str,
+    ) -> tuple[list[dict[str, Any]], list[tuple[str, set[str]]], bool]:
+        """Project typed facts into the same trust-bounded memory input path."""
+        if (
+            not Config.MEMORY_TEMPORAL_TRUTH_ENABLED
+            or self.temporal_memory_store is None
+        ):
+            return [], [], False
+        historical = self.temporal_memory_store.is_historical_query(query)
+        subject, fail_closed = await self._resolve_temporal_subject(query)
+        if fail_closed:
+            subject = ""
+        beliefs = await self.temporal_memory_store.search_beliefs(
+            query,
+            limit=3,
+            include_disputed=not historical,
+            subject=subject,
+        )
+        obsolete_claims = await self._obsolete_memory_claims(beliefs, historical)
+        memories = [
+            self._belief_memory(belief)
+            for belief in beliefs
+            if belief.status == "ACTIVE" or historical
+        ]
+        return memories, obsolete_claims, fail_closed
+
+    async def _resolve_temporal_subject(self, query: str) -> tuple[str | None, bool]:
+        """Resolve explicit names first and fail closed on ambiguous owners."""
+        subject = await self.temporal_memory_store.subject_in_query(query)
+        ambiguous_named_subject = subject == ""
+        if ambiguous_named_subject:
+            return None, True
+        if subject is None:
+            subject = Config.TEMPORAL_MEMORY_SUBJECT
+        if subject is not None or not _FIRST_PERSON_QUERY.search(query):
+            return subject, False
+        return None, await self.temporal_memory_store.has_multiple_subjects()
+
+    async def _obsolete_memory_claims(
+        self, beliefs: list[Any], historical: bool
+    ) -> list[tuple[str, set[str]]]:
+        if historical:
+            return []
+        claims = []
+        for belief in beliefs:
+            slot = await self.temporal_memory_store.query_slot_beliefs(
+                belief.subject,
+                belief.predicate,
+                statuses=("SUPERSEDED", "DISPUTED"),
+                limit=OBSOLETE_CLAIMS_PER_SLOT,
+            )
+            terms = self._predicate_terms(belief.predicate)
+            claims.extend(
+                (old.object.casefold().strip(), terms)
+                for old in slot
+                if old.status in {"SUPERSEDED", "DISPUTED"}
+            )
+        return claims
+
+    @staticmethod
+    def _predicate_terms(predicate: str) -> set[str]:
+        terms: set[str] = set()
+        for part in re.findall(r"[\w'-]+", predicate.replace("_", " ")):
+            normalized = part.casefold()
+            if len(normalized) <= 2:
+                continue
+            stem = normalized.removesuffix("s")
+            terms.update(
+                {
+                    normalized,
+                    stem,
+                    f"{stem}s",
+                    f"{stem}ed",
+                    f"{stem}d" if stem.endswith("e") else f"{stem}ed",
+                }
+            )
+        return terms
+
+    @staticmethod
+    def _belief_memory(belief: Any) -> dict[str, Any]:
+        return {
+            "id": belief.record_id,
+            "content": (
+                f"{belief.subject} {belief.predicate.replace('_', ' ')} {belief.object}"
+            ),
+            "raw_content": belief.object,
+            "score": belief.confidence,
+            "relevance": belief.confidence,
+            "metadata": {
+                "belief": belief.model_dump(mode="json"),
+                "certainty": belief.confidence,
+                "valid_from": belief.valid_from,
+                "valid_until": belief.valid_until,
+                "temporal_status": belief.status,
+            },
+        }
+
+    @staticmethod
+    def _is_superseded_memory(
+        value: str, obsolete_claims: list[tuple[str, set[str]]]
+    ) -> bool:
+        lowered = value.casefold()
+        words = set(re.findall(r"[\w'-]+", lowered))
+        return any(
+            old_value
+            and re.search(rf"(?<!\w){re.escape(old_value)}(?!\w)", lowered)
+            and predicate_terms & words
+            for old_value, predicate_terms in obsolete_claims
+        )
+
+    def _filter_superseded_memories(
+        self,
+        memories: list[dict[str, Any]] | None,
+        obsolete_claims: list[tuple[str, set[str]]],
+    ) -> list[dict[str, Any]]:
+        """Filter one turn's copy without mutating rolling episodic state."""
+        return [
+            memory
+            for memory in memories or []
+            if not self._is_superseded_memory(
+                str(memory.get("content", "")), obsolete_claims
+            )
+        ]
+
+    def _filter_superseded_activations(
+        self,
+        activations: list[MemoryActivation] | None,
+        obsolete_claims: list[tuple[str, set[str]]],
+    ) -> list[MemoryActivation] | None:
+        if activations is None or not obsolete_claims:
+            return activations
+        return [
+            activation
+            for activation in activations
+            if not self._is_superseded_memory(
+                " ".join(
+                    value
+                    for value in activation.structured_value.values()
+                    if isinstance(value, str)
+                ),
+                obsolete_claims,
+            )
+        ]
 
     def _build_decide_kwargs(
         self,
@@ -672,7 +1047,9 @@ class CognitivePipeline:
         state_snapshot: dict[str, Any],
     ) -> dict[str, Any]:
         decide_kwargs: dict[str, Any] = {}
-        if Config.MEMORY_TRUTH_ENABLED and self._decision_accepts_memory_activations():
+        if (
+            Config.MEMORY_TRUTH_ENABLED or Config.MEMORY_TEMPORAL_TRUTH_ENABLED
+        ) and self._decision_accepts_memory_activations():
             decide_kwargs["memory_activations"] = memory_activations
         if Config.AFFECT_CONTROL_ENABLED and self._decision_accepts_global_controls():
             decide_kwargs["global_controls"] = state_snapshot.get("global_controls")
@@ -807,14 +1184,38 @@ class CognitivePipeline:
         event.metadata["session_state"] = session_state
         if event_metadata.get("speculative"):
             event.metadata["speculative"] = True
+        # Linked temporal candidates are filtered inside MemoryStore using
+        # their write-time belief_id/status metadata. Avoid a second projection
+        # lookup in the foreground turn; only owner-scope the linked candidates
+        # that survived retrieval here.
+        turn_surfaced_memories, memory_activations = self._scope_linked_temporal(
+            event.raw_content, surfaced_memories, memory_activations
+        )
+        t_start = time.perf_counter()
+        (
+            turn_surfaced_memories,
+            memory_activations,
+        ) = await self._reconcile_temporal_memories(
+            event.raw_content, turn_surfaced_memories, memory_activations
+        )
+        stage_times["stage_3_temporal_reconcile_ms"] = (
+            time.perf_counter() - t_start
+        ) * 1000.0
         memory_activations = self._setup_memory_activations(
-            surfaced_memories, memory_activations, event
+            turn_surfaced_memories,
+            memory_activations,
+            event,
         )
 
         # 4. Appraisal (Section 1 -- OCC/Lazarus/EMA)
         t_start = time.perf_counter()
         state_snapshot = self.state.get_context_snapshot()
         emotional_bias = state_snapshot.get("mood", 0.0)
+        user_valence = None
+        if raw_event_type == "USER_MESSAGE" and Config.AFFECT_USER_INPUT_ENABLED:
+            user_valence = await self._estimate_user_valence(event, stage_times)
+            if user_valence is not None:
+                emotional_bias = user_valence
         user_voice_properties = raw_event.get("user_voice_properties")
         appraisal_vector = self.appraisal.appraise(
             event_content=event.raw_content,
@@ -824,6 +1225,14 @@ class CognitivePipeline:
             identity_boundaries=self.identity.immutable_core["boundaries"],
             user_voice_properties=user_voice_properties,
         )
+        if user_valence is not None:
+            appraisal_vector.user_valence = user_valence
+            appraisal_vector.significant_event = is_significant_valence(user_valence)
+            event.metadata["affect_significant_event"] = (
+                appraisal_vector.significant_event
+            )
+            if appraisal_vector.significant_event:
+                event.metadata["affect_user_valence"] = user_valence
         stage_times["stage_4_appraisal_ms"] = (time.perf_counter() - t_start) * 1000.0
         yield {"type": "appraisal", "data": appraisal_vector}
 
@@ -844,8 +1253,8 @@ class CognitivePipeline:
         # 6. Decision (BT + MAUT)
         t_start = time.perf_counter()
         state_directive = self.state.get_behavioral_directive()
-        if surfaced_memories:
-            event.metadata["surfaced_memories"] = surfaced_memories
+        if turn_surfaced_memories:
+            event.metadata["surfaced_memories"] = turn_surfaced_memories
         event.metadata["appraisal"] = appraisal_vector.to_dict()
 
         decide_kwargs = self._build_decide_kwargs(memory_activations, state_snapshot)
@@ -1017,27 +1426,3 @@ class CognitivePipeline:
             )
         except Exception as e:
             logger.warning("[Endocrine] Self-correction release failed: %s", e)
-
-    async def _async_system2_appraisal(self, user_utterance: str):
-        try:
-            current_pad = {
-                "valence": self.state.current_state.valence,
-                "arousal": self.state.current_state.arousal,
-                "dominance": self.state.current_state.dominance,
-            }
-            new_pad = await self.appraisal.appraise_semantic_drift(
-                user_utterance, self.llm, current_pad
-            )
-            # Update state with drifted mood values under the state lock (A2)
-            # so this background write cannot race the synchronous appraisal path.
-            await self.state.apply_semantic_appraisal(new_pad)
-            logger.info(
-                "[System 2 Appraisal] Mood drifted: V=%.2f, Ar=%.2f, D=%.2f",
-                self.state.current_state.valence,
-                self.state.current_state.arousal,
-                self.state.current_state.dominance,
-            )
-        except Exception as e:
-            logger.error(
-                f"[System 2 Appraisal] Background semantic appraisal failed: {e}"
-            )

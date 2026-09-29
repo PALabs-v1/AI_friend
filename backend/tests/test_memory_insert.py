@@ -11,9 +11,11 @@ import re
 from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock
 
+import orjson
 import pytest
 
 from app.state.conversation_store import ConversationHistoryStore
+from app.state.memory_records import BeliefRecord
 from app.state.memory_store import MemoryStore
 
 _FULL_SCHEMA = """
@@ -56,6 +58,37 @@ async def _make_store(schema):
 
 
 class TestSqliteInsert:
+    @pytest.mark.asyncio
+    async def test_temporal_belief_link_is_written_and_updated(self):
+        store, mem = await _make_store(_FULL_SCHEMA)
+        belief = BeliefRecord(
+            record_id="belief-acme",
+            subject="Ari",
+            predicate="works_at",
+            object="Acme",
+            valid_from=10.0,
+            recorded_at=11.0,
+        )
+        try:
+            assert await mem.index_temporal_belief(belief)
+            assert (
+                await mem.update_temporal_belief_link(
+                    belief.record_id, status="SUPERSEDED", valid_until=20.0
+                )
+                == 1
+            )
+            async with store.pool.acquire() as conn:
+                row = await conn.fetchrow(
+                    "SELECT metadata FROM memories WHERE content = 'Ari works at Acme'"
+                )
+            link = orjson.loads(row["metadata"])["temporal_belief"]
+            assert link["belief_id"] == "belief-acme"
+            assert link["status"] == "SUPERSEDED"
+            assert link["valid_until"] == 20.0
+        finally:
+            await store.close()
+            await mem.close()
+
     @pytest.mark.asyncio
     async def test_timed_full_insert_sets_created_at_and_eriksonian(self):
         store, mem = await _make_store(_FULL_SCHEMA)

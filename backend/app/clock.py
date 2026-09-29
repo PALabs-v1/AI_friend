@@ -18,6 +18,7 @@ import from it, so a leaf module here has no cycle to fall into.
 
 from __future__ import annotations
 
+import asyncio
 import time as _time
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -47,6 +48,10 @@ class SystemClock:
         return datetime.now(tz)
 
 
+# ManualClock keeps time as a datetime: microsecond resolution.
+_RESOLUTION_S = 1e-6
+
+
 class ManualClock:
     """A clock a caller drives explicitly. For unit tests and BrainBench.
 
@@ -58,6 +63,8 @@ class ManualClock:
 
     def __init__(self, start: datetime | None = None) -> None:
         self._now = start if start is not None else datetime.now()
+        # (deadline, future) for every `sleep` still waiting on this clock.
+        self._sleepers: list[tuple[float, asyncio.Future[None]]] = []
 
     def time(self) -> float:
         return self._now.timestamp()
@@ -82,6 +89,7 @@ class ManualClock:
                 f"ManualClock only moves forward: {when} is before current {self._now}"
             )
         self._now = when
+        self._wake_due()
 
     def advance(self, seconds: float) -> None:
         if seconds < 0:
@@ -89,6 +97,48 @@ class ManualClock:
                 f"ManualClock only moves forward: advance({seconds}) is negative"
             )
         self._now = datetime.fromtimestamp(self._now.timestamp() + seconds)
+        self._wake_due()
+
+    async def sleep(self, seconds: float) -> None:
+        """Return once the clock has been moved `seconds` forward."""
+        if seconds <= 0:
+            await asyncio.sleep(0)
+            return
+        future: asyncio.Future[None] = asyncio.get_running_loop().create_future()
+        sleeper = (self.monotonic() + seconds, future)
+        self._sleepers.append(sleeper)
+        try:
+            await future
+        finally:
+            # A cancelled sleeper leaves now, not at the next `set`/`advance`.
+            if sleeper in self._sleepers:
+                self._sleepers.remove(sleeper)
+
+    def next_deadline(self) -> float | None:
+        """The earliest deadline a `sleep` is still waiting for, if any.
+
+        Lets a harness advance exactly to the next timer instead of in coarse
+        steps that fire a timer late.
+        """
+        pending = [deadline for deadline, future in self._sleepers if not future.done()]
+        return min(pending) if pending else None
+
+    def _wake_due(self) -> None:
+        # `_now` is a datetime, which keeps microseconds only, so advancing by
+        # exactly `deadline - monotonic()` can land a fraction of a
+        # microsecond short of the deadline. A deadline within one resolution
+        # step is due; without this, a harness that steps to `next_deadline()`
+        # never wakes that sleeper and spins forever.
+        now = self.monotonic() + _RESOLUTION_S
+        waiting = []
+        for deadline, future in self._sleepers:
+            if future.done():
+                continue
+            if deadline <= now:
+                future.set_result(None)
+            else:
+                waiting.append((deadline, future))
+        self._sleepers = waiting
 
 
 _DEFAULT: Clock = SystemClock()
@@ -113,6 +163,20 @@ def monotonic() -> float:
 def now(tz: tzinfo | None = None) -> datetime:
     """Drop-in replacement for `datetime.now()` / `datetime.now(tz)`."""
     return _current.get().now(tz)
+
+
+async def sleep(seconds: float) -> None:
+    """Drop-in replacement for `asyncio.sleep` for *cognitive* timers (a
+    barge-in grace window, a wait for a playback terminal), with the same
+    rule as `monotonic`: never for a timeout that bounds real work. Under a
+    `ManualClock` it returns when the clock is advanced past the deadline,
+    so tests drive these timers deterministically instead of racing them.
+    """
+    sleeper = getattr(_current.get(), "sleep", None)
+    if sleeper is None:
+        await asyncio.sleep(seconds)
+    else:
+        await sleeper(seconds)
 
 
 @contextmanager

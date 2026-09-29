@@ -1,0 +1,7 @@
+# Optional local CPU sentiment/emotion classifiers for AFFECT_USER_INPUT_ENABLED.
+# VADER is a small runtime dependency in requirements-ai.txt. These weights
+# stay in the local HF cache;
+# neither dependency nor model weights are needed when the flag is off or when
+# AFFECT_VALENCE_ESTIMATOR selects Ollama/VADER alone.
+torch==2.14.0
+transformers==5.17.0

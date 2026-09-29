@@ -464,3 +464,116 @@ async def test_normal_turn_persists_session_state_with_no_interruption(
     first_call_args = session_store.set_state_var.await_args_list[0].args
     assert first_call_args[1]["active_interruption"] == "none"
     assert first_call_args[1]["turn_id"]
+
+
+def _prepare_simple_user_turn(mock_components, mood=-0.27):
+    mock_components["state"].last_speculative_intent = None
+    mock_components["state"].get_context_snapshot.return_value = {"mood": mood}
+    mock_components["state"].get_behavioral_directive.return_value = "be friendly"
+    mock_components["perception"].perceive.return_value = MagicMock(
+        event_type="USER_MESSAGE",
+        raw_content="hello",
+        intent="CHAT",
+        event_id="evt-affect-input",
+        metadata={},
+    )
+    mock_components["appraisal"].appraise.return_value = AppraisalVector(
+        relevance=1.0,
+        novelty=0.5,
+        goal_congruence=0.2,
+        agency=0.8,
+        norm_alignment=1.0,
+        relationship_impact=0.1,
+    )
+    mock_components["decision"].decide.return_value = ActionPlan(
+        action_type="RESPOND_CHAT", goal="GREET", payload={"message": "hi"}
+    )
+    mock_components["identity"].immutable_core = {"boundaries": []}
+    mock_components["identity"].validate_response.return_value = (True, "")
+    mock_components["identity"].get_persona_prompt.return_value = "System prompt"
+
+    async def mock_execute(plan):
+        yield {"type": "content", "data": "Hi there!"}
+        yield {"type": "done", "data": ""}
+
+    mock_components["action"].execute.side_effect = mock_execute
+
+
+@pytest.mark.asyncio
+async def test_flag_off_never_calls_estimator_and_keeps_v2_appraisal_input(
+    pipeline, mock_components, monkeypatch
+):
+    from app.config import Config
+
+    class EstimatorSpy:
+        def __init__(self):
+            self.calls = 0
+
+        async def estimate(self, _text):
+            self.calls += 1
+            return 0.9
+
+    estimator = EstimatorSpy()
+    monkeypatch.setattr(Config, "AFFECT_USER_INPUT_ENABLED", False)
+    pipeline._user_valence_estimator = estimator
+    _prepare_simple_user_turn(mock_components)
+
+    chunks = [
+        chunk
+        async for chunk in pipeline.execute(
+            {"type": "USER_MESSAGE", "content": "hello"}
+        )
+    ]
+    appraisal = next(chunk["data"] for chunk in chunks if chunk["type"] == "appraisal")
+
+    assert estimator.calls == 0
+    assert (
+        mock_components["appraisal"].appraise.call_args.kwargs["emotional_bias"]
+        == -0.27
+    )
+    assert appraisal.user_valence is None
+
+
+@pytest.mark.asyncio
+async def test_slow_user_valence_times_out_cancels_and_turn_uses_v2_fallback(
+    pipeline, mock_components, monkeypatch, caplog
+):
+    import asyncio
+    import logging
+
+    from app.config import Config
+
+    caplog.set_level(logging.WARNING, logger="app.cognitive.pipeline")
+
+    class SlowEstimator:
+        cancelled = False
+
+        async def estimate(self, _text):
+            try:
+                await asyncio.sleep(1.0)
+            except asyncio.CancelledError:
+                self.cancelled = True
+                raise
+
+    estimator = SlowEstimator()
+    monkeypatch.setattr(Config, "AFFECT_USER_INPUT_ENABLED", True)
+    monkeypatch.setattr(Config, "AFFECT_VALENCE_ESTIMATOR_TIMEOUT_S", 0.02)
+    pipeline._user_valence_estimator = estimator
+    _prepare_simple_user_turn(mock_components)
+
+    chunks = [
+        chunk
+        async for chunk in pipeline.execute(
+            {"type": "USER_MESSAGE", "content": "hello"}
+        )
+    ]
+    appraisal = next(chunk["data"] for chunk in chunks if chunk["type"] == "appraisal")
+
+    assert estimator.cancelled is True
+    assert (
+        mock_components["appraisal"].appraise.call_args.kwargs["emotional_bias"]
+        == -0.27
+    )
+    assert appraisal.user_valence is None
+    assert any(chunk["type"] == "content" for chunk in chunks)
+    assert "timed out" in caplog.text.lower()

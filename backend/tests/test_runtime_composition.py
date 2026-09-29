@@ -1,6 +1,7 @@
 """Regression coverage for the Phase 07 production composition root."""
 
 import asyncio
+from collections import OrderedDict, deque
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
@@ -101,7 +102,8 @@ async def test_brain_agent_passes_workspace_to_process_event(tmp_path):
     agent.last_audio_progress = None
     agent._active_response_turn_id = None
     agent._active_action_intent = None
-    agent._reply_contexts = {}
+    agent.reply_resolutions = deque()
+    agent._reply_ledger = OrderedDict()  # W5 per-reply ledger
     agent._turn_state_lock = asyncio.Lock()
 
     async def consume_stream(generator, **kwargs):

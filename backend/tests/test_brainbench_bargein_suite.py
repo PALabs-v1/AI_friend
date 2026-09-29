@@ -9,6 +9,7 @@ import pytest
 from app.config import Config
 from evals.brainbench.bargein_suite import (
     FAMILIES,
+    V2_FAMILIES,
     Event,
     ScenarioEvidence,
     _attribute_assistant_rows,
@@ -80,6 +81,11 @@ def test_stale_stop_events_do_not_claim_confirmed_command_authority():
     assert all(event.reason == "facial_reflex_startle" for event in stale_stops)
 
 
+def test_generator_can_run_only_historically_recorded_families():
+    scenarios = generate_scenarios(1000, families=V2_FAMILIES)
+    assert {scenario.family for scenario in scenarios} == set(V2_FAMILIES)
+
+
 @pytest.mark.parametrize(
     ("family", "predicate"),
     [
@@ -125,6 +131,30 @@ def test_stale_stop_events_do_not_claim_confirmed_command_authority():
             ),
         ),
         ("random", lambda events: len(events) >= 2 and events[-1].type == "idle"),
+        (
+            "self_thought_interrupt",
+            lambda events: any(e.type == "subconscious_input" for e in events),
+        ),
+        (
+            "proactive_grace_high",
+            lambda events: (
+                any(e.type == "partial" for e in events)
+                and any(
+                    e.type == "subconscious_input" and e.importance >= 0.75
+                    for e in events
+                )
+            ),
+        ),
+        (
+            "proactive_grace_low",
+            lambda events: (
+                any(e.type == "partial" for e in events)
+                and any(
+                    e.type == "subconscious_input" and e.importance < 0.75
+                    for e in events
+                )
+            ),
+        ),
     ],
 )
 def test_each_family_has_its_defining_event_shape(family, predicate):
@@ -177,6 +207,19 @@ async def test_a_stale_stop_that_lands_on_the_superseded_reply_is_not_applied(
         s
         for s in generate_scenarios(1000, n_scenarios_per_family=50)
         if s.family == "random" and s.index == 29
+    )
+    # Since W5 a user final flushes every reply still playing, so the first
+    # reply would already be resolved when the stop lands and neither arm
+    # could reach it. With a speculative intent pending the final flushes
+    # nothing (Stage 2 decides), which keeps that reply playing, superseded.
+    scenario = replace(
+        scenario,
+        events=tuple(
+            replace(e, speculative=True)
+            if e.type == "user_utterance" and e.turn_id != scenario.events[0].turn_id
+            else e
+            for e in scenario.events
+        ),
     )
     assert any(e.type == "stop" and e.target == "stale" for e in scenario.events)
     reflex = await _run_scenario(scenario, 1000, scenario.index, 1.0)
@@ -269,6 +312,31 @@ def test_wrongly_truncated_history_row_is_attributed_and_compared():
     assert metrics["history_mismatch_count"] == 1
     assert metrics["history_matches_heard_violation"] == 1.0
     assert metrics["replies_without_history_row"] == 0
+
+
+def test_a_row_rewritten_to_nothing_heard_is_attributed_by_its_origin():
+    # A reply cut before any word was heard is rewritten to "" (ADR-W5 §4).
+    # By content alone "" matched no reply and was counted unattributed in
+    # every stale_stop scenario; by the text it was logged with, it is that
+    # reply's row, and "" is compared against what was heard.
+    scenario = _family(generate_scenarios(1000), "clean")
+    turn_id, reply = next(iter(scenario.reply_texts.items()))
+    rows = [["row-id", "assistant", ""]]
+
+    by_content = _attribute_assistant_rows(rows, scenario.reply_texts)
+    by_origin = _attribute_assistant_rows(rows, scenario.reply_texts, {"row-id": reply})
+
+    assert by_content == ([], 1)
+    assert by_origin == ([(turn_id, "")], 0)
+    metrics = check_invariants(
+        ScenarioEvidence(
+            history_expected={turn_id: ""},
+            history_rows=tuple(by_origin[0]),
+            unattributed_assistant_rows=by_origin[1],
+        )
+    )
+    assert metrics["history_mismatch_count"] == 0
+    assert metrics["unattributed_assistant_rows_violation"] == 0
 
 
 def test_assistant_history_row_matching_no_reply_is_unattributed():
@@ -405,22 +473,37 @@ async def test_progress_cannot_report_words_that_were_never_streamed():
     assert outcome.metrics["terminal_outcomes_per_reply_claimed_violation"] == 0.0
 
 
-def test_ordinary_barge_in_history_gap_is_measured_as_unclaimed(
+def test_ordinary_barge_in_history_matches_heard_after_w5(
     real_seed_1000_outcomes,
 ):
-    # ADR-003 Known: ordinary confirmed speech flushes playback but keeps the
-    # full reply row. The lifecycle (W4) now gives the reply its terminal
-    # outcome; cutting the row to the heard prefix is W5's (R8), so the gap is
-    # still measured, and still unclaimed.
+    # W5 implements DR-028: ordinary confirmed speech now cuts the row to the
+    # transport's heard offset and records one terminal outcome.
     outcome = next(
         row
         for row in real_seed_1000_outcomes
         if row.categories == ("confirmed_barge_in",)
     )
-    assert outcome.metrics["history_matches_heard_violation"] == 1.0
+    assert outcome.metrics["history_matches_heard_violation"] == 0.0
     assert outcome.metrics["history_matches_heard_claimed_violation"] == 0.0
-    assert outcome.metrics["history_matches_heard_unclaimed_violation"] == 1.0
+    assert outcome.metrics["history_matches_heard_unclaimed_violation"] == 0.0
     assert outcome.metrics["replies_with_zero_terminal_outcomes"] == 0
+
+
+def test_new_w5_families_check_i6_through_i8(real_seed_1000_outcomes):
+    by_family = {row.categories[0]: row for row in real_seed_1000_outcomes}
+    assert (
+        by_family["proactive_grace_high"].metrics["proactive_grace_bound_violation"]
+        == 0.0
+    )
+    assert (
+        by_family["proactive_grace_low"].metrics["low_proactive_ceded_violation"] == 0.0
+    )
+    assert (
+        by_family["self_thought_interrupt"].metrics[
+            "self_thought_interrupt_gate_violation"
+        ]
+        == 0.0
+    )
 
 
 def test_an_idle_finishes_generation_not_playback(real_seed_1000_outcomes):

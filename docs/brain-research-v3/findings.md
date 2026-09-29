@@ -47,7 +47,7 @@ Running record of pre-existing problems found during the Brain V3 cycle (Objecti
 - **What this does NOT establish**: whether a real running session with this model configured would see the same failure rate. This experiment calls the classifier in isolation (a single message, a fresh neutral agent state, no real conversation history/context) — a live session's real prompt includes fuller context that could behave differently. That's a real, untested hypothesis, not a confirmed mitigating factor.
 - **Impact if it generalizes**: since `intent`, `suggested_goal` and `implied_goals` come from the same parse as `tom_inferences`, a 95% failure rate on this call would mean any deployment configuring `llama3.2:3b` for `LLM_FAST_MODEL` gets broken intent classification too, not just unused ToM fields. If it does NOT generalize, then something about this experiment's narrower prompt context specifically breaks `llama3.2:3b` in a way fuller context does not, which would itself be worth understanding before running this model with less context in any other codepath.
 - **Fix**: not attempted this session (root-causing a specific model's structured-output reliability is outside Phase 4's scope). Recommended next step: capture raw LLM responses (not just the parsed result) for a handful of the failing calls, either by re-running this experiment with response logging added, or by adding temporary logging to `_classify_intent_and_goal` in a real running session, to see what `llama3.2:3b` is actually emitting before deciding whether this is a prompt problem, a parsing-regex problem, or a genuine model capability gap.
-- **Status**: open. Worth a follow-up before recommending `llama3.2:3b` for this role in any deployment, but it is not a production defect today — no deployment path in this research cycle depends on that specific model for this call.
+- **Status**: open; the Phase 4a parse-failure result remains a historical measurement and `llama3.2:3b` is not selected. W2's separate Ollama bake-off is implemented, but GPU measurements for the requested models remain pending; no hosted or GPU run was performed in this sandbox.
 
 ## F-006: `qwen3:4b`'s thinking-mode output is completely unparsable by the current JSON extractor
 
@@ -77,15 +77,13 @@ Running record of pre-existing problems found during the Brain V3 cycle (Objecti
 - **Fix**: fixed both complexity bugs (turned into cached per-owner haystacks and a precomputed slot set — 61.6M → 48.4M function calls, 4.1s → 3.0s untraced). Made the test itself robust to the environment it actually runs in: `sys.gettrace() is not None` reliably detects coverage's `CTracer` (verified against a real `--cov` run), and the budget scales to 240s under it, 30s otherwise — so the gate still catches a real regression without being fooled by test-runner overhead it has no control over.
 - **Status**: fixed, commit `167db41b`. Found while investigating why PR #217's lint fix didn't turn CI fully green.
 
-## F-009: System2 semantic-drift appraisal echoes its own prompt template instead of analyzing the user's text -- `valence` never moves in practice
+## F-009: System2 semantic-drift appraisal echoed its prompt template — resolved by removal
 
-- **Severity**: high. This is the specific, root-caused mechanism behind A-1 ("user words never reach affect", `docs/brain-research/01-problems.md`): not a vague absence of a feature, but a concrete, reproducible defect in code that already exists and is already wired into every turn.
-- **Where**: `backend/app/cognitive/appraisal.py::AppraisalEngine.appraise_semantic_drift` (the prompt at lines ~450-465) and `_drift_pad_toward` (lines ~416-440). Reachable from every `USER_MESSAGE` turn via `backend/app/cognitive/pipeline.py`'s background `_async_system2_appraisal` (~line 1088). `current_state.valence` (`backend/app/state/agent_state.py`) is written **exclusively** by this path — `update_from_appraisal` (the synchronous, per-turn appraisal path) updates `mood`/`energy`/`dominance`, never `valence`.
-- **Evidence**: BrainBench's new affect suite (`backend/evals/brainbench/affect_suite.py`) replayed 80 real turns of a `chatty_student` persona through a real `llm_augmented` `CognitiveService` on home-gpu (`llama3.2:3b`, `Config.LLM_FAST_MODEL`'s default, the model this call always uses regardless of what model the rest of the session is configured with). `valence_delta` was **exactly 0.0 on every single turn**, for both positive- and negative-oracle-valence turns alike (`user_valence_reaches_mood`: `positive_mean_delta=0.0, negative_mean_delta=0.0, cliffs_delta=0.0`), with `system2_completion_rate` reporting 100% (no exception, no timeout, no logged failure from either `app.cognitive.pipeline` or `app.cognitive.appraisal`). A direct, isolated call to the same prompt against the same model with the utterance *"I just got promoted at work, I am so happy!"* (unambiguously, strongly positive) returned `{"goal_congruence": 0.0, "norm_alignment": 1.0, "expectedness": 0.5}` — **exactly** the placeholder numbers shown in the prompt's own "Output JSON ONLY: {example}" block, verbatim, for all three fields.
-- **Root cause**: the prompt shows the model a literal example JSON with specific numbers (`goal_congruence: 0.0`, etc.) as a formatting instruction, but `llama3.2:3b` treats it as the answer to copy rather than a shape to fill in — a classic small-model instruction-following failure, not a JSON-parsing problem (the JSON is perfectly valid and parses cleanly, which is why neither of the two logged failure paths nor a timeout ever fires). Since `target_p` (derived from `goal_congruence`) is always exactly the example's `0.0`, and `current_state.valence`'s baseline is also `0.0`, `_drift_pad_toward`'s blend (`val + 0.2 * (target - val)`) computes to `val` unchanged, forever, regardless of how emotionally charged the actual user text is.
-- **Distinguishing this from F-005**: F-005 found `llama3.2:3b` fails to produce *parseable* JSON 95% of the time for a ToM classification call. Here the JSON is always valid — the defect is that the *content* is content-independent, a strictly harder class of failure to detect (a benchmark or log-based observer sees a clean success). Building the affect suite's `system2_completed` metric (log-watching two different loggers, `app.cognitive.pipeline` and `app.cognitive.appraisal`) was necessary but not sufficient to catch this: it correctly reports 100% "the task returned cleanly," which is honestly what it measures, but that number cannot mean "the appraisal was meaningful" while this defect exists. The suite's independently-measured `valence_delta` is what actually surfaced this, not the completion-rate proxy.
-- **Fix**: not attempted in Phase 6 (BrainBench measures V2 as it ships; this is W2 territory, Phase 7). Candidate fixes for W2: drop the literal example numbers from the prompt (describe the scale in words only, or use a clearly-different few-shot example so copying it produces an obviously-wrong answer the caller can detect), or move this call to a model that reliably follows fill-in-the-template instructions, or add a cheap "did the output exactly match the example" guard that treats an exact echo as a failure rather than a success.
-- **Status**: open. Found during Phase 6 (BrainBench) building and verifying the affect suite (Codex C6, `codex-log.md`).
+- **Severity**: high. The old path could return the literal example values from its prompt, producing valid but content-independent appraisal output.
+- **Where**: the removed `AppraisalEngine.appraise_semantic_drift` method and its background caller in `CognitivePipeline`.
+- **Evidence**: Phase 6's direct reproduction returned the example JSON for an unambiguously positive message. The `HEAD` implementation contains the method; the current regression asserts the method is absent.
+- **Resolution**: removed this duplicate System2 affect path. W2 adds one pluggable user-text valence estimator before synchronous appraisal and the affect update. Keeping a second uncalibrated path would double-apply affect and duplicate latency. The replacement estimator is default-off and no runnable candidate passes ADR-002, so this defect's path is gone while estimator adoption remains blocked.
+- **Status**: resolved by removal. See `adr/ADR-W2-affect-input.md` for the decision, bake-off, and limits.
 
 ## F-010: trust is a turn counter -- it rises the same amount on a complaint, an argument, and a thank-you, then saturates in 13 turns and goes deaf
 
@@ -155,7 +153,8 @@ Running record of pre-existing problems found during the Brain V3 cycle (Objecti
 - **Measurement note**: two harness defects produced false V2 failures and were fixed before these numbers (24% false "current turn harmed" and 4% false missing outcomes in the random family). See codex-log C10.
 - **Fix**: W4 (lifecycle contract) and W5 (barge-in end to end), per R8.
 - **Wave A measurement** (`v3waveA-B`, W4 merged, 12 personas x 4 horizons, 50 scenarios per family): replies with no terminal outcome fell from 0.143 per scenario to 0, started replies left without a terminal outcome from 1.416 to 0, and terminal-count violations from 0.143 to 0. "History differs from what was heard" is unchanged at 0.143: an ordinary barge-in still leaves unheard text in history. That half is DR-028 and belongs to W5. See `13-wave-a-results.md`.
-- **Status**: open. The terminal-outcome half is fixed by W4; the history half is W5's.
+- **W5 measurement** (same suite, seed 1000, 50 scenarios per family, 10 families, 500 scenarios, including W5's three new families): history differs from what was heard in 0 scenarios (was 0.143 per scenario after W4, 50/50 `confirmed_barge_in` before it), 0 replies with zero or multiple terminal outcomes, 0 started replies without a terminal, 0 stale or unknown stops applied, 0 hangs, 0 violations of any invariant in any family. The corrected suite still fails the pre-W5 brain (history mismatch in 100% of `confirmed_barge_in` and `stale_stop` scenarios). See ADR-W5 section 8.
+- **Status**: fixed. Terminal outcomes by W4; history by W5: an ordinary barge-in cuts the reply through the per-reply ledger, and the transport's INTERRUPTED lifecycle gives the heard offset its history row is rewritten to (DR-028).
 
 ## F-014: hygiene findings from the Phase 6 suites (low)
 
@@ -264,6 +263,45 @@ Running record of pre-existing problems found during the Brain V3 cycle (Objecti
 - **Evidence**: its "paralinguistic realism" module derives numbers from other result files and silently falls back to hard-coded constants when they are missing (`intent_accuracy = 85.70`, `redis_fetch = 0.164`). Nothing marks a fallback value in the output, and no human judgment is involved anywhere despite the name. Found while checking whether a perceived-realism eval already existed for Brain V4 (it does not).
 - **Fix (planned)**: delete it, or make every fallback a hard failure and rename it for what it measures (system timing and stored trajectories). The same check applies to `scripts/research/human_fidelity_test.py`.
 - **Status**: open, owned by SW.
+
+## F-023: `test_stored_injection_corpus_is_quarantined_on_every_prompt_path` is intermittently flaky only inside a full-suite run
+
+- **Severity**: low (a W10b security gate test, not the mechanism it tests; a real regression could be masked by a shrug at "it's flaky")
+- **Where**: `backend/tests/test_stored_injection_corpus.py::test_stored_injection_corpus_is_quarantined_on_every_prompt_path`
+- **Evidence**: found during the W5 critic round-2 fix (unrelated code path; `brain_agent.py` never touches memory/embedding/injection-gate code). Failed once in a full-suite run (3,280 passed, 11 skipped, 1 failed) and passed in a second full-suite run on the identical diff. Ran clean 12/12 across 3 isolated runs (12 tests each). A bisect running every `tests/test_*.py` file alphabetically up to and including this one (193 files, same code, same file set as the failing full run) passed cleanly: 3,004 passed, 0 failed. Same code, same file set, different outcome across runs — genuine intermittent nondeterminism in the test itself (most likely concurrent embedding/ranking timing), not a fixture-ordering or state-pollution artifact of any single other file.
+- **Fix (planned)**: not diagnosed further under W5 (out of scope, cap already spent on W5's own findings). Whoever next touches this test: reproduce inside a full-suite run first (isolation runs will pass and are not informative), then look at whatever concurrency or timing the quarantine check depends on.
+- **Status**: open, owned by whoever next touches memory/injection-gate tests (W10b or W8).
+
+## F-024: the lifesim `relationship#005` template nests a full rendered sentence inside a noun-phrase slot
+
+- **Severity**: low (research-data quality, not production code)
+- **Where**: `backend/evals/lifesim/banks/utterances.json:185` and `backend/evals/lifesim/expressed_valence.json:361`, both `"There’s news about {line}"`
+- **Evidence**: found while reviewing W2's qwen3:8b prompt-tuning corpus (`scratchpad/w2pt/`, this session). `{line}` is filled from another rendered fragment that can itself be a full clause, producing nested, ungrammatical output such as "There's news about I'm glad; I gave support from Ethan" — a noun-phrase slot holding a subject+verb clause. Distinct from the plan/pet/non-person rendering defects already fixed in `10-lifesim.md` (lines 124-128), which were about wrong sentence *shape* for an entity kind, not a template nesting a complete sentence inside a phrase slot.
+- **Fix (planned)**: either give `relationship#005` a noun-phrase-only fragment set (mirroring the plan-lifecycle noun-phrase/verb-phrase branch at `10-lifesim.md:127`), or render `{line}` through a nominalizing transform before substitution.
+- **Status**: open, owned by SW (pre-existing problem sweep; lifesim itself is Phase 5, already closed).
+
+## F-025: a stage-9 retry was never re-validated
+
+- **Severity**: high (a boundary hole independent of affect)
+- **Where**: `backend/app/cognitive/pipeline.py::_validate_and_self_correct`
+- **Evidence**: found writing the DR-032 regression test (W10b item 9). When `identity.validate_response` rejected a reply, the pipeline regenerated once and yielded and stored the retry without validating it. A model that violated a boundary twice had the second violation emitted to the transport and written to history.
+- **Fix (done)**: the retry is validated; if it still fails, the deterministic `_SAFE_FALLBACK_LINE` from `action.py` is yielded and stored instead. `tests/test_affect_never_overrides_boundaries.py` covers three violation kinds, once and twice, under seven extreme affect states.
+- **Status**: fixed.
+
+## F-026: W2's A-6 landing could not select regulation in the real pipeline
+
+- **Severity**: medium (DR-025 was marked met, and was not)
+- **Where**: `backend/app/cognitive/decision.py::_select_action_candidate`, `backend/app/cognitive/global_controls.py`
+- **Evidence**: W2 made significant user distress produce regulation candidates, and unit-tested selection only with `global_controls=None`. In the real pipeline `derive_global_controls` raises `urgency_gain` with negative valence and arousal (0.79 neutral, 0.99 in despair), and the urgency term rewards SPEAK's zero risk and cost by more than REAPPRAISE's 0.05 score lead. SPEAK won in every state, including maximal distress.
+- **Fix (done)**: `_without_urgency` zeroes `urgency_gain` only when regulation candidates survive filtering (frozen `GlobalControls` and dicts are copied, never mutated). Tests in `test_global_control_selection.py::TestRegulationWinsUnderRealDerivedControls` fail without it. The 0.05 lead and the urgency-to-valence coupling stay provisional; W9 owns the arbitration constants.
+- **Status**: fixed.
+
+## F-027: three pipeline edge behaviors seen while writing the DR-032 test (not fixed)
+
+- **Severity**: low
+- **Evidence**: (1) With `AFFECT_USER_INPUT_ENABLED` on and no `transformers` installed, `CognitivePipeline.__init__` raises `RuntimeError` at construction. Fail-fast is defensible; it is worth a documented startup message. (2) After the action layer's own in-stream self-correction, stage 9 can re-reject the accumulated text and trigger a second retry, so the transport hears the reply twice (for example "Glad you asked." twice). (3) Violations only stage 9 can see (rename, scaffolding leak) stream before rejection, which is the reactive-backstop design.
+- **Fix (planned)**: (2) needs a decision on whether stage 9 should validate the post-correction text only; (3) needs W9's streaming-buffer design.
+- **Status**: open, owned by W10.
 
 ## Real-model resource baseline (not a finding, recorded for Phase 8)
 

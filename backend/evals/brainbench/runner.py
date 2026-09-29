@@ -67,7 +67,7 @@ SUITES: dict[str, SuiteSpec] = {
     ),
     "affect": SuiteSpec(
         _suite_function("affect_suite", "run_affect_suite_for_seed"),
-        frozenset({"llm_augmented"}),
+        frozenset({"architecture_only", "llm_augmented"}),
     ),
     "trust": SuiteSpec(
         _suite_function("trust_suite", "run_trust_suite_for_seed"),

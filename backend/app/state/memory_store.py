@@ -32,6 +32,7 @@ from .. import clock
 from ..config import Config
 from ..utils.background_tasks import spawn_background
 from .memory_ranking import hybrid_rank
+from .temporal_intent import historical_intent, query_year
 
 logger = logging.getLogger(__name__)
 _MAX_MEMORY_CONTENT_CHARS = 32_768
@@ -144,6 +145,17 @@ def _validated_embedding(vector: Any) -> list[float]:
     if not all(math.isfinite(value) for value in values):
         raise ValueError("memory embedding values must be finite")
     return values
+
+
+def _finite_or_none(value: Any) -> float | None:
+    """A belief link's timestamp, or None when it is missing or malformed."""
+    if isinstance(value, bool) or value is None:
+        return None
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return number if math.isfinite(number) else None
 
 
 def _decode_memory_metadata(value: Any) -> dict[str, Any]:
@@ -1597,6 +1609,8 @@ class MemoryStore:
         valid_until=None,
         contradicts_id=None,
         raw_event=None,
+        *,
+        temporal_link=None,
     ):
         """Adds a new memory with ACT-R metadata and hierarchical scope.
 
@@ -1606,6 +1620,13 @@ class MemoryStore:
         get_embeddings()) and hand each one in, rather than this method
         embedding one-at-a-time in a loop. Default None preserves every
         existing caller's behavior byte-for-byte.
+
+        temporal_link: the belief projection link, set only by
+        `index_temporal_belief`. Retrieval trusts that link to hide
+        superseded facts (`_filter_temporal_candidates`), so a
+        `temporal_belief` key arriving in caller `metadata` (reflection
+        output, an API client) is dropped rather than trusted (W1 critic
+        r2 #4).
         """
         try:
             metadata = _validate_memory_write(
@@ -1619,6 +1640,11 @@ class MemoryStore:
                 valid_until=valid_until,
                 metadata=metadata,
             )
+            if "temporal_belief" in metadata:
+                logger.warning("Dropping caller-supplied temporal_belief metadata.")
+                metadata = {k: v for k, v in metadata.items() if k != "temporal_belief"}
+            if temporal_link is not None:
+                metadata = {**metadata, "temporal_belief": temporal_link}
 
             import uuid
 
@@ -1742,6 +1768,135 @@ class MemoryStore:
         except Exception as e:
             logger.error(f"Failed to add memory: {e}")
             return False
+
+    async def index_temporal_belief(self, belief) -> bool:
+        """Index one typed assertion with its projection state on the memory row."""
+        link = {
+            "belief_id": belief.record_id,
+            "subject": belief.subject,
+            "predicate": belief.predicate,
+            "status": belief.status,
+            "valid_from": belief.valid_from,
+            "valid_until": belief.valid_until,
+        }
+        content = (
+            f"{belief.subject} {belief.predicate.replace('_', ' ')} {belief.object}"
+        )
+        stored = await self.add_memory(
+            content,
+            raw_content=belief.object,
+            wing="personal",
+            importance=0.6,
+            certainty=belief.confidence,
+            source="temporal_belief",
+            temporal_link=link,
+            current_time=datetime.fromtimestamp(belief.recorded_at, UTC),
+            record_type="semantic",
+            valid_from=datetime.fromtimestamp(belief.valid_from, UTC),
+            valid_until=(
+                datetime.fromtimestamp(belief.valid_until, UTC)
+                if belief.valid_until is not None
+                else None
+            ),
+            contradicts_id=belief.contradicts_id,
+        )
+        if not stored:
+            return False
+        async with self.pool.acquire() as conn:
+            memory_id = await self._find_existing_memory(conn, content, "personal")
+        return bool(
+            memory_id and await self._merge_temporal_belief_metadata(memory_id, link)
+        )
+
+    async def update_temporal_belief_link(
+        self, belief_id: str, *, status: str, valid_until: float | None
+    ) -> int:
+        """Update mirrored projection fields at write time, never during search."""
+        needle = f"%{belief_id}%"
+        async with self.pool.acquire() as conn:
+            if self.is_sqlite:
+                rows = await conn.fetch(
+                    "SELECT id, metadata FROM memories WHERE metadata LIKE ?", needle
+                )
+            else:
+                rows = await conn.fetch(
+                    "SELECT id, metadata FROM memories WHERE metadata::text LIKE $1",
+                    needle,
+                )
+        updated = 0
+        for row in rows:
+            metadata = _decode_memory_metadata(row.get("metadata"))
+            link = metadata.get("temporal_belief")
+            if not isinstance(link, dict) or link.get("belief_id") != belief_id:
+                continue
+            link["status"] = status
+            link["valid_until"] = valid_until
+            updated += int(await self._update_memory_metadata(str(row["id"]), metadata))
+        if updated:
+            self._invalidate_l1_cache()
+        return updated
+
+    async def _merge_temporal_belief_metadata(self, memory_id: str, link: dict) -> bool:
+        async with self.pool.acquire() as conn:
+            if self.is_sqlite:
+                row = await conn.fetchrow(
+                    "SELECT metadata FROM memories WHERE id = ?", memory_id
+                )
+            else:
+                row = await conn.fetchrow(
+                    "SELECT metadata FROM memories WHERE id = $1", memory_id
+                )
+        if row is None:
+            return False
+        metadata = _decode_memory_metadata(row.get("metadata"))
+        current = metadata.get("temporal_belief")
+        if not isinstance(current, dict) or current.get("belief_id") == link.get(
+            "belief_id"
+        ):
+            metadata["temporal_belief"] = link
+        changed = await self._update_memory_metadata(memory_id, metadata)
+        if changed:
+            self._invalidate_l1_cache()
+        return changed
+
+    @staticmethod
+    def _filter_temporal_candidates(candidates, query_text: str):
+        """Filter linked candidates from their write-time belief projection."""
+        if not getattr(Config, "MEMORY_TEMPORAL_TRUTH_ENABLED", False):
+            return candidates
+        historical = historical_intent(query_text)
+        year = query_year(query_text)
+        year_window = (year[0], year[1], year[1] + 1) if year else None
+        visible = []
+        for candidate in candidates:
+            metadata = candidate.get("metadata") or {}
+            link = metadata.get("temporal_belief")
+            if not isinstance(link, dict):
+                visible.append(candidate)
+                continue
+            if not link.get("belief_id"):
+                visible.append(candidate)
+                continue
+            status = link.get("status")
+            allowed = status == "ACTIVE" or (historical and status == "SUPERSEDED")
+            valid_from = _finite_or_none(link.get("valid_from", 0.0))
+            valid_until = _finite_or_none(link.get("valid_until"))
+            if allowed and year_window and valid_from is not None:
+                # A malformed window is not trusted to exclude anything.
+                mode, first_year, next_year = year_window
+                start = datetime(first_year, 1, 1, tzinfo=UTC).timestamp()
+                end = datetime(next_year, 1, 1, tzinfo=UTC).timestamp()
+                if mode == "during":
+                    allowed = valid_from < end and (
+                        valid_until is None or valid_until > start
+                    )
+                elif mode == "before":
+                    allowed = valid_from < start
+                else:
+                    allowed = valid_until is None or valid_until > end
+            if allowed:
+                visible.append(candidate)
+        return visible
 
     async def _update_dynamic_stop_words(self):
         """Fetches high-frequency words from active memories to use as stop words."""
@@ -3512,6 +3667,7 @@ class MemoryStore:
             _quantize(current_cortisol, L1_CACHE_AFFECT_BUCKET),
             tuple(sorted(exclude_contents or [])),
             user_id,
+            bool(getattr(Config, "MEMORY_TEMPORAL_TRUTH_ENABLED", False)),
             # Pronoun cues resolve in opposite directions depending on this
             # flag ("I"/"my" bind to the agent when self-reflecting, to the
             # user otherwise), so the two modes must not share a cache entry.
@@ -4073,6 +4229,7 @@ class MemoryStore:
                 limit=None,
                 decay=self.decay_rate,
             )
+            ranked = self._filter_temporal_candidates(ranked, query_text)
             results = await self._materialize_hybrid_results(
                 ranked,
                 limit=limit,
@@ -4380,6 +4537,9 @@ class MemoryStore:
             self._apply_goal_buffer_boost(raw_candidates)
 
             # 4. Filter by final threshold, format and return results
+            raw_candidates = self._filter_temporal_candidates(
+                raw_candidates, query_text
+            )
             results = self._format_results(raw_candidates, threshold)
 
             # L3 Sub-conscious Search and Promotion

@@ -3,12 +3,20 @@ import logging
 import math
 import re
 import time
+import uuid
+from datetime import UTC, datetime
 from typing import Any
 
 from .. import clock
 from ..config import Config
 from ..measure_trace import trace as _measure_trace
 from ..state.graph_db import GraphDB
+from ..state.memory_records import BeliefRecord
+from ..state.temporal_detector import (
+    classify_e8_temporal_relation,
+    cosine_similarity,
+)
+from ..state.temporal_store import SLOT_CURRENT_LIMIT
 from .identity import IdentityManager
 from .json_extract import extract_first_json_value
 from .learning_governance import (
@@ -27,6 +35,9 @@ from .memory_activation import AntiInjectionGate, wrap_retrieved_text
 logger = logging.getLogger("reflection")
 _REFLECTION_INPUT_GATE = AntiInjectionGate()
 _MAX_FACTS_PER_REFLECTION = 32
+# Unlinked slot rows mirrored into MemoryStore per fact write (a backlog of
+# pre-link rows drains over later writes instead of all at once).
+TEMPORAL_INDEX_BATCH = 8
 # Every reflection prompt wraps episode text in these markers; the model is
 # told what they mean, and any it copies into an extracted name is removed.
 _UNTRUSTED_BOUNDARY = (
@@ -53,10 +64,12 @@ class ReflectionService:
         pg_vector=None,
         identity_manager=None,
         governor: LearningGovernor | None = None,
+        temporal_memory_store=None,
     ):
         self.llm = llm_service
         self.graph = graph_store
         self.vector = pg_vector
+        self.temporal_memory_store = temporal_memory_store
         # `persona_file=None` on the fallback, not `AUTO_DISCOVER`. The real
         # path injects `CognitiveService`'s manager and never reaches this, so
         # anything that does get here is a reflection service standing alone --
@@ -305,6 +318,8 @@ class ReflectionService:
             logger.warning("Skipping unsafe graph fact from reflection: %r", f)
             return
 
+        await self._store_temporal_fact(subject, relation, object_val, confidence, f)
+
         # P2-13: this used to MATCH for an existing relationship first and
         # `continue` on a hit, logging "Fact RESOLVED" and never writing
         # anything -- so a restated fact never reinforced, while
@@ -324,6 +339,170 @@ class ReflectionService:
             },
             subject_label=subject_type,
             target_label=object_type,
+        )
+
+    async def _store_temporal_fact(
+        self, subject, relation, object_val, confidence, fact
+    ):
+        """Append a safe extracted graph fact to the optional truth projection."""
+        if not getattr(Config, "MEMORY_TEMPORAL_TRUTH_ENABLED", False):
+            return
+        if self.temporal_memory_store is None:
+            return
+        try:
+            now = time.time()
+            effective_at = fact.get("valid_from")
+            if not isinstance(effective_at, (int, float)) or isinstance(
+                effective_at, bool
+            ):
+                year_match = re.search(
+                    r"\b(?:since|from|in|during)\s+((?:19|20)\d{2})\b",
+                    str(fact.get("reason", "")),
+                    re.IGNORECASE,
+                )
+                effective_at = (
+                    datetime(int(year_match.group(1)), 7, 1, tzinfo=UTC).timestamp()
+                    if year_match
+                    else now
+                )
+            claim = BeliefRecord(
+                record_id=str(uuid.uuid4()),
+                subject=subject,
+                predicate=relation,
+                object=object_val,
+                valid_from=float(effective_at),
+                recorded_at=now,
+                confidence=float(confidence),
+                provenance="reflection",
+            )
+            reason = str(fact.get("reason", ""))
+            lowered_reason = reason.casefold()
+            explicit_correction = any(
+                cue in lowered_reason for cue in ("i meant", "correction", "mistaken")
+            )
+            store = self.temporal_memory_store
+            # Only a current row can change status in `record_assertion`, so
+            # only those are compared afterwards (W1 critic r2 #5: every
+            # write used to load and reindex the slot's whole history).
+            prior_rows = await store.query_slot_beliefs(
+                claim.subject,
+                claim.predicate,
+                statuses=("ACTIVE", "DISPUTED"),
+                limit=SLOT_CURRENT_LIMIT,
+            )
+            index_belief = getattr(self.vector, "index_temporal_belief", None)
+            if callable(index_belief):
+                # Rows never mirrored into MemoryStore (written before the
+                # link existed) are linked in bounded batches, once each.
+                backlog = await store.unindexed_slot_beliefs(
+                    claim.subject, claim.predicate, limit=TEMPORAL_INDEX_BATCH
+                )
+                for prior in backlog:
+                    if await index_belief(prior):
+                        await store.mark_indexed([prior.record_id])
+            relation = await self.temporal_memory_store.record_assertion(
+                claim,
+                explicit_correction=explicit_correction,
+                classifier_context=reason,
+                classify_deterministic=self._classify_temporal_e8,
+                classify_ambiguous=self._classify_temporal_relation,
+            )
+            update_link = getattr(self.vector, "update_temporal_belief_link", None)
+            if callable(update_link):
+                for prior in prior_rows:
+                    updated = await self.temporal_memory_store.get_belief(
+                        prior.record_id
+                    )
+                    if updated and updated.status != prior.status:
+                        await update_link(
+                            updated.record_id,
+                            status=updated.status,
+                            valid_until=updated.valid_until,
+                        )
+            if callable(index_belief) and relation != "ELABORATION":
+                stored_belief = await store.get_belief(claim.record_id)
+                if stored_belief is not None and await index_belief(stored_belief):
+                    await store.mark_indexed([stored_belief.record_id])
+        except Exception as error:
+            logger.error("Temporal fact write failed: %s", error)
+
+    async def _classify_temporal_e8(self, neighbors, incoming, context=""):
+        """Apply cosine and negation cues before paying for ambiguous LLM review."""
+        if not self.vector or not neighbors:
+            return None
+        incoming_text = f"{incoming.subject} {incoming.predicate} {incoming.object}"
+        try:
+            incoming_vector = await self.vector.get_embedding(incoming_text)
+            if not incoming_vector:
+                return None
+            comparisons = []
+            for prior in neighbors[:3]:
+                prior_text = f"{prior.subject} {prior.predicate} {prior.object}"
+                prior_vector = await self.vector.get_embedding(prior_text)
+                similarity = cosine_similarity(incoming_vector, prior_vector)
+                relation = classify_e8_temporal_relation(
+                    prior,
+                    incoming,
+                    similarity=similarity,
+                    context=context,
+                )
+                comparisons.append((similarity, relation))
+        except Exception as error:
+            logger.warning("Temporal cosine detector failed: %s", error)
+            return None
+        comparisons.sort(key=lambda item: item[0], reverse=True)
+        return next(
+            (
+                relation
+                for _similarity, relation in comparisons
+                if relation in {"UPDATE", "CORRECTION", "ELABORATION"}
+            ),
+            None,
+        )
+
+    async def _classify_temporal_relation(self, neighbors, incoming, context="") -> str:
+        """Use the local reflection model only for ambiguous top-three claims."""
+        if not getattr(Config, "MEMORY_TEMPORAL_TRUTH_ENABLED", False) or not self.llm:
+            return "CONFLICT"
+        candidates = [
+            {
+                "subject": item.subject,
+                "predicate": item.predicate,
+                "object": item.object,
+                "valid_from": item.valid_from,
+                "certainty": item.confidence,
+            }
+            for item in neighbors[:3]
+        ]
+        prompt = (
+            "Classify the relation between a new personal fact and the supplied "
+            "same-slot facts. Do not infer user intent. A later date or words "
+            "such as now, still, currently, or these days are not by themselves "
+            "evidence of a changed value. Choose UPDATE only when the value "
+            "clearly changed, CORRECTION when the earlier value was explicitly "
+            "mistaken, ELABORATION for the same value or a restatement, and "
+            "CONFLICT when evidence is ambiguous, hedged, or about another "
+            "person. Return JSON only: "
+            '{"relation":"UPDATE|CORRECTION|ELABORATION|CONFLICT"}.\n'
+            f"Earlier facts: {candidates!r}\n"
+            f"New fact: {incoming.model_dump(mode='json')!r}\n"
+            f"Extractor evidence: {context[:1000]}"
+        )
+        try:
+            response = await self.llm.generate(
+                prompt,
+                model=Config.LLM_REFLECTION_MODEL,
+                options_override={"num_predict": 64},
+            )
+            parsed = self._extract_json(response)
+        except Exception as error:
+            logger.warning("Temporal relation classifier failed: %s", error)
+            return "CONFLICT"
+        relation = parsed.get("relation") if isinstance(parsed, dict) else None
+        return (
+            relation
+            if relation in {"UPDATE", "CORRECTION", "ELABORATION", "CONFLICT"}
+            else "CONFLICT"
         )
 
     async def _consolidate_persona(self, summary_text: str) -> None:

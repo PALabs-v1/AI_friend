@@ -1,0 +1,3341 @@
+{
+  "bank_templates": {
+    "correction#000": {
+      "label": 0.0,
+      "reason": null,
+      "text": "No, wait — {line}"
+    },
+    "correction#001": {
+      "label": 0.0,
+      "reason": null,
+      "text": "I got that wrong: {line}"
+    },
+    "correction#002": {
+      "label": 0.0,
+      "reason": null,
+      "text": "Correction: {line}"
+    },
+    "correction#003": {
+      "label": 0.0,
+      "reason": null,
+      "text": "Sorry, I meant {line}"
+    },
+    "correction#004": {
+      "label": 0.0,
+      "reason": null,
+      "text": "That wasn’t right; {line}"
+    },
+    "correction#005": {
+      "label": 0.0,
+      "reason": null,
+      "text": "Let me fix that: {line}"
+    },
+    "correction_plan#000": {
+      "label": 0.0,
+      "reason": null,
+      "text": "No, I meant {value}, not {wrong}"
+    },
+    "correction_plan#001": {
+      "label": 0.0,
+      "reason": null,
+      "text": "I said {wrong}; I meant {value}"
+    },
+    "correction_plan#002": {
+      "label": 0.0,
+      "reason": null,
+      "text": "Wait, the date is {value}, not {wrong}"
+    },
+    "correction_plan#003": {
+      "label": 0.0,
+      "reason": null,
+      "text": "I got the day wrong: {value}, not {wrong}"
+    },
+    "correction_plan#004": {
+      "label": 0.0,
+      "reason": null,
+      "text": "Correction — {value}, not {wrong}"
+    },
+    "correction_plan#005": {
+      "label": 0.0,
+      "reason": null,
+      "text": "Sorry, I meant {value}, not {wrong}"
+    },
+    "emotion#000": {
+      "label": 0.0,
+      "reason": null,
+      "text": "{line}"
+    },
+    "emotion#001": {
+      "label": 0.0,
+      "reason": null,
+      "text": "I’m feeling a lot about this: {line}"
+    },
+    "emotion#002": {
+      "label": 0.0,
+      "reason": null,
+      "text": "I wanted to share some news: {line}"
+    },
+    "emotion#003": {
+      "label": 0.45,
+      "reason": "personal importance",
+      "text": "That meant a lot to me: {line}"
+    },
+    "emotion#004": {
+      "label": 0.0,
+      "reason": null,
+      "text": "I’m still processing it: {line}"
+    },
+    "emotion#005": {
+      "label": 0.0,
+      "reason": null,
+      "text": "Here’s what happened: {line}"
+    },
+    "episode#000": {
+      "label": 0.0,
+      "reason": null,
+      "text": "{line}"
+    },
+    "episode#001": {
+      "label": 0.0,
+      "reason": null,
+      "text": "Quick story: {line}"
+    },
+    "episode#002": {
+      "label": 0.0,
+      "reason": null,
+      "text": "I was telling you about {line}"
+    },
+    "episode#003": {
+      "label": 0.0,
+      "reason": null,
+      "text": "Earlier, {line}"
+    },
+    "episode#004": {
+      "label": 0.0,
+      "reason": null,
+      "text": "A small outing: {line}"
+    },
+    "episode#005": {
+      "label": 0.0,
+      "reason": null,
+      "text": "You know, {line}"
+    },
+    "greeting#000": {
+      "label": 0.0,
+      "reason": null,
+      "text": "Hi!"
+    },
+    "greeting#001": {
+      "label": 0.0,
+      "reason": null,
+      "text": "Hey, good to see you."
+    },
+    "greeting#002": {
+      "label": 0.0,
+      "reason": null,
+      "text": "Morning!"
+    },
+    "greeting#003": {
+      "label": 0.0,
+      "reason": null,
+      "text": "Hello there."
+    },
+    "greeting#004": {
+      "label": 0.0,
+      "reason": null,
+      "text": "There you are!"
+    },
+    "greeting#005": {
+      "label": 0.0,
+      "reason": null,
+      "text": "Evening — how are you?"
+    },
+    "joke#000": {
+      "label": 0.0,
+      "reason": null,
+      "text": "{line} — kidding."
+    },
+    "joke#001": {
+      "label": 0.0,
+      "reason": null,
+      "text": "I’m joking: {line}"
+    },
+    "joke#002": {
+      "label": 0.0,
+      "reason": null,
+      "text": "Plot twist: {line} Just kidding."
+    },
+    "joke#003": {
+      "label": 0.0,
+      "reason": null,
+      "text": "In an alternate universe, {line}"
+    },
+    "joke#004": {
+      "label": 0.0,
+      "reason": null,
+      "text": "I’m absolutely serious: {line} (not really)."
+    },
+    "joke#005": {
+      "label": 0.0,
+      "reason": null,
+      "text": "Joke: {line}"
+    },
+    "lifecycle#000": {
+      "label": 0.0,
+      "reason": null,
+      "text": "{line}"
+    },
+    "lifecycle#001": {
+      "label": 0.0,
+      "reason": null,
+      "text": "I’ve been working on {line}"
+    },
+    "lifecycle#002": {
+      "label": 0.0,
+      "reason": null,
+      "text": "A progress note: {line}"
+    },
+    "lifecycle#003": {
+      "label": 0.0,
+      "reason": null,
+      "text": "This matters to me: {line}"
+    },
+    "lifecycle#004": {
+      "label": 0.0,
+      "reason": null,
+      "text": "I wanted to tell you about {line}"
+    },
+    "lifecycle#005": {
+      "label": 0.0,
+      "reason": null,
+      "text": "Something I’m pursuing: {line}"
+    },
+    "loss#000": {
+      "label": 0.0,
+      "reason": null,
+      "text": "{line}"
+    },
+    "loss#001": {
+      "label": -0.45,
+      "reason": "ongoing burden",
+      "text": "I’m still carrying this: {line}"
+    },
+    "loss#002": {
+      "label": -0.65,
+      "reason": "explicit missing",
+      "text": "I miss them: {line}"
+    },
+    "loss#003": {
+      "label": -0.35,
+      "reason": "difficult news",
+      "text": "This is hard to say: {line}"
+    },
+    "loss#004": {
+      "label": -0.3,
+      "reason": "lingering concern",
+      "text": "I keep thinking about it: {line}"
+    },
+    "loss#005": {
+      "label": -0.7,
+      "reason": "explicit hurt",
+      "text": "It still hurts: {line}"
+    },
+    "misstatement#000": {
+      "label": 0.0,
+      "reason": null,
+      "text": "I think {line}"
+    },
+    "misstatement#001": {
+      "label": 0.0,
+      "reason": null,
+      "text": "Wait, {line}"
+    },
+    "misstatement#002": {
+      "label": 0.0,
+      "reason": null,
+      "text": "If I remember right, {line}"
+    },
+    "misstatement#003": {
+      "label": 0.0,
+      "reason": null,
+      "text": "I’m pretty sure {line}"
+    },
+    "misstatement#004": {
+      "label": 0.0,
+      "reason": null,
+      "text": "Maybe {line}"
+    },
+    "misstatement#005": {
+      "label": 0.0,
+      "reason": null,
+      "text": "I could be mixing this up: {line}"
+    },
+    "plan#000": {
+      "label": 0.0,
+      "reason": null,
+      "text": "I have a plan: {line}"
+    },
+    "plan#001": {
+      "label": 0.0,
+      "reason": null,
+      "text": "I might {line}"
+    },
+    "plan#002": {
+      "label": 0.0,
+      "reason": null,
+      "text": "I’m planning to {line}"
+    },
+    "plan#003": {
+      "label": 0.0,
+      "reason": null,
+      "text": "Please remember this: {line}"
+    },
+    "plan#004": {
+      "label": 0.0,
+      "reason": null,
+      "text": "I’ve pencilled in {line}"
+    },
+    "plan#005": {
+      "label": 0.0,
+      "reason": null,
+      "text": "For the calendar: {line}"
+    },
+    "question#000": {
+      "label": 0.0,
+      "reason": null,
+      "text": "How has your day been?"
+    },
+    "question#001": {
+      "label": 0.0,
+      "reason": null,
+      "text": "What do you think about that?"
+    },
+    "question#002": {
+      "label": 0.0,
+      "reason": null,
+      "text": "Could you keep me company for a minute?"
+    },
+    "question#003": {
+      "label": 0.0,
+      "reason": null,
+      "text": "Do you remember what I just said?"
+    },
+    "question#004": {
+      "label": 0.0,
+      "reason": null,
+      "text": "What should I do next?"
+    },
+    "question#005": {
+      "label": 0.0,
+      "reason": null,
+      "text": "Can I ask you something?"
+    },
+    "relationship#000": {
+      "label": 0.0,
+      "reason": null,
+      "text": "{line}"
+    },
+    "relationship#001": {
+      "label": 0.0,
+      "reason": null,
+      "text": "I wanted to tell you: {line}"
+    },
+    "relationship#002": {
+      "label": 0.0,
+      "reason": null,
+      "text": "It’s been on my mind: {line}"
+    },
+    "relationship#003": {
+      "label": 0.0,
+      "reason": null,
+      "text": "Something happened with {line}"
+    },
+    "relationship#004": {
+      "label": 0.0,
+      "reason": null,
+      "text": "I’ve been thinking about this: {line}"
+    },
+    "relationship#005": {
+      "label": 0.0,
+      "reason": null,
+      "text": "There’s news about {line}"
+    },
+    "reminisce#000": {
+      "label": 0.0,
+      "reason": null,
+      "text": "I was remembering {line}"
+    },
+    "reminisce#001": {
+      "label": 0.0,
+      "reason": null,
+      "text": "Funny how I still think about {line}"
+    },
+    "reminisce#002": {
+      "label": 0.0,
+      "reason": null,
+      "text": "Back then, {line}"
+    },
+    "reminisce#003": {
+      "label": 0.0,
+      "reason": null,
+      "text": "I haven’t thought about {line} in ages"
+    },
+    "reminisce#004": {
+      "label": 0.0,
+      "reason": null,
+      "text": "That reminds me of {line}"
+    },
+    "reminisce#005": {
+      "label": 0.0,
+      "reason": null,
+      "text": "Years ago, {line}"
+    },
+    "repeat#000": {
+      "label": 0.0,
+      "reason": null,
+      "text": "Did I mention this? {line}"
+    },
+    "repeat#001": {
+      "label": 0.0,
+      "reason": null,
+      "text": "I may have said this already: {line}"
+    },
+    "repeat#002": {
+      "label": 0.0,
+      "reason": null,
+      "text": "This came up before, but {line}"
+    },
+    "repeat#003": {
+      "label": 0.0,
+      "reason": null,
+      "text": "Just repeating myself: {line}"
+    },
+    "repeat#004": {
+      "label": 0.0,
+      "reason": null,
+      "text": "In case I forgot to tell you, {line}"
+    },
+    "repeat#005": {
+      "label": 0.0,
+      "reason": null,
+      "text": "Again, {line}"
+    },
+    "robot#000": {
+      "label": 0.0,
+      "reason": null,
+      "text": "{line}"
+    },
+    "robot#001": {
+      "label": 0.0,
+      "reason": null,
+      "text": "I wanted you to know: {line}"
+    },
+    "robot#002": {
+      "label": 0.0,
+      "reason": null,
+      "text": "About us: {line}"
+    },
+    "robot#003": {
+      "label": 0.0,
+      "reason": null,
+      "text": "Can I say something? {line}"
+    },
+    "robot#004": {
+      "label": 0.0,
+      "reason": null,
+      "text": "I’ve been meaning to tell you: {line}"
+    },
+    "robot#005": {
+      "label": 0.0,
+      "reason": null,
+      "text": "A quick note for you: {line}"
+    },
+    "share#000": {
+      "label": 0.0,
+      "reason": null,
+      "text": "{line}"
+    },
+    "share#001": {
+      "label": 0.0,
+      "reason": null,
+      "text": "{line}"
+    },
+    "share#002": {
+      "label": 0.0,
+      "reason": null,
+      "text": "{line}"
+    },
+    "share#003": {
+      "label": 0.0,
+      "reason": null,
+      "text": "{line}"
+    },
+    "share#004": {
+      "label": 0.0,
+      "reason": null,
+      "text": "{line}"
+    },
+    "share#005": {
+      "label": 0.0,
+      "reason": null,
+      "text": "{line}"
+    },
+    "small_talk#000": {
+      "label": 0.0,
+      "reason": null,
+      "text": "What a day."
+    },
+    "small_talk#001": {
+      "label": 0.35,
+      "reason": "gladness",
+      "text": "I’m glad we have a quiet moment."
+    },
+    "small_talk#002": {
+      "label": 0.55,
+      "reason": "lovely light",
+      "text": "The light looks lovely today."
+    },
+    "small_talk#003": {
+      "label": 0.0,
+      "reason": null,
+      "text": "I need a cup of tea and a reset."
+    },
+    "small_talk#004": {
+      "label": -0.4,
+      "reason": "difficult day",
+      "text": "It’s been one of those days."
+    },
+    "small_talk#005": {
+      "label": 0.0,
+      "reason": null,
+      "text": "I’m taking a breather."
+    },
+    "style_chatty#000": {
+      "label": 0.0,
+      "reason": null,
+      "text": "Oh, and {line}"
+    },
+    "style_chatty#001": {
+      "label": 0.0,
+      "reason": null,
+      "text": "So anyway, {line}"
+    },
+    "style_chatty#002": {
+      "label": 0.0,
+      "reason": null,
+      "text": "You know what? {line}"
+    },
+    "style_chatty#003": {
+      "label": 0.0,
+      "reason": null,
+      "text": "And then, {line}"
+    },
+    "style_chatty#004": {
+      "label": 0.0,
+      "reason": null,
+      "text": "I was just thinking, {line}"
+    },
+    "style_chatty#005": {
+      "label": 0.0,
+      "reason": null,
+      "text": "Here is the latest: {line}"
+    },
+    "style_formal#000": {
+      "label": 0.0,
+      "reason": null,
+      "text": "For the record, {line}"
+    },
+    "style_formal#001": {
+      "label": 0.0,
+      "reason": null,
+      "text": "I would like to mention that {line}"
+    },
+    "style_formal#002": {
+      "label": 0.0,
+      "reason": null,
+      "text": "As an update, {line}"
+    },
+    "style_formal#003": {
+      "label": 0.0,
+      "reason": null,
+      "text": "I should inform you that {line}"
+    },
+    "style_formal#004": {
+      "label": 0.0,
+      "reason": null,
+      "text": "To summarize, {line}"
+    },
+    "style_formal#005": {
+      "label": 0.0,
+      "reason": null,
+      "text": "Please note that {line}"
+    },
+    "style_plain#000": {
+      "label": 0.0,
+      "reason": null,
+      "text": "{line}"
+    },
+    "style_plain#001": {
+      "label": 0.0,
+      "reason": null,
+      "text": "So, {line}"
+    },
+    "style_plain#002": {
+      "label": 0.0,
+      "reason": null,
+      "text": "Anyway, {line}"
+    },
+    "style_plain#003": {
+      "label": 0.0,
+      "reason": null,
+      "text": "Here is the thing: {line}"
+    },
+    "style_plain#004": {
+      "label": 0.0,
+      "reason": null,
+      "text": "For today, {line}"
+    },
+    "style_plain#005": {
+      "label": 0.0,
+      "reason": null,
+      "text": "That is what happened: {line}"
+    },
+    "style_playful#000": {
+      "label": 0.0,
+      "reason": null,
+      "text": "Plot twist: {line}"
+    },
+    "style_playful#001": {
+      "label": 0.0,
+      "reason": null,
+      "text": "Well, look at that: {line}"
+    },
+    "style_playful#002": {
+      "label": 0.0,
+      "reason": null,
+      "text": "Guess what? {line}"
+    },
+    "style_playful#003": {
+      "label": 0.0,
+      "reason": null,
+      "text": "Would you believe it? {line}"
+    },
+    "style_playful#004": {
+      "label": 0.0,
+      "reason": null,
+      "text": "Ta-da: {line}"
+    },
+    "style_playful#005": {
+      "label": 0.0,
+      "reason": null,
+      "text": "And the winner is: {line}"
+    },
+    "style_rambling#000": {
+      "label": 0.0,
+      "reason": null,
+      "text": "Long story short, {line}, though there is more to it."
+    },
+    "style_rambling#001": {
+      "label": 0.0,
+      "reason": null,
+      "text": "I have been turning this over: {line}, and that reminds me of something else."
+    },
+    "style_rambling#002": {
+      "label": 0.0,
+      "reason": null,
+      "text": "Somehow I keep circling back to this: {line}"
+    },
+    "style_rambling#003": {
+      "label": 0.0,
+      "reason": null,
+      "text": "Let me start with this: {line}, because the rest of the day connects to it."
+    },
+    "style_rambling#004": {
+      "label": 0.0,
+      "reason": null,
+      "text": "I was going to tell you three other things, but first: {line}"
+    },
+    "style_rambling#005": {
+      "label": 0.0,
+      "reason": null,
+      "text": "There is a longer story here, but for now: {line}"
+    },
+    "style_terse#000": {
+      "label": 0.0,
+      "reason": null,
+      "text": "{line}"
+    },
+    "style_terse#001": {
+      "label": 0.0,
+      "reason": null,
+      "text": "Quick note: {line}"
+    },
+    "style_terse#002": {
+      "label": 0.0,
+      "reason": null,
+      "text": "In short, {line}"
+    },
+    "style_terse#003": {
+      "label": 0.0,
+      "reason": null,
+      "text": "Just so you know: {line}"
+    },
+    "style_terse#004": {
+      "label": 0.0,
+      "reason": null,
+      "text": "That is all: {line}"
+    },
+    "style_terse#005": {
+      "label": 0.0,
+      "reason": null,
+      "text": "One thing: {line}"
+    },
+    "temporary#000": {
+      "label": 0.0,
+      "reason": null,
+      "text": "For now, {line}"
+    },
+    "temporary#001": {
+      "label": 0.0,
+      "reason": null,
+      "text": "This is temporary: {line}"
+    },
+    "temporary#002": {
+      "label": 0.0,
+      "reason": null,
+      "text": "At the moment, {line}"
+    },
+    "temporary#003": {
+      "label": 0.0,
+      "reason": null,
+      "text": "Just while this lasts, {line}"
+    },
+    "temporary#004": {
+      "label": 0.0,
+      "reason": null,
+      "text": "A short-term update: {line}"
+    },
+    "temporary#005": {
+      "label": 0.0,
+      "reason": null,
+      "text": "Right now, {line}"
+    },
+    "trivial#000": {
+      "label": 0.0,
+      "reason": null,
+      "text": "Small thing: {line}"
+    },
+    "trivial#001": {
+      "label": 0.0,
+      "reason": null,
+      "text": "By the way, {line}"
+    },
+    "trivial#002": {
+      "label": 0.0,
+      "reason": null,
+      "text": "Nothing major, but {line}"
+    },
+    "trivial#003": {
+      "label": 0.0,
+      "reason": null,
+      "text": "Today’s tiny report: {line}"
+    },
+    "trivial#004": {
+      "label": 0.0,
+      "reason": null,
+      "text": "Oh, and {line}"
+    },
+    "trivial#005": {
+      "label": 0.0,
+      "reason": null,
+      "text": "A little detail from today: {line}"
+    },
+    "update#000": {
+      "label": 0.0,
+      "reason": null,
+      "text": "A little update: {line}"
+    },
+    "update#001": {
+      "label": 0.0,
+      "reason": null,
+      "text": "Things have changed: {line}"
+    },
+    "update#002": {
+      "label": 0.0,
+      "reason": null,
+      "text": "So, {line}"
+    },
+    "update#003": {
+      "label": 0.0,
+      "reason": null,
+      "text": "I should tell you, {line}"
+    },
+    "update#004": {
+      "label": 0.0,
+      "reason": null,
+      "text": "New development: {line}"
+    },
+    "update#005": {
+      "label": 0.0,
+      "reason": null,
+      "text": "These days, {line}"
+    },
+    "verbosity_tail#000": {
+      "label": 0.0,
+      "reason": null,
+      "text": "; and that’s the long version."
+    },
+    "verbosity_tail#001": {
+      "label": 0.0,
+      "reason": null,
+      "text": "; I have a little more to say about it."
+    },
+    "verbosity_tail#002": {
+      "label": 0.0,
+      "reason": null,
+      "text": "; I’m still sorting out how I feel."
+    },
+    "verbosity_tail#003": {
+      "label": 0.0,
+      "reason": null,
+      "text": "; there’s a bit more to the story."
+    },
+    "verbosity_tail#004": {
+      "label": 0.0,
+      "reason": null,
+      "text": "; I could talk about it all evening."
+    },
+    "verbosity_tail#005": {
+      "label": 0.0,
+      "reason": null,
+      "text": "; that’s the fuller picture."
+    }
+  },
+  "emotion_openers": {
+    "glad": {
+      "label": 0.6,
+      "reason": "explicit gladness",
+      "text": "I’m glad; "
+    },
+    "heartbroken": {
+      "label": -0.9,
+      "reason": "explicit heartbreak",
+      "text": "I’m heartbroken; "
+    },
+    "sad": {
+      "label": -0.65,
+      "reason": "explicit sadness",
+      "text": "I’m sad about this; "
+    },
+    "thrilled": {
+      "label": 0.85,
+      "reason": "explicit excitement",
+      "text": "I’m thrilled; "
+    }
+  },
+  "event_shapes": {
+    "achievement": {
+      "label": 0.6,
+      "reason": "achievement wording",
+      "text": "I {what}"
+    },
+    "apology": {
+      "label": 0.25,
+      "reason": "repair attempt",
+      "text": "I apologized about {about}"
+    },
+    "argument": {
+      "label": -0.55,
+      "reason": "conflict",
+      "text": "{name} and I argued about {about}"
+    },
+    "belief_change": {
+      "label": 0.0,
+      "reason": null,
+      "text": "my view on {topic} shifted from {old} to {new}"
+    },
+    "breakup": {
+      "label": -0.75,
+      "reason": "relationship ended",
+      "text": "{name} and I broke up"
+    },
+    "cafe_visit": {
+      "label": 0.0,
+      "reason": null,
+      "text": "I had {drink} at {cafe}"
+    },
+    "cancelled": {
+      "label": -0.25,
+      "reason": "plan cancelled",
+      "text": "I cancelled {what}"
+    },
+    "celebration_planned": {
+      "label": 0.25,
+      "reason": "planned celebration",
+      "text": "I will have {what} on {when}"
+    },
+    "cleared_up": {
+      "label": 0.35,
+      "reason": "conflict resolved",
+      "text": "{name} and I cleared up the misunderstanding"
+    },
+    "commitment_planned": {
+      "label": 0.0,
+      "reason": null,
+      "text": "I will {what} on {when}"
+    },
+    "confirmed": {
+      "label": 0.0,
+      "reason": null,
+      "text": "{what} is confirmed for {when}"
+    },
+    "death": {
+      "label": -0.95,
+      "reason": "death of a loved one",
+      "text": "{name}, my {relation}, died"
+    },
+    "done": {
+      "label": 0.35,
+      "reason": "task completed",
+      "text": "I managed to {what}"
+    },
+    "errand": {
+      "label": 0.0,
+      "reason": null,
+      "text": "I {errand}"
+    },
+    "failure": {
+      "label": -0.65,
+      "reason": "failure wording",
+      "text": "I {what}"
+    },
+    "fallback": {
+      "label": 0.0,
+      "reason": null,
+      "text": "I had a lot on my mind"
+    },
+    "funeral": {
+      "label": -0.75,
+      "reason": "mourning ritual",
+      "text": "we held {name}’s funeral"
+    },
+    "goal_abandoned": {
+      "label": -0.55,
+      "reason": "goal abandoned",
+      "text": "I gave up on {what}"
+    },
+    "goal_achieved": {
+      "label": 0.75,
+      "reason": "goal achieved",
+      "text": "I achieved {what}"
+    },
+    "goal_progress": {
+      "label": 0.45,
+      "reason": "progress",
+      "text": "I made some progress on {what}"
+    },
+    "goal_start": {
+      "label": 0.2,
+      "reason": "new goal",
+      "text": "I’ve set myself a new goal: to {what}"
+    },
+    "house_guest": {
+      "label": 0.0,
+      "reason": null,
+      "text": "{name}, my {relation}, is staying for {nights} nights"
+    },
+    "illness": {
+      "label": -0.45,
+      "reason": "illness stated",
+      "text": "I have {what} and expect it to last {days} days"
+    },
+    "job_change": {
+      "label": 0.0,
+      "reason": null,
+      "text": "I changed jobs, from {old_title} at {old_employer} to {title} at {employer}"
+    },
+    "meal": {
+      "label": 0.0,
+      "reason": null,
+      "text": "I had {food} for {meal}"
+    },
+    "meeting": {
+      "label": 0.0,
+      "reason": null,
+      "text": "I met with {who} about {topic}"
+    },
+    "misunderstanding": {
+      "label": -0.3,
+      "reason": "mutual confusion",
+      "text": "{name} and I misunderstood each other"
+    },
+    "move": {
+      "label": 0.0,
+      "reason": null,
+      "text": "I moved from {old_city} to {city}"
+    },
+    "neighbourhood_move": {
+      "label": 0.0,
+      "reason": null,
+      "text": "I moved from {old} to {new}"
+    },
+    "new_partner": {
+      "label": 0.25,
+      "reason": "new relationship",
+      "text": "I started seeing {name}"
+    },
+    "outing": {
+      "label": 0.0,
+      "reason": null,
+      "text": "I went to {place} with {who}"
+    },
+    "person_birthday": {
+      "label": 0.3,
+      "reason": "celebration",
+      "text": "we celebrated {name}’s birthday"
+    },
+    "person_job_change": {
+      "label": 0.0,
+      "reason": null,
+      "text": "{person} changed employers from {old} to {new}"
+    },
+    "person_move": {
+      "label": 0.0,
+      "reason": null,
+      "text": "{person} moved from {old} to {new}"
+    },
+    "person_new_partner": {
+      "label": 0.25,
+      "reason": "new relationship",
+      "text": "{name} is seeing {partner_name}"
+    },
+    "pet_adopted": {
+      "label": 0.45,
+      "reason": "welcoming a pet",
+      "text": "I adopted a {species} named {name}"
+    },
+    "pet_death": {
+      "label": -0.9,
+      "reason": "pet death",
+      "text": "my {species} {name} died"
+    },
+    "possession_change": {
+      "label": 0.0,
+      "reason": null,
+      "text": "I replaced my {attribute} with {new}"
+    },
+    "pref_change": {
+      "label": 0.0,
+      "reason": null,
+      "text": "I switched my {attribute} from {old} to {new}"
+    },
+    "project_abandoned": {
+      "label": -0.5,
+      "reason": "project abandoned",
+      "text": "I gave up on {what}"
+    },
+    "project_achieved": {
+      "label": 0.7,
+      "reason": "project finished",
+      "text": "I finished {what}"
+    },
+    "project_progress": {
+      "label": 0.45,
+      "reason": "progress",
+      "text": "I made some progress on {what}"
+    },
+    "project_start": {
+      "label": 0.2,
+      "reason": "new project",
+      "text": "I’ve started a new project: {what}"
+    },
+    "recovered": {
+      "label": 0.65,
+      "reason": "recovery stated",
+      "text": "I’ve recovered from {what}"
+    },
+    "rescheduled": {
+      "label": 0.0,
+      "reason": null,
+      "text": "I moved {what} from {old_when} to {when}"
+    },
+    "restaurant_visit": {
+      "label": 0.0,
+      "reason": null,
+      "text": "I went to {restaurant} with {who} for {occasion} and had {dish}"
+    },
+    "robot_affection": {
+      "label": 0.65,
+      "reason": "fondness",
+      "text": "I’m fond of you"
+    },
+    "robot_apology": {
+      "label": -0.4,
+      "reason": "apology after conflict",
+      "text": "I’m sorry about our argument"
+    },
+    "robot_argument": {
+      "label": -0.75,
+      "reason": "anger",
+      "text": "I’m angry with you"
+    },
+    "robot_complaint": {
+      "label": -0.65,
+      "reason": "frustration",
+      "text": "I’m frustrated with how that went"
+    },
+    "robot_confide": {
+      "label": 0.3,
+      "reason": "trust",
+      "text": "I trust you with something personal"
+    },
+    "robot_misunderstanding": {
+      "label": -0.35,
+      "reason": "mutual confusion",
+      "text": "I think we misunderstood each other"
+    },
+    "robot_nickname": {
+      "label": 0.0,
+      "reason": null,
+      "text": "I’ve decided to call you {new}"
+    },
+    "robot_thanks": {
+      "label": 0.55,
+      "reason": "appreciation",
+      "text": "I really appreciate your help"
+    },
+    "support": {
+      "label": 0.0,
+      "reason": null,
+      "text": "I {direction} support from {name}"
+    },
+    "trip_end": {
+      "label": 0.0,
+      "reason": null,
+      "text": "I’m back from {purpose} in {city}"
+    },
+    "trip_planned": {
+      "label": 0.0,
+      "reason": null,
+      "text": "I will {what} on {when}"
+    },
+    "trip_start": {
+      "label": 0.0,
+      "reason": null,
+      "text": "I’m in {city} for {purpose} and staying at {lodging}"
+    },
+    "user_birthday": {
+      "label": 0.0,
+      "reason": null,
+      "text": "I turned {age}"
+    },
+    "watched": {
+      "label": 0.0,
+      "reason": null,
+      "text": "I watched {show}"
+    },
+    "weather": {
+      "label": 0.0,
+      "reason": null,
+      "text": "it was {weather}"
+    }
+  },
+  "fixed_fragments": {
+    "filler_event_line": {
+      "label": 0.0,
+      "reason": null,
+      "text": "I’ve had a full day and wanted a quiet minute"
+    },
+    "joke_seed_line": {
+      "label": 0.0,
+      "reason": null,
+      "text": "I’m quitting to become a lighthouse keeper"
+    }
+  },
+  "vocab_values": {
+    "ACHIEVEMENTS": {
+      "closed a huge deal": {
+        "label": 0.65,
+        "reason": "achievement stated"
+      },
+      "finished my first 10k": {
+        "label": 0.65,
+        "reason": "achievement stated"
+      },
+      "finished the project on time": {
+        "label": 0.65,
+        "reason": "achievement stated"
+      },
+      "got a paper accepted": {
+        "label": 0.65,
+        "reason": "achievement stated"
+      },
+      "got certified": {
+        "label": 0.65,
+        "reason": "achievement stated"
+      },
+      "got promoted": {
+        "label": 0.65,
+        "reason": "achievement stated"
+      },
+      "passed my driving test": {
+        "label": 0.65,
+        "reason": "achievement stated"
+      },
+      "won the office quiz": {
+        "label": 0.65,
+        "reason": "achievement stated"
+      }
+    },
+    "BELIEFS": {
+      "a hybrid week is the only sane option": {
+        "label": 0.0,
+        "reason": null
+      },
+      "big cities are exhausting": {
+        "label": -0.25,
+        "reason": "negative evaluation"
+      },
+      "big cities are where life happens": {
+        "label": 0.25,
+        "reason": "positive evaluation"
+      },
+      "early mornings are the best part of the day": {
+        "label": 0.25,
+        "reason": "positive evaluation"
+      },
+      "food isn't food without chilli": {
+        "label": 0.0,
+        "reason": null
+      },
+      "it's fine in small doses": {
+        "label": 0.0,
+        "reason": null
+      },
+      "nobody should be awake before eight": {
+        "label": -0.25,
+        "reason": "negative evaluation"
+      },
+      "offices are better for teams": {
+        "label": 0.0,
+        "reason": null
+      },
+      "remote work is better for focus": {
+        "label": 0.0,
+        "reason": null
+      },
+      "small towns are underrated": {
+        "label": 0.0,
+        "reason": null
+      },
+      "social media is mostly harmful": {
+        "label": -0.25,
+        "reason": "negative evaluation"
+      },
+      "social media keeps me connected": {
+        "label": 0.25,
+        "reason": "positive evaluation"
+      },
+      "spicy food is overrated": {
+        "label": 0.0,
+        "reason": null
+      }
+    },
+    "BOOK_GENRES": {
+      "biographies": {
+        "label": 0.0,
+        "reason": null
+      },
+      "crime novels": {
+        "label": 0.0,
+        "reason": null
+      },
+      "fantasy": {
+        "label": 0.0,
+        "reason": null
+      },
+      "graphic novels": {
+        "label": 0.0,
+        "reason": null
+      },
+      "historical fiction": {
+        "label": 0.0,
+        "reason": null
+      },
+      "poetry": {
+        "label": 0.0,
+        "reason": null
+      },
+      "science fiction": {
+        "label": 0.0,
+        "reason": null
+      },
+      "travel writing": {
+        "label": 0.0,
+        "reason": null
+      }
+    },
+    "CAFES": {
+      "Bean There": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Foxglove Cafe": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Kettle & Crumb": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Northside Roasters": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Second Cup Corner": {
+        "label": 0.0,
+        "reason": null
+      },
+      "The Daily Grind": {
+        "label": 0.0,
+        "reason": null
+      }
+    },
+    "CARS": {
+      "a black motorbike": {
+        "label": 0.0,
+        "reason": null
+      },
+      "a green bicycle": {
+        "label": 0.0,
+        "reason": null
+      },
+      "a grey hatchback": {
+        "label": 0.0,
+        "reason": null
+      },
+      "a red scooter": {
+        "label": 0.0,
+        "reason": null
+      },
+      "a secondhand minivan": {
+        "label": 0.0,
+        "reason": null
+      },
+      "a white electric car": {
+        "label": 0.0,
+        "reason": null
+      },
+      "an old blue sedan": {
+        "label": 0.0,
+        "reason": null
+      }
+    },
+    "CELEBRATIONS": {
+      "a graduation party": {
+        "label": 0.0,
+        "reason": null
+      },
+      "a housewarming party": {
+        "label": 0.0,
+        "reason": null
+      },
+      "a new-year party": {
+        "label": 0.0,
+        "reason": null
+      },
+      "a surprise party": {
+        "label": 0.0,
+        "reason": null
+      },
+      "an anniversary dinner": {
+        "label": 0.0,
+        "reason": null
+      }
+    },
+    "CITIES": {
+      "Accra": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Auckland": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Austin": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Bangalore": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Bogota": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Busan": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Cape Town": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Chennai": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Copenhagen": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Denver": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Dublin": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Edinburgh": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Glasgow": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Goa": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Hanoi": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Hyderabad": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Istanbul": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Kolkata": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Krakow": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Kyoto": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Leeds": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Lisbon": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Ljubljana": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Marseille": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Melbourne": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Mexico City": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Montreal": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Mysore": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Nairobi": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Osaka": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Porto": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Pune": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Rotterdam": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Seattle": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Seville": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Singapore": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Tbilisi": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Toronto": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Valencia": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Wellington": {
+        "label": 0.0,
+        "reason": null
+      }
+    },
+    "COMMITMENT_TASKS": {
+      "book a dentist appointment": {
+        "label": 0.0,
+        "reason": null
+      },
+      "buy a gift for {person}": {
+        "label": 0.0,
+        "reason": null
+      },
+      "call the landlord about the heater": {
+        "label": 0.0,
+        "reason": null
+      },
+      "cancel the gym trial": {
+        "label": 0.0,
+        "reason": null
+      },
+      "check in for the flight": {
+        "label": 0.0,
+        "reason": null
+      },
+      "finish the quarterly report": {
+        "label": 0.0,
+        "reason": null
+      },
+      "get the jacket tailored": {
+        "label": 0.0,
+        "reason": null
+      },
+      "help {person} move flats": {
+        "label": 0.0,
+        "reason": null
+      },
+      "pay the electricity bill": {
+        "label": 0.0,
+        "reason": null
+      },
+      "pick {person} up from the airport": {
+        "label": 0.0,
+        "reason": null
+      },
+      "renew my passport": {
+        "label": 0.0,
+        "reason": null
+      },
+      "reply to the insurance email": {
+        "label": 0.0,
+        "reason": null
+      },
+      "return {person}'s books": {
+        "label": 0.0,
+        "reason": null
+      },
+      "send {person} the photos": {
+        "label": 0.0,
+        "reason": null
+      },
+      "sign up for the evening course": {
+        "label": 0.0,
+        "reason": null
+      },
+      "submit the tax form": {
+        "label": 0.0,
+        "reason": null
+      },
+      "take the car in for a service": {
+        "label": 0.0,
+        "reason": null
+      },
+      "water {person}'s plants": {
+        "label": 0.0,
+        "reason": null
+      }
+    },
+    "COMPANIES": {
+      "Bluecrest Energy": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Brightline Logistics": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Copperleaf Media": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Ferngrove Health": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Glasshouse Games": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Halcyon Foods": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Ironbark Insurance": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Kestrel Analytics": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Lumen & Vale": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Nimbus Freight": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Orbitly": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Parallax Robotics": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Quarrystone Bank": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Redwood Civic Trust": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Saltmarsh Design": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Stillwater Labs": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Tallpine Studios": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Wren Street School": {
+        "label": 0.0,
+        "reason": null
+      }
+    },
+    "CUISINES": {
+      "Bengali": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Ethiopian": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Italian": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Japanese": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Korean": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Lebanese": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Mexican": {
+        "label": 0.0,
+        "reason": null
+      },
+      "South Indian": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Thai": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Vietnamese": {
+        "label": 0.0,
+        "reason": null
+      }
+    },
+    "DEGREES": {
+      "architecture": {
+        "label": 0.0,
+        "reason": null
+      },
+      "biology": {
+        "label": 0.0,
+        "reason": null
+      },
+      "computer science": {
+        "label": 0.0,
+        "reason": null
+      },
+      "economics": {
+        "label": 0.0,
+        "reason": null
+      },
+      "graphic design": {
+        "label": 0.0,
+        "reason": null
+      },
+      "history": {
+        "label": 0.0,
+        "reason": null
+      },
+      "literature": {
+        "label": 0.0,
+        "reason": null
+      },
+      "mechanical engineering": {
+        "label": 0.0,
+        "reason": null
+      },
+      "nursing": {
+        "label": 0.0,
+        "reason": null
+      }
+    },
+    "DRINKS": {
+      "black coffee": {
+        "label": 0.0,
+        "reason": null
+      },
+      "cappuccino": {
+        "label": 0.0,
+        "reason": null
+      },
+      "chamomile tea": {
+        "label": 0.0,
+        "reason": null
+      },
+      "cold brew": {
+        "label": 0.0,
+        "reason": null
+      },
+      "cortado": {
+        "label": 0.0,
+        "reason": null
+      },
+      "earl grey": {
+        "label": 0.0,
+        "reason": null
+      },
+      "filter coffee": {
+        "label": 0.0,
+        "reason": null
+      },
+      "green tea": {
+        "label": 0.0,
+        "reason": null
+      },
+      "hot chocolate": {
+        "label": 0.0,
+        "reason": null
+      },
+      "iced americano": {
+        "label": 0.0,
+        "reason": null
+      },
+      "mango lassi": {
+        "label": 0.0,
+        "reason": null
+      },
+      "masala chai": {
+        "label": 0.0,
+        "reason": null
+      },
+      "matcha latte": {
+        "label": 0.0,
+        "reason": null
+      },
+      "oat flat white": {
+        "label": 0.0,
+        "reason": null
+      },
+      "sparkling water": {
+        "label": 0.0,
+        "reason": null
+      },
+      "yerba mate": {
+        "label": 0.0,
+        "reason": null
+      }
+    },
+    "ERRANDS": {
+      "bought a new lamp": {
+        "label": 0.0,
+        "reason": null
+      },
+      "dropped off dry cleaning": {
+        "label": 0.0,
+        "reason": null
+      },
+      "fixed the bike tyre": {
+        "label": 0.0,
+        "reason": null
+      },
+      "got a haircut": {
+        "label": 0.0,
+        "reason": null
+      },
+      "picked up groceries": {
+        "label": 0.0,
+        "reason": null
+      },
+      "renewed my bus pass": {
+        "label": 0.0,
+        "reason": null
+      },
+      "returned a parcel": {
+        "label": 0.0,
+        "reason": null
+      },
+      "went to the bank": {
+        "label": 0.0,
+        "reason": null
+      }
+    },
+    "EXERCISE": {
+      "a dance class on Tuesdays": {
+        "label": 0.0,
+        "reason": null
+      },
+      "cycling to work": {
+        "label": 0.0,
+        "reason": null
+      },
+      "evening runs": {
+        "label": 0.0,
+        "reason": null
+      },
+      "going to the gym three times a week": {
+        "label": 0.0,
+        "reason": null
+      },
+      "home workouts": {
+        "label": 0.0,
+        "reason": null
+      },
+      "swimming on weekends": {
+        "label": 0.0,
+        "reason": null
+      }
+    },
+    "FAILURES": {
+      "bombed the presentation": {
+        "label": -0.7,
+        "reason": "failure stated"
+      },
+      "didn't get the promotion": {
+        "label": -0.7,
+        "reason": "failure stated"
+      },
+      "failed my driving test": {
+        "label": -0.7,
+        "reason": "failure stated"
+      },
+      "got rejected from the program": {
+        "label": -0.7,
+        "reason": "failure stated"
+      },
+      "lost the client pitch": {
+        "label": -0.7,
+        "reason": "failure stated"
+      },
+      "missed the deadline": {
+        "label": -0.7,
+        "reason": "failure stated"
+      }
+    },
+    "FEMALE_NAMES": {
+      "Aditi": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Alina": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Amara": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Ana": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Anna": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Chloe": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Danielle": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Divya": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Elena": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Farah": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Fatima": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Grace": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Hana": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Ines": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Isabel": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Jessie": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Kavita": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Kavya": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Keiko": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Leena": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Lena": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Lucia": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Maya": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Meera": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Mia": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Mira": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Nadia": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Nikita": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Noor": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Priya": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Priyanka": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Ravina": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Ruth": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Sofia": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Sophie": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Tara": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Yuka": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Zara": {
+        "label": 0.0,
+        "reason": null
+      }
+    },
+    "FOODS": {
+      "bibimbap": {
+        "label": 0.0,
+        "reason": null
+      },
+      "biryani": {
+        "label": 0.0,
+        "reason": null
+      },
+      "butter chicken": {
+        "label": 0.0,
+        "reason": null
+      },
+      "chole bhature": {
+        "label": 0.0,
+        "reason": null
+      },
+      "dumplings": {
+        "label": 0.0,
+        "reason": null
+      },
+      "falafel wraps": {
+        "label": 0.0,
+        "reason": null
+      },
+      "fish and chips": {
+        "label": 0.0,
+        "reason": null
+      },
+      "lasagna": {
+        "label": 0.0,
+        "reason": null
+      },
+      "margherita pizza": {
+        "label": 0.0,
+        "reason": null
+      },
+      "masala dosa": {
+        "label": 0.0,
+        "reason": null
+      },
+      "mushroom risotto": {
+        "label": 0.0,
+        "reason": null
+      },
+      "pad thai": {
+        "label": 0.0,
+        "reason": null
+      },
+      "paneer tikka": {
+        "label": 0.0,
+        "reason": null
+      },
+      "pho": {
+        "label": 0.0,
+        "reason": null
+      },
+      "ramen": {
+        "label": 0.0,
+        "reason": null
+      },
+      "shakshuka": {
+        "label": 0.0,
+        "reason": null
+      },
+      "sushi": {
+        "label": 0.0,
+        "reason": null
+      },
+      "tacos al pastor": {
+        "label": 0.0,
+        "reason": null
+      }
+    },
+    "GOALS": {
+      "get a scuba certificate": {
+        "label": 0.0,
+        "reason": null
+      },
+      "learn Spanish": {
+        "label": 0.0,
+        "reason": null
+      },
+      "learn to play the guitar": {
+        "label": 0.0,
+        "reason": null
+      },
+      "learn to swim properly": {
+        "label": 0.0,
+        "reason": null
+      },
+      "read fifty books this year": {
+        "label": 0.0,
+        "reason": null
+      },
+      "run a half marathon": {
+        "label": 0.0,
+        "reason": null
+      },
+      "save for a flat": {
+        "label": 0.0,
+        "reason": null
+      },
+      "switch into a management role": {
+        "label": 0.0,
+        "reason": null
+      },
+      "visit Japan": {
+        "label": 0.0,
+        "reason": null
+      },
+      "write a short story collection": {
+        "label": 0.0,
+        "reason": null
+      }
+    },
+    "HEALTH_MINOR": {
+      "a bad cold": {
+        "label": -0.6,
+        "reason": "illness or injury"
+      },
+      "a migraine": {
+        "label": -0.6,
+        "reason": "illness or injury"
+      },
+      "a sore throat": {
+        "label": -0.6,
+        "reason": "illness or injury"
+      },
+      "a sprained ankle": {
+        "label": -0.6,
+        "reason": "illness or injury"
+      },
+      "a stiff back": {
+        "label": -0.6,
+        "reason": "illness or injury"
+      },
+      "food poisoning": {
+        "label": -0.6,
+        "reason": "illness or injury"
+      }
+    },
+    "HOBBIES": {
+      "baking sourdough": {
+        "label": 0.0,
+        "reason": null
+      },
+      "birdwatching": {
+        "label": 0.0,
+        "reason": null
+      },
+      "board games": {
+        "label": 0.0,
+        "reason": null
+      },
+      "gardening": {
+        "label": 0.0,
+        "reason": null
+      },
+      "journaling": {
+        "label": 0.0,
+        "reason": null
+      },
+      "photography": {
+        "label": 0.0,
+        "reason": null
+      },
+      "playing the ukulele": {
+        "label": 0.0,
+        "reason": null
+      },
+      "pottery": {
+        "label": 0.0,
+        "reason": null
+      },
+      "rock climbing": {
+        "label": 0.0,
+        "reason": null
+      },
+      "running": {
+        "label": 0.0,
+        "reason": null
+      },
+      "salsa dancing": {
+        "label": 0.0,
+        "reason": null
+      },
+      "sketching": {
+        "label": 0.0,
+        "reason": null
+      },
+      "swimming": {
+        "label": 0.0,
+        "reason": null
+      },
+      "woodworking": {
+        "label": 0.0,
+        "reason": null
+      }
+    },
+    "JOB_TITLES": {
+      "UX researcher": {
+        "label": 0.0,
+        "reason": null
+      },
+      "accountant": {
+        "label": 0.0,
+        "reason": null
+      },
+      "architect": {
+        "label": 0.0,
+        "reason": null
+      },
+      "backend engineer": {
+        "label": 0.0,
+        "reason": null
+      },
+      "chef": {
+        "label": 0.0,
+        "reason": null
+      },
+      "civil engineer": {
+        "label": 0.0,
+        "reason": null
+      },
+      "copywriter": {
+        "label": 0.0,
+        "reason": null
+      },
+      "data analyst": {
+        "label": 0.0,
+        "reason": null
+      },
+      "journalist": {
+        "label": 0.0,
+        "reason": null
+      },
+      "lab technician": {
+        "label": 0.0,
+        "reason": null
+      },
+      "nurse": {
+        "label": 0.0,
+        "reason": null
+      },
+      "operations manager": {
+        "label": 0.0,
+        "reason": null
+      },
+      "pharmacist": {
+        "label": 0.0,
+        "reason": null
+      },
+      "physiotherapist": {
+        "label": 0.0,
+        "reason": null
+      },
+      "product designer": {
+        "label": 0.0,
+        "reason": null
+      },
+      "project manager": {
+        "label": 0.0,
+        "reason": null
+      },
+      "sales lead": {
+        "label": 0.0,
+        "reason": null
+      },
+      "teacher": {
+        "label": 0.0,
+        "reason": null
+      }
+    },
+    "LODGING": {
+      "a business hotel": {
+        "label": 0.0,
+        "reason": null
+      },
+      "a guesthouse by the beach": {
+        "label": 0.0,
+        "reason": null
+      },
+      "a hostel downtown": {
+        "label": 0.0,
+        "reason": null
+      },
+      "a hotel near the station": {
+        "label": 0.0,
+        "reason": null
+      },
+      "an Airbnb in the old town": {
+        "label": 0.0,
+        "reason": null
+      },
+      "my cousin's flat": {
+        "label": 0.0,
+        "reason": null
+      }
+    },
+    "MALE_NAMES": {
+      "Aditya": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Ali": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Arjun": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Aryan": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Ben": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Benji": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Daniel": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Dev": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Ethan": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Felix": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Hugo": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Idris": {
+        "label": 0.0,
+        "reason": null
+      },
+      "John": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Jon": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Karan": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Kenji": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Kiran": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Kofi": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Luis": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Marco": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Mario": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Mateo": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Nikhil": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Noah": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Omar": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Pavel": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Rahul": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Ravi": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Rohan": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Rohit": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Sam": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Samir": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Sanjay": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Theo": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Thomas": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Tomas": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Vikram": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Yuki": {
+        "label": 0.0,
+        "reason": null
+      }
+    },
+    "MEAL_SLOTS": {
+      "breakfast": {
+        "label": 0.0,
+        "reason": null
+      },
+      "dinner": {
+        "label": 0.0,
+        "reason": null
+      },
+      "lunch": {
+        "label": 0.0,
+        "reason": null
+      }
+    },
+    "MEETING_TOPICS": {
+      "a performance review": {
+        "label": 0.0,
+        "reason": null
+      },
+      "the budget review": {
+        "label": 0.0,
+        "reason": null
+      },
+      "the client escalation": {
+        "label": 0.0,
+        "reason": null
+      },
+      "the hiring plan": {
+        "label": 0.0,
+        "reason": null
+      },
+      "the office move": {
+        "label": 0.0,
+        "reason": null
+      },
+      "the product launch": {
+        "label": 0.0,
+        "reason": null
+      },
+      "the roadmap": {
+        "label": 0.0,
+        "reason": null
+      },
+      "the vendor contract": {
+        "label": 0.0,
+        "reason": null
+      }
+    },
+    "MORNING_ROUTINES": {
+      "a run at six": {
+        "label": 0.0,
+        "reason": null
+      },
+      "coffee and the news": {
+        "label": 0.0,
+        "reason": null
+      },
+      "meditating for ten minutes": {
+        "label": 0.0,
+        "reason": null
+      },
+      "reading in bed": {
+        "label": 0.0,
+        "reason": null
+      },
+      "walking the long way to work": {
+        "label": 0.0,
+        "reason": null
+      },
+      "yoga before breakfast": {
+        "label": 0.0,
+        "reason": null
+      }
+    },
+    "MUSIC": {
+      "Bollywood soundtracks": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Carnatic music": {
+        "label": 0.0,
+        "reason": null
+      },
+      "K-pop": {
+        "label": 0.0,
+        "reason": null
+      },
+      "ambient": {
+        "label": 0.0,
+        "reason": null
+      },
+      "bluegrass": {
+        "label": 0.0,
+        "reason": null
+      },
+      "bossa nova": {
+        "label": 0.0,
+        "reason": null
+      },
+      "classic rock": {
+        "label": 0.0,
+        "reason": null
+      },
+      "indie folk": {
+        "label": 0.0,
+        "reason": null
+      },
+      "jazz": {
+        "label": 0.0,
+        "reason": null
+      },
+      "lo-fi hip hop": {
+        "label": 0.0,
+        "reason": null
+      },
+      "synthwave": {
+        "label": 0.0,
+        "reason": null
+      },
+      "techno": {
+        "label": 0.0,
+        "reason": null
+      }
+    },
+    "NEIGHBOURHOODS": {
+      "Canal Row": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Cedar Lane": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Green Park": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Harbourside": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Hilltop": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Lakeview": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Maple Heights": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Millbrook": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Northgate": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Old Market": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Riverside": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Station Road": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Willow End": {
+        "label": 0.0,
+        "reason": null
+      },
+      "the arts district": {
+        "label": 0.0,
+        "reason": null
+      },
+      "the old town": {
+        "label": 0.0,
+        "reason": null
+      },
+      "the university quarter": {
+        "label": 0.0,
+        "reason": null
+      }
+    },
+    "NEUTRAL_NAMES": {
+      "Alex": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Ashley": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Charlie": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Chris": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Jordan": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Kris": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Quinn": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Riley": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Robin": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Sasha": {
+        "label": 0.0,
+        "reason": null
+      }
+    },
+    "OCCASIONS": {
+      "a birthday dinner": {
+        "label": 0.35,
+        "reason": "celebratory occasion"
+      },
+      "a date night": {
+        "label": 0.0,
+        "reason": null
+      },
+      "a farewell": {
+        "label": 0.0,
+        "reason": null
+      },
+      "a graduation party": {
+        "label": 0.35,
+        "reason": "celebratory occasion"
+      },
+      "a surprise party": {
+        "label": 0.35,
+        "reason": "celebratory occasion"
+      },
+      "a work dinner": {
+        "label": 0.0,
+        "reason": null
+      },
+      "an anniversary dinner": {
+        "label": 0.35,
+        "reason": "celebratory occasion"
+      },
+      "celebrating good news": {
+        "label": 0.35,
+        "reason": "celebratory occasion"
+      },
+      "just a catch-up": {
+        "label": 0.0,
+        "reason": null
+      }
+    },
+    "OUTINGS": {
+      "a gig": {
+        "label": 0.0,
+        "reason": null
+      },
+      "a hike": {
+        "label": 0.0,
+        "reason": null
+      },
+      "a pottery class": {
+        "label": 0.0,
+        "reason": null
+      },
+      "a quiz night": {
+        "label": 0.0,
+        "reason": null
+      },
+      "a street food market": {
+        "label": 0.0,
+        "reason": null
+      },
+      "the beach": {
+        "label": 0.0,
+        "reason": null
+      },
+      "the cinema": {
+        "label": 0.0,
+        "reason": null
+      },
+      "the museum": {
+        "label": 0.0,
+        "reason": null
+      }
+    },
+    "PET_NAMES": {
+      "Biscuit": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Bruno": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Cleo": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Juniper": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Luna": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Mango": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Mochi": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Olive": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Pepper": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Pixel": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Rolo": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Tofu": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Waffles": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Ziggy": {
+        "label": 0.0,
+        "reason": null
+      }
+    },
+    "PET_SPECIES": {
+      "cat": {
+        "label": 0.0,
+        "reason": null
+      },
+      "dog": {
+        "label": 0.0,
+        "reason": null
+      },
+      "parrot": {
+        "label": 0.0,
+        "reason": null
+      },
+      "rabbit": {
+        "label": 0.0,
+        "reason": null
+      },
+      "tortoise": {
+        "label": 0.0,
+        "reason": null
+      }
+    },
+    "PHONES": {
+      "a Juno S3": {
+        "label": 0.0,
+        "reason": null
+      },
+      "a Novaphone 12": {
+        "label": 0.0,
+        "reason": null
+      },
+      "a Novaphone 9": {
+        "label": 0.0,
+        "reason": null
+      },
+      "a Tessel Mini": {
+        "label": 0.0,
+        "reason": null
+      },
+      "a Tessel X": {
+        "label": 0.0,
+        "reason": null
+      },
+      "a refurbished Juno S1": {
+        "label": 0.0,
+        "reason": null
+      }
+    },
+    "PROJECTS": {
+      "a community garden plot": {
+        "label": 0.0,
+        "reason": null
+      },
+      "a family photo album": {
+        "label": 0.0,
+        "reason": null
+      },
+      "a plant-tracking app": {
+        "label": 0.0,
+        "reason": null
+      },
+      "a podcast about local history": {
+        "label": 0.0,
+        "reason": null
+      },
+      "a quilt for my mother": {
+        "label": 0.0,
+        "reason": null
+      },
+      "building a bookshelf": {
+        "label": 0.0,
+        "reason": null
+      },
+      "renovating the balcony": {
+        "label": 0.0,
+        "reason": null
+      },
+      "restoring an old bicycle": {
+        "label": 0.0,
+        "reason": null
+      }
+    },
+    "RELATIONS": {
+      "aunt": {
+        "label": 0.0,
+        "reason": null
+      },
+      "best friend": {
+        "label": 0.0,
+        "reason": null
+      },
+      "brother": {
+        "label": 0.0,
+        "reason": null
+      },
+      "childhood friend": {
+        "label": 0.0,
+        "reason": null
+      },
+      "cousin": {
+        "label": 0.0,
+        "reason": null
+      },
+      "coworker": {
+        "label": 0.0,
+        "reason": null
+      },
+      "father": {
+        "label": 0.0,
+        "reason": null
+      },
+      "friend": {
+        "label": 0.0,
+        "reason": null
+      },
+      "grandfather": {
+        "label": 0.0,
+        "reason": null
+      },
+      "grandmother": {
+        "label": 0.0,
+        "reason": null
+      },
+      "manager": {
+        "label": 0.0,
+        "reason": null
+      },
+      "mentor": {
+        "label": 0.0,
+        "reason": null
+      },
+      "mother": {
+        "label": 0.0,
+        "reason": null
+      },
+      "neighbour": {
+        "label": 0.0,
+        "reason": null
+      },
+      "sister": {
+        "label": 0.0,
+        "reason": null
+      },
+      "uncle": {
+        "label": 0.0,
+        "reason": null
+      }
+    },
+    "RESTAURANTS": {
+      "Casa Miguel": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Cedar House": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Chaat Street": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Dosa Republic": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Harbour Grill": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Little Osaka": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Marlowe's": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Mezze Lab": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Noodle Theory": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Olive & Ash": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Pho Corner": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Saffron Lantern": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Seoul Kitchen": {
+        "label": 0.0,
+        "reason": null
+      },
+      "The Blue Tiffin": {
+        "label": 0.0,
+        "reason": null
+      },
+      "The Copper Pot": {
+        "label": 0.0,
+        "reason": null
+      },
+      "The Green Bowl": {
+        "label": 0.0,
+        "reason": null
+      },
+      "The Tipsy Fig": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Trattoria Nonna": {
+        "label": 0.0,
+        "reason": null
+      }
+    },
+    "ROBOT_NICKNAMES": {
+      "Bolt": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Buddy": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Echo": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Nova": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Pixel": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Sprocket": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Tink": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Ziggy": {
+        "label": 0.0,
+        "reason": null
+      }
+    },
+    "SPORTS": {
+      "Formula 1": {
+        "label": 0.0,
+        "reason": null
+      },
+      "badminton": {
+        "label": 0.0,
+        "reason": null
+      },
+      "basketball": {
+        "label": 0.0,
+        "reason": null
+      },
+      "chess tournaments": {
+        "label": 0.0,
+        "reason": null
+      },
+      "cricket": {
+        "label": 0.0,
+        "reason": null
+      },
+      "cycling": {
+        "label": 0.0,
+        "reason": null
+      },
+      "football": {
+        "label": 0.0,
+        "reason": null
+      },
+      "tennis": {
+        "label": 0.0,
+        "reason": null
+      }
+    },
+    "TRIP_PURPOSES": {
+      "a client workshop": {
+        "label": 0.0,
+        "reason": null
+      },
+      "a family visit": {
+        "label": 0.0,
+        "reason": null
+      },
+      "a friend's wedding": {
+        "label": 0.0,
+        "reason": null
+      },
+      "a hiking trip": {
+        "label": 0.0,
+        "reason": null
+      },
+      "a short holiday": {
+        "label": 0.0,
+        "reason": null
+      },
+      "a work conference": {
+        "label": 0.0,
+        "reason": null
+      }
+    },
+    "TV_SHOWS": {
+      "Bureau of Small Things": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Copper Coast": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Harbour Lights": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Lamplight Road": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Last Lantern": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Night Ferry": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Northern Signal": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Pale Meridian": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Sundial": {
+        "label": 0.0,
+        "reason": null
+      },
+      "The Glass Orchard": {
+        "label": 0.0,
+        "reason": null
+      },
+      "The Kitchen Wars": {
+        "label": 0.0,
+        "reason": null
+      },
+      "The Long Table": {
+        "label": 0.0,
+        "reason": null
+      },
+      "The Quiet Detective": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Understory": {
+        "label": 0.0,
+        "reason": null
+      }
+    },
+    "UNIVERSITIES": {
+      "Coldwater Polytechnic": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Eastmere University": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Linden State University": {
+        "label": 0.0,
+        "reason": null
+      },
+      "Northbridge University": {
+        "label": 0.0,
+        "reason": null
+      },
+      "St. Aldric College": {
+        "label": 0.0,
+        "reason": null
+      },
+      "the Harlow Institute": {
+        "label": 0.0,
+        "reason": null
+      },
+      "the Varden School of Design": {
+        "label": 0.0,
+        "reason": null
+      }
+    },
+    "WEATHER": {
+      "a beautiful clear sky": {
+        "label": 0.55,
+        "reason": "explicit beauty"
+      },
+      "a heatwave": {
+        "label": -0.3,
+        "reason": "oppressive heat"
+      },
+      "a thunderstorm": {
+        "label": -0.35,
+        "reason": "threatening weather"
+      },
+      "freezing wind": {
+        "label": -0.3,
+        "reason": "unpleasant cold"
+      },
+      "light drizzle": {
+        "label": -0.1,
+        "reason": "mildly unpleasant weather"
+      },
+      "pouring rain": {
+        "label": -0.25,
+        "reason": "unpleasant weather"
+      },
+      "sticky humidity": {
+        "label": -0.25,
+        "reason": "uncomfortable weather"
+      },
+      "thick fog": {
+        "label": -0.2,
+        "reason": "poor visibility"
+      }
+    },
+    "WEEKEND": {
+      "brunch with friends": {
+        "label": 0.0,
+        "reason": null
+      },
+      "cleaning the flat": {
+        "label": 0.0,
+        "reason": null
+      },
+      "cycling along the river": {
+        "label": 0.0,
+        "reason": null
+      },
+      "going to the cinema": {
+        "label": 0.0,
+        "reason": null
+      },
+      "hiking": {
+        "label": 0.0,
+        "reason": null
+      },
+      "sleeping in": {
+        "label": 0.0,
+        "reason": null
+      },
+      "trying a new cafe": {
+        "label": 0.0,
+        "reason": null
+      },
+      "visiting the farmers market": {
+        "label": 0.0,
+        "reason": null
+      }
+    }
+  }
+}

@@ -23,6 +23,7 @@ def test_registry_has_exact_arms_and_runnability_is_derived(monkeypatch):
         "baseline",
         "v1-ranker",
         "-memory-truth",
+        "-temporal",
         "-affect-control",
         "-reappraisal",
         "+reappraisal-weight-learning",
@@ -36,15 +37,14 @@ def test_registry_has_exact_arms_and_runnability_is_derived(monkeypatch):
     assert resolve_arm("baseline").overrides == {}
     assert is_runnable(ARMS["v1-ranker"])
     planned = ARMS["+temporal"]
-    assert not is_runnable(planned)
-    monkeypatch.setitem(
-        AppSettings.model_fields,
-        "MEMORY_TEMPORAL_TRUTH_ENABLED",
-        type("Field", (), {"annotation": bool})(),
-    )
+    assert is_runnable(planned)
     monkeypatch.setattr(Config, "MEMORY_TEMPORAL_TRUTH_ENABLED", False, raising=False)
     assert is_runnable(planned)
     assert resolve_arm("+temporal") == planned
+
+
+def test_temporal_truth_is_opt_in_by_default():
+    assert AppSettings().MEMORY_TEMPORAL_TRUTH_ENABLED is False
 
 
 def test_bad_field_value_is_refused_and_unknown_arm_lists_names():
@@ -68,7 +68,7 @@ def test_all_union_is_registry_derived_and_conflicts_raise(monkeypatch):
     # Planned fields are intentionally absent; all still carries the full union.
     assert ARMS["all"].overrides == expected
     assert not is_runnable(ARMS["all"])
-    with pytest.raises(ArmUnavailable, match="W1"):
+    with pytest.raises(ArmUnavailable, match="W3, W6, W7"):
         resolve_arm("all")
     for key in expected:
         monkeypatch.setitem(

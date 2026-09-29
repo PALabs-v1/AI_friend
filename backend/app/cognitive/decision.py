@@ -92,6 +92,36 @@ _ASK_RELEVANCE_BONUS = 0.3
 _DISTRESS_VALENCE_THRESHOLD = -0.5
 _DISTRESS_AROUSAL_THRESHOLD = 0.4
 
+# Significant-user-valence threshold (Architecture Section 21), shared by
+# every consumer of a strong user-valence signal: pipeline.py's
+# significant_event flag, and this module's acute-distress trigger and
+# speaking-urgency reduction. All three must agree at exactly the boundary
+# (W2 critic round 2, finding 2 -- pipeline.py used >=0.8 while this module
+# used <-0.8, so a value of exactly -0.8 was flagged "significant" but
+# triggered neither regulation nor a lowered urgency).
+SIGNIFICANT_VALENCE_THRESHOLD = 0.8
+
+
+def is_significant_valence(value: Any) -> bool:
+    """True when a user-valence reading is significant in either direction."""
+    return (
+        isinstance(value, (int, float))
+        and not isinstance(value, bool)
+        and abs(value) >= SIGNIFICANT_VALENCE_THRESHOLD
+    )
+
+
+def is_significant_negative_valence(value: Any) -> bool:
+    """True when a user-valence reading is significantly negative -- the
+    half of `is_significant_valence` acute distress and speaking urgency
+    care about."""
+    return (
+        isinstance(value, (int, float))
+        and not isinstance(value, bool)
+        and value <= -SIGNIFICANT_VALENCE_THRESHOLD
+    )
+
+
 # Regulation candidates score above the SPEAK baseline (0.5) so they can
 # actually win a distressed turn rather than only ever being generated and
 # rejected; REAPPRAISE outranks REDIRECT_ATTENTION as the more direct
@@ -232,7 +262,9 @@ def _clarification_subject(activation: MemoryActivation) -> str:
     return "that"
 
 
-def _is_acute_distress(state_snapshot: dict[str, Any]) -> bool:
+def _is_acute_distress(
+    state_snapshot: dict[str, Any], event_metadata: dict[str, Any] | None = None
+) -> bool:
     """Severe negative valence plus high arousal (Architecture Sections 9,
     10, 21, 38): the acute-distress condition emotion-regulation candidates
     exist to catch. Reads the same state_snapshot keys _score_goals_maut
@@ -241,9 +273,33 @@ def _is_acute_distress(state_snapshot: dict[str, Any]) -> bool:
     """
     valence = float(state_snapshot.get("mood", 0.0))
     arousal = float(state_snapshot.get("energy", 0.5))
-    return (
+    user_valence = (event_metadata or {}).get("affect_user_valence")
+    significant_user_distress = (event_metadata or {}).get(
+        "affect_significant_event"
+    ) is True and is_significant_negative_valence(user_valence)
+    return significant_user_distress or (
         valence < _DISTRESS_VALENCE_THRESHOLD and arousal > _DISTRESS_AROUSAL_THRESHOLD
     )
+
+
+def _without_urgency(global_controls: Any | None) -> Any | None:
+    """DR-025 / A-6: while regulation is on the table, urgency is dropped.
+
+    `derive_global_controls` raises urgency_gain with negative valence and
+    arousal, so a distressed turn is the most urgent one and the urgency
+    term rewards SPEAK's zero risk and cost over every regulation candidate
+    by more than their 0.05 score lead. Zeroing it here, and only when
+    acute distress has produced regulation candidates, lets that lead
+    decide. Exploration and effort budgets pass through unchanged. A frozen
+    GlobalControls model or a plain dict are both copied, never mutated.
+    """
+    if global_controls is None:
+        return None
+    if hasattr(global_controls, "model_copy"):
+        return global_controls.model_copy(update={"urgency_gain": 0.0})
+    if isinstance(global_controls, dict):
+        return {**global_controls, "urgency_gain": 0.0}
+    return global_controls
 
 
 def _bucket_relational_stance(trust: float, attachment: float, mood: float) -> str:
@@ -268,6 +324,13 @@ def _build_communicative_intent(
     metadata = event.metadata or {}
     tom = metadata.get("tom_inferences") or {}
     urgency = max(0.0, min(1.0, float(tom.get("inferred_arousal", 0.5))))
+    affect_valence = metadata.get("affect_user_valence")
+    if metadata.get(
+        "affect_significant_event"
+    ) is True and is_significant_negative_valence(affect_valence):
+        # A significant distress event can lower speaking urgency enough for
+        # regulation to win; safety and boundary checks remain later and hard.
+        urgency = min(urgency, 0.4)
     stance = _bucket_relational_stance(
         trust=float(state.get("trust", 0.5)),
         attachment=float(state.get("attachment", 0.1)),
@@ -881,6 +944,7 @@ class DecisionService:
                 memory_activations,
                 event.raw_content,
                 state_snapshot=blackboard.get("state") or {},
+                event_metadata=event.metadata,
                 global_controls=blackboard.get("global_controls"),
                 metacognitive_directive=blackboard.get(
                     "metacognitive_directive", "PROCEED"
@@ -974,6 +1038,7 @@ class DecisionService:
         memory_activations: list[MemoryActivation],
         raw_content: str,
         state_snapshot: dict[str, Any] | None = None,
+        event_metadata: dict[str, Any] | None = None,
     ) -> list[ActionCandidate]:
         """Phase 02 Package B: the candidate set decide() evaluates for a
         social-response turn. Always includes a SPEAK baseline and a WAIT
@@ -1040,7 +1105,7 @@ class DecisionService:
         if (
             Config.AFFECT_CONTROL_ENABLED
             and state_snapshot is not None
-            and _is_acute_distress(state_snapshot)
+            and _is_acute_distress(state_snapshot, event_metadata)
         ):
             candidates.extend(self._build_regulation_candidates(goal))
 
@@ -1053,6 +1118,7 @@ class DecisionService:
         memory_activations: list[MemoryActivation],
         raw_content: str,
         state_snapshot: dict[str, Any] | None = None,
+        event_metadata: dict[str, Any] | None = None,
         global_controls: Any | None = None,
         metacognitive_directive: str = "PROCEED",
         privacy_filter: Callable[[ActionCandidate], bool] | None = None,
@@ -1076,7 +1142,11 @@ class DecisionService:
         """
         forbidden_claims = list(self._immutable_core().get("boundaries", []))
         candidates = self._build_candidates(
-            goal, memory_activations, raw_content, state_snapshot
+            goal,
+            memory_activations,
+            raw_content,
+            state_snapshot,
+            event_metadata,
         )
 
         survivors = self._candidate_selector.filter_constraints(
@@ -1110,12 +1180,13 @@ class DecisionService:
         # exists at all" fallback three lines up (which would otherwise
         # silently re-admit a forbidden candidate) into a raised
         # ValueError instead of a silent constraint violation.
+        effective_controls = global_controls if Config.AFFECT_CONTROL_ENABLED else None
+        if any(candidate.source == "regulation" for candidate in survivors):
+            effective_controls = _without_urgency(effective_controls)
         selection = self._candidate_selector.score_and_select(
             survivors,
             active_goals=[goal],
-            global_controls=(
-                global_controls if Config.AFFECT_CONTROL_ENABLED else None
-            ),
+            global_controls=effective_controls,
             forbidden_claims=forbidden_claims,
             metacognitive_directive=metacognitive_directive,
             privacy_filter=privacy_filter,

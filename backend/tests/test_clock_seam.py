@@ -8,6 +8,7 @@ including inside code the caller doesn't own (agent_state.py's hormone
 decay, memory_store.py's search calls, etc.) via the ContextVar seam.
 """
 
+import asyncio
 from datetime import UTC, datetime
 
 import pytest
@@ -232,3 +233,68 @@ def test_no_bare_wall_clock_calls_remain_in_seamed_modules():
                     f"{modname}:{node.lineno} calls datetime.now() directly, "
                     "bypassing app.clock"
                 )
+
+
+@pytest.mark.asyncio
+async def test_manual_clock_sleep_waits_for_advance_not_real_time():
+    c = clock.ManualClock(datetime(2026, 1, 1))
+    task = asyncio.ensure_future(c.sleep(0.6))
+    await asyncio.sleep(0)
+    assert c.next_deadline() == pytest.approx(c.monotonic() + 0.6)
+    c.advance(0.5)
+    await asyncio.sleep(0)
+    assert not task.done()
+    c.advance(0.1)
+    await asyncio.sleep(0)
+    assert task.done()
+    assert c.next_deadline() is None
+
+
+@pytest.mark.asyncio
+async def test_advancing_exactly_to_next_deadline_wakes_the_sleeper():
+    # Regression: the clock keeps microseconds only, so stepping by
+    # `deadline - monotonic()` landed a fraction of a microsecond short of
+    # an odd deadline, the sleeper never woke, and machine B's timer loop
+    # spun forever.
+    c = clock.ManualClock(datetime.fromtimestamp(1_000_000.0))
+    c.advance(0.0123457)
+    for seconds in (0.6, 2.0, 1.2, 0.0000013, 0.3333333):
+        task = asyncio.ensure_future(c.sleep(seconds))
+        await asyncio.sleep(0)
+        deadline = c.next_deadline()
+        c.advance(max(0.0, deadline - c.monotonic()))
+        await asyncio.sleep(0)
+        assert task.done(), seconds
+        assert c.next_deadline() is None
+
+
+@pytest.mark.asyncio
+async def test_module_sleep_uses_the_current_manual_clock():
+    c = clock.ManualClock(datetime(2026, 1, 1))
+    with clock.use_clock(c):
+        task = asyncio.ensure_future(clock.sleep(5.0))
+        await asyncio.sleep(0)
+        assert not task.done()
+        c.advance(5.0)
+        await asyncio.sleep(0)
+        assert task.done()
+
+
+@pytest.mark.asyncio
+async def test_a_cancelled_sleeper_leaves_without_the_clock_moving():
+    # W5 critic r1 #5: cancelled sleepers stayed in `_sleepers` until the next
+    # `set`/`advance`, so a harness that cancels timers without advancing
+    # (every cut grace timer in the barge-in machines) grew the list forever.
+    c = clock.ManualClock(datetime(2026, 1, 1))
+    tasks = [asyncio.ensure_future(c.sleep(10.0 + i)) for i in range(100)]
+    live = asyncio.ensure_future(c.sleep(50.0))
+    await asyncio.sleep(0)
+    for task in tasks:
+        task.cancel()
+    await asyncio.gather(*tasks, return_exceptions=True)
+
+    assert len(c._sleepers) == 1
+    assert c.next_deadline() == c.monotonic() + 50.0
+    c.advance(50.0)
+    await asyncio.sleep(0)
+    assert live.done() and c._sleepers == []

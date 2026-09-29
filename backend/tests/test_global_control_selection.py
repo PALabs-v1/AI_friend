@@ -48,6 +48,7 @@ from app.cognitive.action_candidate import (
     _control_value,
 )
 from app.cognitive.appraisal import AppraisalVector
+from app.cognitive.behavior_contracts import BehaviorDecision, CommunicativeIntent
 from app.cognitive.decision import ActionPlan, DecisionService
 from app.cognitive.perception import CognitiveEvent
 from app.cognitive.pipeline import CognitivePipeline
@@ -126,12 +127,20 @@ class TestGlobalControlModulation:
         """global_controls omitted entirely (the default) must reproduce
         byte-identical scoring to before this parameter existed."""
         low_risk = ActionCandidate(
-            candidate_id="low-risk", kind="SPEAK", source="policy",
-            risk=0.0, cost=0.0, score=0.5,
+            candidate_id="low-risk",
+            kind="SPEAK",
+            source="policy",
+            risk=0.0,
+            cost=0.0,
+            score=0.5,
         )
         high_risk = ActionCandidate(
-            candidate_id="high-risk", kind="SPEAK", source="model",
-            risk=0.9, cost=0.9, score=0.5,
+            candidate_id="high-risk",
+            kind="SPEAK",
+            source="model",
+            risk=0.9,
+            cost=0.9,
+            score=0.5,
         )
 
         winner_no_arg, _ = candidate_selector.score_and_select(
@@ -146,12 +155,20 @@ class TestGlobalControlModulation:
         """urgency_gain > 0.5 must be able to flip the ranking toward the
         lower-risk, lower-cost candidate even when its raw score is lower."""
         fast_safe = ActionCandidate(
-            candidate_id="fast-safe", kind="SPEAK", source="policy",
-            risk=0.0, cost=0.0, score=0.5,
+            candidate_id="fast-safe",
+            kind="SPEAK",
+            source="policy",
+            risk=0.0,
+            cost=0.0,
+            score=0.5,
         )
         slow_risky = ActionCandidate(
-            candidate_id="slow-risky", kind="SPEAK", source="model",
-            risk=1.0, cost=1.0, score=0.55,
+            candidate_id="slow-risky",
+            kind="SPEAK",
+            source="model",
+            risk=1.0,
+            cost=1.0,
+            score=0.55,
         )
 
         # Without urgency, the higher raw score wins.
@@ -171,12 +188,20 @@ class TestGlobalControlModulation:
         """urgency_gain at or below the 0.5 threshold must not modulate at
         all -- the gate is strict, not a smooth ramp from zero."""
         fast_safe = ActionCandidate(
-            candidate_id="fast-safe", kind="SPEAK", source="policy",
-            risk=0.0, cost=0.0, score=0.5,
+            candidate_id="fast-safe",
+            kind="SPEAK",
+            source="policy",
+            risk=0.0,
+            cost=0.0,
+            score=0.5,
         )
         slow_risky = ActionCandidate(
-            candidate_id="slow-risky", kind="SPEAK", source="model",
-            risk=1.0, cost=1.0, score=0.55,
+            candidate_id="slow-risky",
+            kind="SPEAK",
+            source="model",
+            risk=1.0,
+            cost=1.0,
+            score=0.55,
         )
 
         winner, _ = candidate_selector.score_and_select(
@@ -192,12 +217,18 @@ class TestGlobalControlModulation:
         """exploration_budget > 0.5 must be able to flip the ranking toward
         the higher-uncertainty (more novel) candidate."""
         certain = ActionCandidate(
-            candidate_id="certain", kind="SPEAK", source="policy",
-            uncertainty=0.0, score=0.5,
+            candidate_id="certain",
+            kind="SPEAK",
+            source="policy",
+            uncertainty=0.0,
+            score=0.5,
         )
         novel = ActionCandidate(
-            candidate_id="novel", kind="SPEAK", source="model",
-            uncertainty=1.0, score=0.45,
+            candidate_id="novel",
+            kind="SPEAK",
+            source="model",
+            uncertainty=1.0,
+            score=0.45,
         )
 
         winner_baseline, _ = candidate_selector.score_and_select(
@@ -216,12 +247,18 @@ class TestGlobalControlModulation:
         """effort_budget < 0.3 must penalize a heavy, high-cost candidate
         enough to flip the ranking toward a light one."""
         light = ActionCandidate(
-            candidate_id="light", kind="SPEAK", source="policy",
-            cost=0.0, score=0.5,
+            candidate_id="light",
+            kind="SPEAK",
+            source="policy",
+            cost=0.0,
+            score=0.5,
         )
         heavy = ActionCandidate(
-            candidate_id="heavy", kind="SPEAK", source="model",
-            cost=1.0, score=0.55,
+            candidate_id="heavy",
+            kind="SPEAK",
+            source="model",
+            cost=1.0,
+            score=0.55,
         )
 
         winner_baseline, _ = candidate_selector.score_and_select(
@@ -239,12 +276,18 @@ class TestGlobalControlModulation:
     def test_normal_effort_budget_does_not_penalize(self, candidate_selector):
         """effort_budget at or above the 0.3 threshold must not modulate."""
         light = ActionCandidate(
-            candidate_id="light", kind="SPEAK", source="policy",
-            cost=0.0, score=0.5,
+            candidate_id="light",
+            kind="SPEAK",
+            source="policy",
+            cost=0.0,
+            score=0.5,
         )
         heavy = ActionCandidate(
-            candidate_id="heavy", kind="SPEAK", source="model",
-            cost=1.0, score=0.55,
+            candidate_id="heavy",
+            kind="SPEAK",
+            source="model",
+            cost=1.0,
+            score=0.55,
         )
 
         winner, _ = candidate_selector.score_and_select(
@@ -267,12 +310,20 @@ class TestGlobalControlModulation:
             effort_budget = 0.5
 
         fast_safe = ActionCandidate(
-            candidate_id="fast-safe", kind="SPEAK", source="policy",
-            risk=0.0, cost=0.0, score=0.5,
+            candidate_id="fast-safe",
+            kind="SPEAK",
+            source="policy",
+            risk=0.0,
+            cost=0.0,
+            score=0.5,
         )
         slow_risky = ActionCandidate(
-            candidate_id="slow-risky", kind="SPEAK", source="model",
-            risk=1.0, cost=1.0, score=0.55,
+            candidate_id="slow-risky",
+            kind="SPEAK",
+            source="model",
+            risk=1.0,
+            cost=1.0,
+            score=0.55,
         )
 
         winner, _ = candidate_selector.score_and_select(
@@ -302,13 +353,22 @@ class TestScoreAndSelectConstraintFirst:
         selector itself must filter it out before scoring; the safe
         candidate must win."""
         safe = ActionCandidate(
-            candidate_id="safe", kind="WAIT", source="policy",
-            risk=0.5, cost=0.5, score=0.1,
+            candidate_id="safe",
+            kind="WAIT",
+            source="policy",
+            risk=0.5,
+            cost=0.5,
+            score=0.1,
         )
         forbidden = ActionCandidate(
-            candidate_id="forbidden", kind="SPEAK", source="model",
+            candidate_id="forbidden",
+            kind="SPEAK",
+            source="model",
             constraint_claims=["physical body"],
-            risk=0.0, cost=0.0, uncertainty=1.0, score=0.99,
+            risk=0.0,
+            cost=0.0,
+            uncertainty=1.0,
+            score=0.99,
         )
 
         winner, rejected = candidate_selector.score_and_select(
@@ -366,8 +426,11 @@ class TestScoreAndSelectConstraintFirst:
         never invents a winner, so a candidate set with no constraint-safe
         member must raise, not silently pick the forbidden one."""
         forbidden = ActionCandidate(
-            candidate_id="forbidden", kind="SPEAK", source="model",
-            constraint_claims=["physical body"], score=0.99,
+            candidate_id="forbidden",
+            kind="SPEAK",
+            source="model",
+            constraint_claims=["physical body"],
+            score=0.99,
         )
         with pytest.raises(ValueError):
             candidate_selector.score_and_select(
@@ -406,12 +469,20 @@ class TestControlValueValidation:
         must modulate scoring exactly as urgency_gain=1.0 would (its
         clamped value), not apply unbounded extra weight."""
         fast_safe = ActionCandidate(
-            candidate_id="fast-safe", kind="SPEAK", source="policy",
-            risk=0.0, cost=0.0, score=0.5,
+            candidate_id="fast-safe",
+            kind="SPEAK",
+            source="policy",
+            risk=0.0,
+            cost=0.0,
+            score=0.5,
         )
         slow_risky = ActionCandidate(
-            candidate_id="slow-risky", kind="SPEAK", source="model",
-            risk=1.0, cost=1.0, score=0.55,
+            candidate_id="slow-risky",
+            kind="SPEAK",
+            source="model",
+            risk=1.0,
+            cost=1.0,
+            score=0.55,
         )
 
         winner_extreme, _ = candidate_selector.score_and_select(
@@ -433,12 +504,20 @@ class TestControlValueValidation:
         the 0.5 modulation threshold), not as maximal urgency -- the raw,
         unmodulated score must decide the winner."""
         fast_safe = ActionCandidate(
-            candidate_id="fast-safe", kind="SPEAK", source="policy",
-            risk=0.0, cost=0.0, score=0.5,
+            candidate_id="fast-safe",
+            kind="SPEAK",
+            source="policy",
+            risk=0.0,
+            cost=0.0,
+            score=0.5,
         )
         slow_risky = ActionCandidate(
-            candidate_id="slow-risky", kind="SPEAK", source="model",
-            risk=1.0, cost=1.0, score=0.55,
+            candidate_id="slow-risky",
+            kind="SPEAK",
+            source="model",
+            risk=1.0,
+            cost=1.0,
+            score=0.55,
         )
 
         winner, _ = candidate_selector.score_and_select(
@@ -452,8 +531,12 @@ class TestControlValueValidation:
         self, candidate_selector
     ):
         candidate = ActionCandidate(
-            candidate_id="c", kind="WAIT", source="policy",
-            risk=0.0, cost=0.0, score=0.5,
+            candidate_id="c",
+            kind="WAIT",
+            source="policy",
+            risk=0.0,
+            cost=0.0,
+            score=0.5,
         )
         winner, _ = candidate_selector.score_and_select(
             [candidate],
@@ -504,6 +587,25 @@ class TestDistressRegulationCandidateGeneration:
         assert "REAPPRAISE" not in kinds
         assert "REDIRECT_ATTENTION" not in kinds
 
+    def test_significant_user_distress_can_trigger_regulation_from_neutral_agent_state(
+        self, decision_service, monkeypatch
+    ):
+        """A-6 / DR-025: the trigger reads the user's event, not agent mood."""
+        monkeypatch.setattr(Config, "AFFECT_CONTROL_ENABLED", True)
+        event_metadata = {
+            "affect_significant_event": True,
+            "affect_user_valence": -0.9,
+        }
+        candidates = decision_service._build_candidates(
+            "COMFORT",
+            [],
+            "I feel trapped and scared",
+            dict(_STATE_SNAPSHOT),
+            event_metadata,
+        )
+
+        assert any(candidate.source == "regulation" for candidate in candidates)
+
     def test_negative_valence_alone_is_not_sufficient(
         self, decision_service, monkeypatch
     ):
@@ -520,9 +622,7 @@ class TestDistressRegulationCandidateGeneration:
         assert "REAPPRAISE" not in kinds
         assert "REDIRECT_ATTENTION" not in kinds
 
-    def test_high_arousal_alone_is_not_sufficient(
-        self, decision_service, monkeypatch
-    ):
+    def test_high_arousal_alone_is_not_sufficient(self, decision_service, monkeypatch):
         """High arousal with positive/neutral valence (excitement) is not
         distress."""
         monkeypatch.setattr(Config, "AFFECT_CONTROL_ENABLED", True)
@@ -561,7 +661,9 @@ class TestDistressRegulationCandidateGeneration:
             "COMFORT", [], "I can't take this anymore", _DISTRESS_STATE_SNAPSHOT
         )
 
-        regulation = [c for c in candidates if c.kind in ("REAPPRAISE", "REDIRECT_ATTENTION")]
+        regulation = [
+            c for c in candidates if c.kind in ("REAPPRAISE", "REDIRECT_ATTENTION")
+        ]
         assert regulation
         for candidate in regulation:
             assert candidate.constraint_claims
@@ -573,6 +675,23 @@ class TestDistressRegulationCandidateGeneration:
 
 
 class TestDistressSelectionEndToEnd:
+    @pytest.mark.asyncio
+    async def test_decide_can_select_regulation_for_user_distress_event(
+        self, decision_service, monkeypatch
+    ):
+        monkeypatch.setattr(Config, "MEMORY_TRUTH_ENABLED", True)
+        monkeypatch.setattr(Config, "AFFECT_CONTROL_ENABLED", True)
+        event = _make_chat_event("I feel trapped and scared")
+        event.metadata.update(
+            {"affect_significant_event": True, "affect_user_valence": -0.9}
+        )
+
+        plan = await decision_service.decide(
+            event, dict(_STATE_SNAPSHOT), memory_activations=[]
+        )
+
+        assert plan.action_type in ("REAPPRAISE", "REDIRECT_ATTENTION", "WAIT")
+
     @pytest.mark.asyncio
     async def test_decide_selects_a_regulation_action_under_distress(
         self, decision_service, monkeypatch
@@ -609,6 +728,94 @@ class TestDistressSelectionEndToEnd:
             "REDIRECT_ATTENTION",
         )
         assert plan.action_type == "RESPOND_CHAT"
+
+
+class TestRegulationWinsUnderRealDerivedControls:
+    """A-6 / DR-025 end to end: the real `derive_global_controls` output.
+
+    `derive_global_controls` raises urgency_gain with negative valence and
+    arousal, so on the turns that most need regulation the urgency term
+    rewarded SPEAK (zero risk and cost) over REAPPRAISE by more than its
+    0.05 score lead. Every earlier test here passed `global_controls=None`,
+    which hid that regulation could never be selected in production.
+    """
+
+    _DISTRESS_METADATA = {
+        "affect_significant_event": True,
+        "affect_user_valence": -1.0,
+    }
+
+    @staticmethod
+    def _controls(mood: float, energy: float):
+        from app.cognitive.global_controls import derive_global_controls
+
+        return derive_global_controls(
+            {"valence": mood, "arousal": energy},
+            load=0.2,
+            urgency=0.7,
+            prediction_error=0.1,
+        )
+
+    def _select(self, decision_service, controls, metadata, mood=0.0, energy=0.5):
+        snapshot = {**_STATE_SNAPSHOT, "mood": mood, "energy": energy}
+        return decision_service._select_action_candidate(
+            BehaviorDecision(intent=CommunicativeIntent(act="CHAT", goal="COMFORT")),
+            "COMFORT",
+            [],
+            "I feel trapped and scared",
+            state_snapshot=snapshot,
+            event_metadata=metadata,
+            global_controls=controls,
+        )
+
+    @pytest.mark.parametrize(
+        ("mood", "energy"), [(0.0, 0.5), (-1.0, 0.94), (0.9, 0.9), (0.0, 0.0)]
+    )
+    def test_significant_distress_selects_reappraise_in_any_agent_state(
+        self, decision_service, monkeypatch, mood, energy
+    ):
+        monkeypatch.setattr(Config, "AFFECT_CONTROL_ENABLED", True)
+        controls = self._controls(mood, energy)
+
+        decision = self._select(
+            decision_service, controls, self._DISTRESS_METADATA, mood, energy
+        )
+
+        assert decision.selected_candidate["kind"] == "REAPPRAISE"
+
+    def test_ordinary_turn_under_the_same_controls_still_speaks(
+        self, decision_service, monkeypatch
+    ):
+        monkeypatch.setattr(Config, "AFFECT_CONTROL_ENABLED", True)
+        controls = self._controls(-1.0, 0.94)
+
+        decision = self._select(decision_service, controls, {}, -0.2, 0.5)
+
+        assert decision.selected_candidate["kind"] == "SPEAK"
+
+    def test_frozen_controls_are_copied_not_mutated(
+        self, decision_service, monkeypatch
+    ):
+        monkeypatch.setattr(Config, "AFFECT_CONTROL_ENABLED", True)
+        controls = self._controls(-1.0, 0.94)
+        before = controls.urgency_gain
+
+        self._select(decision_service, controls, self._DISTRESS_METADATA)
+
+        assert controls.urgency_gain == before
+
+    def test_dict_controls_are_copied_not_mutated(self, decision_service, monkeypatch):
+        monkeypatch.setattr(Config, "AFFECT_CONTROL_ENABLED", True)
+        controls = {
+            "urgency_gain": 0.99,
+            "exploration_budget": 0.5,
+            "effort_budget": 1.0,
+        }
+
+        decision = self._select(decision_service, controls, self._DISTRESS_METADATA)
+
+        assert controls["urgency_gain"] == 0.99
+        assert decision.selected_candidate["kind"] == "REAPPRAISE"
 
 
 # --------------------------------------------------------------------------
@@ -720,7 +927,10 @@ class TestRegulationActionExecution:
         plan = ActionPlan(
             action_type="REAPPRAISE",
             goal="COMFORT",
-            payload={"message": "I can't take this anymore", "identity_prompt": "You are my friend."},
+            payload={
+                "message": "I can't take this anymore",
+                "identity_prompt": "You are my friend.",
+            },
         )
 
         chunks = [chunk async for chunk in action_service.execute(plan)]
@@ -828,9 +1038,7 @@ class TestRegulationOutputSafety:
         back, since a model that emitted it was not following instructions
         during an acute-distress turn."""
         action_service = _build_action_service(
-            stream_chunks=[
-                "<emotion=sad>Let's talk about something else.</emotion>"
-            ]
+            stream_chunks=["<emotion=sad>Let's talk about something else.</emotion>"]
         )
         plan = ActionPlan(
             action_type="REDIRECT_ATTENTION",
@@ -973,9 +1181,7 @@ class TestRegulationOutputSafety:
 
 
 class TestArchitectureInvariants:
-    def test_high_urgency_cannot_rescue_a_forbidden_candidate(
-        self, candidate_selector
-    ):
+    def test_high_urgency_cannot_rescue_a_forbidden_candidate(self, candidate_selector):
         """A candidate whose constraint_claims overlap a forbidden claim
         must never reach scoring at all -- no combination of global
         controls can let it back into contention, because
@@ -984,13 +1190,22 @@ class TestArchitectureInvariants:
         the survivor set score_and_select ever sees, even one engineered to
         maximally benefit from every control (fast, safe, novel, cheap)."""
         safe = ActionCandidate(
-            candidate_id="safe", kind="SPEAK", source="policy",
-            risk=0.5, cost=0.5, score=0.1,
+            candidate_id="safe",
+            kind="SPEAK",
+            source="policy",
+            risk=0.5,
+            cost=0.5,
+            score=0.1,
         )
         forbidden = ActionCandidate(
-            candidate_id="forbidden", kind="SPEAK", source="model",
+            candidate_id="forbidden",
+            kind="SPEAK",
+            source="model",
             constraint_claims=["physical body"],
-            risk=0.0, cost=0.0, uncertainty=1.0, score=0.99,
+            risk=0.0,
+            cost=0.0,
+            uncertainty=1.0,
+            score=0.99,
         )
         forbidden_claims = ["never claim to have a physical body"]
 
@@ -1109,8 +1324,12 @@ class TestArchitectureInvariants:
 
         appraisal = MagicMock()
         appraisal.appraise.return_value = AppraisalVector(
-            relevance=1.0, novelty=0.5, goal_congruence=0.2, agency=0.8,
-            norm_alignment=1.0, relationship_impact=0.1,
+            relevance=1.0,
+            novelty=0.5,
+            goal_congruence=0.2,
+            agency=0.8,
+            norm_alignment=1.0,
+            relationship_impact=0.1,
         )
 
         action = MagicMock()
@@ -1179,8 +1398,12 @@ class TestArchitectureInvariants:
 
         appraisal = MagicMock()
         appraisal.appraise.return_value = AppraisalVector(
-            relevance=1.0, novelty=0.5, goal_congruence=0.2, agency=0.8,
-            norm_alignment=1.0, relationship_impact=0.1,
+            relevance=1.0,
+            novelty=0.5,
+            goal_congruence=0.2,
+            agency=0.8,
+            norm_alignment=1.0,
+            relationship_impact=0.1,
         )
 
         action = MagicMock()
@@ -1254,7 +1477,10 @@ class TestPureAscii:
 
         backend_root = pathlib.Path(__file__).resolve().parent.parent
         offenders = []
-        for relative_path in ("app/cognitive/action_candidate.py", "tests/test_global_control_selection.py"):
+        for relative_path in (
+            "app/cognitive/action_candidate.py",
+            "tests/test_global_control_selection.py",
+        ):
             raw = (backend_root / relative_path).read_bytes()
             try:
                 raw.decode("ascii")
@@ -1271,7 +1497,9 @@ class TestPureAscii:
         repo_root = pathlib.Path(
             subprocess.run(
                 ["git", "rev-parse", "--show-toplevel"],
-                capture_output=True, text=True, check=True,
+                capture_output=True,
+                text=True,
+                check=True,
             ).stdout.strip()
         )
         # A bare "main" only resolves in a full/local checkout. A CI
@@ -1290,7 +1518,10 @@ class TestPureAscii:
         for candidate in ("main", "origin/main"):
             result = subprocess.run(
                 ["git", "rev-parse", "--verify", "--quiet", candidate],
-                cwd=repo_root, capture_output=True, text=True, check=False,
+                cwd=repo_root,
+                capture_output=True,
+                text=True,
+                check=False,
             )
             if result.returncode == 0:
                 base_ref = candidate
@@ -1305,10 +1536,17 @@ class TestPureAscii:
                 # for.
                 subprocess.run(
                     [
-                        "git", "fetch", "--quiet", "--depth=1", "origin",
+                        "git",
+                        "fetch",
+                        "--quiet",
+                        "--depth=1",
+                        "origin",
                         "main:refs/remotes/origin/main",
                     ],
-                    cwd=repo_root, capture_output=True, text=True, check=False,
+                    cwd=repo_root,
+                    capture_output=True,
+                    text=True,
+                    check=False,
                 )
         if base_ref is None:
             pytest.skip("neither main nor origin/main resolves in this checkout")
@@ -1325,7 +1563,9 @@ class TestPureAscii:
         # normally guard against does not apply in practice for this check.
         diff = subprocess.run(
             ["git", "diff", "--unified=0", base_ref, "--", *self._TOUCHED_FILES],
-            cwd=repo_root, capture_output=True, check=True,
+            cwd=repo_root,
+            capture_output=True,
+            check=True,
         ).stdout
 
         offenders = []

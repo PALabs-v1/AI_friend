@@ -1,0 +1,157 @@
+{
+  "suite": "affect-estimator-bakeoff",
+  "adr_002_rule": "r >= 0.8 AND sign agreement >= 0.9 on non-neutral messages AND hostile final trust <= 0.5",
+  "llm": {
+    "model": "qwen3:8b",
+    "url": "http://127.0.0.1:11434"
+  },
+  "lifesim_sample": {
+    "seeds": [
+      1000
+    ],
+    "archetypes": [
+      "steady_professional",
+      "volatile_creative"
+    ],
+    "horizon": "1m"
+  },
+  "mapping": {
+    "cardiffnlp/twitter-roberta-base-sentiment-latest": "P(positive) - P(negative), neutral maps to 0",
+    "j-hartmann/emotion-english-distilroberta-base": "probability-weighted label scores: joy/love=+1; anger/disgust/fear/sadness=-1; neutral/surprise=0",
+    "SamLowe/roberta-base-go_emotions": "probability-weighted label scores: positive emotion labels=+1; negative emotion labels=-1; unlisted labels=0"
+  },
+  "results": [
+    {
+      "estimator": "vader",
+      "initialization_ms": 0.002,
+      "tom": {
+        "n": 21,
+        "pearson_r": 0.9049,
+        "sign_agreement_nonneutral": 0.9333333333333333,
+        "p50_ms": 0.011,
+        "p95_ms": 0.022,
+        "failure_rate": 0.0
+      },
+      "lifesim_dev": {
+        "n": 278,
+        "pearson_r": 0.4987,
+        "sign_agreement_nonneutral": 0.8888888888888888,
+        "p50_ms": 0.007,
+        "p95_ms": 0.018,
+        "failure_rate": 0.0
+      },
+      "hostile_final_trust_mean": 0.6762,
+      "adr_002_pass": false
+    },
+    {
+      "estimator": "cardiffnlp/twitter-roberta-base-sentiment-latest",
+      "initialization_ms": 2377.242,
+      "tom": {
+        "n": 21,
+        "pearson_r": 0.9839,
+        "sign_agreement_nonneutral": 1.0,
+        "p50_ms": 11.27,
+        "p95_ms": 11.675,
+        "failure_rate": 0.0
+      },
+      "lifesim_dev": {
+        "n": 278,
+        "pearson_r": 0.4298,
+        "sign_agreement_nonneutral": 1.0,
+        "p50_ms": 11.75,
+        "p95_ms": 13.104,
+        "failure_rate": 0.0
+      },
+      "hostile_final_trust_mean": 0.3333,
+      "adr_002_pass": false
+    },
+    {
+      "estimator": "j-hartmann/emotion-english-distilroberta-base",
+      "initialization_ms": 55.892,
+      "tom": {
+        "n": 21,
+        "pearson_r": 0.945,
+        "sign_agreement_nonneutral": 1.0,
+        "p50_ms": 6.426,
+        "p95_ms": 6.952,
+        "failure_rate": 0.0
+      },
+      "lifesim_dev": {
+        "n": 278,
+        "pearson_r": 0.4782,
+        "sign_agreement_nonneutral": 1.0,
+        "p50_ms": 6.279,
+        "p95_ms": 6.978,
+        "failure_rate": 0.0
+      },
+      "hostile_final_trust_mean": 0.3333,
+      "adr_002_pass": false
+    },
+    {
+      "estimator": "SamLowe/roberta-base-go_emotions",
+      "initialization_ms": 66.657,
+      "tom": {
+        "n": 21,
+        "pearson_r": 0.9839,
+        "sign_agreement_nonneutral": 1.0,
+        "p50_ms": 12.18,
+        "p95_ms": 12.838,
+        "failure_rate": 0.0
+      },
+      "lifesim_dev": {
+        "n": 278,
+        "pearson_r": 0.4584,
+        "sign_agreement_nonneutral": 1.0,
+        "p50_ms": 12.524,
+        "p95_ms": 14.275,
+        "failure_rate": 0.0
+      },
+      "hostile_final_trust_mean": 0.3348,
+      "adr_002_pass": false
+    },
+    {
+      "estimator": "ensemble:vader,cardiffnlp/twitter-roberta-base-sentiment-latest",
+      "initialization_ms": 47.844,
+      "tom": {
+        "n": 21,
+        "pearson_r": 0.9798,
+        "sign_agreement_nonneutral": 1.0,
+        "p50_ms": 13.003,
+        "p95_ms": 18.994,
+        "failure_rate": 0.0
+      },
+      "lifesim_dev": {
+        "n": 278,
+        "pearson_r": 0.4956,
+        "sign_agreement_nonneutral": 1.0,
+        "p50_ms": 11.734,
+        "p95_ms": 13.366,
+        "failure_rate": 0.0
+      },
+      "hostile_final_trust_mean": 0.6,
+      "adr_002_pass": false
+    },
+    {
+      "estimator": "ensemble:vader,j-hartmann/emotion-english-distilroberta-base,SamLowe/roberta-base-go_emotions",
+      "initialization_ms": 117.656,
+      "tom": {
+        "n": 21,
+        "pearson_r": 0.9742,
+        "sign_agreement_nonneutral": 1.0,
+        "p50_ms": 18.167,
+        "p95_ms": 19.349,
+        "failure_rate": 0.0
+      },
+      "lifesim_dev": {
+        "n": 278,
+        "pearson_r": 0.529,
+        "sign_agreement_nonneutral": 1.0,
+        "p50_ms": 18.522,
+        "p95_ms": 19.496,
+        "failure_rate": 0.0
+      },
+      "hostile_final_trust_mean": 0.4383,
+      "adr_002_pass": false
+    }
+  ]
+}

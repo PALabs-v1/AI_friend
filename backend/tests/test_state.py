@@ -1,4 +1,5 @@
 import asyncio
+import math
 import sqlite3
 import time
 from datetime import datetime, timedelta
@@ -48,12 +49,280 @@ async def test_idle_decay(state_service):
 
     # Evolve via system tick (10 hours gap)
     tick = {"timestamp": 123456789.0, "interval": 36000}  # 10h
+    state_service.current_state.last_update = datetime.fromtimestamp(
+        tick["timestamp"] - 36000
+    )
+    state_service.current_state.last_user_interaction = tick["timestamp"] - 40000
     await state_service.handle_system_tick(tick)
 
     # Mood should decay toward 0
     assert state_service.current_state.mood < 0.8
     # Energy should recover during rest
     assert state_service.current_state.energy > 0.2
+
+
+@pytest.mark.asyncio
+async def test_affect_decay_uses_elapsed_time_not_tick_interval(state_service):
+    """NF-16/A-5: pin mu+(theta-mu)exp(-beta*delta_t) to elapsed time."""
+    now = 1_700_000_000.0
+    state_service.current_state.mood = 0.8
+    state_service.current_state.baseline_valence = 0.0
+    state_service.current_state.last_update = datetime.fromtimestamp(now - 3600)
+    state_service.current_state.last_user_interaction = now - 4000
+
+    await state_service.handle_system_tick({"timestamp": now, "interval": 60})
+
+    beta = state_service.lambda_decay
+    published_return_component = 0.0 + (0.8 - 0.0) * math.exp(-beta * 1.0)
+    assert state_service.current_state.mood == pytest.approx(published_return_component)
+
+
+@pytest.mark.asyncio
+async def test_trust_baseline_drift_uses_elapsed_time_not_tick_count(state_service):
+    """W2 critic round 2, finding 3: the pull toward trust_baseline used to
+    be a flat 1% per handle_system_tick call, so frequent ticks (one per
+    simulated minute, as a live subconscious tick loop produces) collapsed
+    trust -- and relationship_sentiment, which is derived from it -- toward
+    baseline within an hour. DR-010 puts relationship sentiment on a
+    weeks-to-months timescale; the critic's reproducer ran 60 one-minute
+    ticks and saw trust fall from 0.9 to 0.718863 in that single hour.
+    """
+    now = 1_700_000_000.0
+    state_service.current_state.trust_benevolence = 0.9
+    state_service.current_state.trust_competence = 0.9
+    state_service.current_state.trust_integrity = 0.9
+    state_service.trust_baseline = 0.5
+    state_service.current_state.last_update = datetime.fromtimestamp(now)
+    state_service.current_state.last_user_interaction = now
+    sentiment_before = state_service.current_state.relationship_sentiment
+
+    for i in range(1, 61):
+        await state_service.handle_system_tick(
+            {"timestamp": now + i * 60.0, "interval": 60}
+        )
+
+    # An hour of one-minute ticks must not meaningfully move trust toward
+    # baseline on a weeks-scale pull; the pre-fix code landed at 0.718863.
+    assert state_service.current_state.trust_benevolence == pytest.approx(0.9, abs=0.01)
+    assert state_service.current_state.relationship_sentiment == pytest.approx(
+        sentiment_before, abs=0.01
+    )
+
+
+class _SharedRedisHash:
+    def __init__(self):
+        self.values = {}
+
+    def hset(self, key, *, mapping):
+        self.values[key] = {**self.values.get(key, {}), **mapping}
+
+    def hgetall(self, key):
+        return dict(self.values.get(key, {}))
+
+    def get(self, _key):
+        return None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("backend", ["sqlite", "redis"])
+async def test_last_update_survives_restart_and_tick_uses_elapsed_time(
+    tmp_path, backend
+):
+    db_path = str(tmp_path / f"state-{backend}.db")
+    shared_redis = _SharedRedisHash()
+    first = StateService(graph_store=None, db_path=db_path)
+    first.redis_client = shared_redis if backend == "redis" else None
+    now = 1_700_000_000.0
+    previous_update = now - 2 * 3600
+    first.current_state.mood = 0.8
+    first.current_state.baseline_valence = 0.0
+    first.current_state.last_update = datetime.fromtimestamp(previous_update)
+    first.current_state.last_user_interaction = now
+    await first.persist_state()
+
+    restarted = StateService(graph_store=None, db_path=db_path)
+    restarted.redis_client = shared_redis if backend == "redis" else None
+    await restarted.hydrate_state()
+
+    assert restarted.current_state.last_update.timestamp() == pytest.approx(
+        previous_update
+    )
+    await restarted.handle_system_tick({"timestamp": now, "interval": 60})
+    expected = 0.8 * math.exp(-restarted.lambda_decay * 2.0)
+    assert restarted.current_state.mood == pytest.approx(expected)
+
+
+@pytest.mark.asyncio
+async def test_last_update_survives_neo4j_fallback_hydration_and_tick(tmp_path):
+    now = 1_700_000_000.0
+    previous_update = now - 2 * 3600
+
+    class GraphStateFake:
+        async def execute_query(self, _query, _params):
+            return [
+                {
+                    "a": {
+                        "mood": 0.8,
+                        "last_update": previous_update,
+                        "last_user_interaction": now,
+                        "baseline_valence": 0.0,
+                    }
+                }
+            ]
+
+    service = StateService(
+        graph_store=GraphStateFake(), db_path=str(tmp_path / "fallback.db")
+    )
+    await service.hydrate_state()
+
+    assert service.current_state.last_update.timestamp() == pytest.approx(
+        previous_update
+    )
+    await service.handle_system_tick({"timestamp": now, "interval": 60})
+    assert service.current_state.mood == pytest.approx(
+        0.8 * math.exp(-service.lambda_decay * 2.0)
+    )
+
+
+@pytest.mark.asyncio
+async def test_state_broadcast_snapshot_round_trips_last_update():
+    published = []
+
+    async def publish(_subject, payload):
+        published.append(payload)
+
+    source = StateService(graph_store=None, db_path=":memory:", publish_cb=publish)
+    source.current_state.last_update = datetime.fromtimestamp(1_700_000_000.0)
+    await source.persist_state()
+    await asyncio.gather(*tuple(source._background_tasks))
+
+    receiver = StateService(graph_store=None, db_path=":memory:")
+    await receiver.apply_external_state(published[0])
+
+    assert receiver.current_state.last_update.timestamp() == pytest.approx(
+        1_700_000_000.0
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("first_tick_delta", [0.0, -3600.0])
+async def test_tick_timestamp_never_moves_backwards(
+    state_service, first_tick_delta, monkeypatch
+):
+    async def no_persist(*_args, **_kwargs):
+        return None
+
+    monkeypatch.setattr(state_service, "persist_state", no_persist)
+    base = 1_700_000_000.0
+    state_service.current_state.mood = 0.8
+    state_service.current_state.baseline_valence = 0.0
+    state_service.current_state.last_update = datetime.fromtimestamp(base)
+    state_service.current_state.last_user_interaction = base
+
+    await state_service.handle_system_tick(
+        {"timestamp": base + first_tick_delta, "interval": first_tick_delta}
+    )
+    assert state_service.current_state.last_update.timestamp() == pytest.approx(base)
+    await state_service.handle_system_tick({"timestamp": base + 3600, "interval": 0})
+
+    expected = 0.8 * math.exp(-state_service.lambda_decay)
+    assert state_service.current_state.mood == pytest.approx(expected)
+    assert state_service.current_state.last_update.timestamp() == pytest.approx(
+        base + 3600
+    )
+
+
+@pytest.mark.asyncio
+async def test_user_valence_updates_fast_emotion_then_slow_mood(state_service):
+    """NF-12 structural fixture: opposite user evidence gives opposite mood movement."""
+    from app.cognitive.appraisal import AppraisalVector
+
+    positive = StateService(graph_store=None, db_path=":memory:")
+    negative = StateService(graph_store=None, db_path=":memory:")
+    positive.current_state.mood = negative.current_state.mood = 0.0
+    await positive.update_from_appraisal(
+        AppraisalVector(user_valence=0.6, goal_congruence=0.6, relationship_impact=0.3)
+    )
+    await negative.update_from_appraisal(
+        AppraisalVector(
+            user_valence=-0.6, goal_congruence=-0.6, relationship_impact=-0.3
+        )
+    )
+
+    assert positive.current_state.momentary_valence > 0.0
+    assert negative.current_state.momentary_valence < 0.0
+    assert positive.current_state.mood > 0.0
+    assert negative.current_state.mood < 0.0
+    assert positive.get_context_snapshot()["relationship_sentiment"] == pytest.approx(
+        positive.current_state.relationship_sentiment
+    )
+
+
+@pytest.mark.asyncio
+async def test_nf15_mood_pull_reducer_exact_numeric_fixture():
+    """W2 critic round 2, finding 6: NF-15's new reducer
+    (`update_from_appraisal`'s user_valence branch) only had direction-only
+    assertions (the test above). Pin its actual arithmetic: the emotion-step
+    cap at +/-0.35, the ordinary (non-significant) 0.08 mood-pull rate, and
+    DR-009's distinct 0.18 significant-event rate.
+    """
+    from app.cognitive.appraisal import AppraisalVector
+
+    # Ordinary path: emotion_step = clamp(0.35 * (user_valence -
+    # momentary_valence), -0.35, 0.35); momentary_valence += emotion_step;
+    # mood += 0.08 * (momentary_valence - mood). Starting from 0.0/0.0 with
+    # user_valence=0.6: 0.35 * 0.6 = 0.21 (uncapped).
+    ordinary = StateService(graph_store=None, db_path=":memory:")
+    ordinary.current_state.mood = 0.0
+    ordinary.current_state.momentary_valence = 0.0
+    await ordinary.update_from_appraisal(AppraisalVector(user_valence=0.6))
+
+    assert ordinary.current_state.momentary_valence == pytest.approx(0.21)
+    assert ordinary.current_state.mood == pytest.approx(0.08 * 0.21)
+
+    # Cap path: user_valence=1.0 from momentary_valence=-1.0 would raise the
+    # raw step to 0.35 * 2.0 = 0.7, so it must clamp to exactly 0.35.
+    capped = StateService(graph_store=None, db_path=":memory:")
+    capped.current_state.mood = 0.0
+    capped.current_state.momentary_valence = -1.0
+    await capped.update_from_appraisal(AppraisalVector(user_valence=1.0))
+
+    assert capped.current_state.momentary_valence == pytest.approx(-1.0 + 0.35)
+
+    # Significant-event path (DR-009): mood += 0.18 * user_valence directly,
+    # independent of momentary_valence's own (still-capped) step.
+    significant = StateService(graph_store=None, db_path=":memory:")
+    significant.current_state.mood = 0.0
+    significant.current_state.momentary_valence = 0.0
+    await significant.update_from_appraisal(
+        AppraisalVector(user_valence=0.6, significant_event=True)
+    )
+
+    assert significant.current_state.mood == pytest.approx(0.18 * 0.6)
+
+
+def test_relationship_sentiment_uses_bounded_slow_trust_summary():
+    state = AgentState(
+        trust_benevolence=0.8,
+        trust_competence=0.8,
+        trust_integrity=0.8,
+        attachment=0.3,
+    )
+
+    assert state.relationship_sentiment == pytest.approx(0.33)
+
+
+@pytest.mark.asyncio
+async def test_hostile_conversation_is_damped_and_one_neutral_turn_does_not_reset():
+    from evals.cognitive.affect_sim import simulate
+
+    result = await simulate("hostile", "vader_w2", turns=200, seed=4)
+    metrics = result.metrics()
+
+    assert metrics["turns_saturated"] == 0
+    assert metrics["final_mood"] < -0.1
+    assert metrics["single_neutral_preserved_mood"] is True
+    assert metrics["recovered_toward_baseline"] is True
 
 
 @pytest.mark.asyncio
@@ -95,6 +364,7 @@ async def test_fatigue_evolution(state_service):
     base_time = 1716000000.0
     state_service.current_state.fatigue = 0.5
     state_service.current_state.last_user_interaction = base_time - 10.0
+    state_service.current_state.last_update = datetime.fromtimestamp(base_time - 3600.0)
 
     # Not idle -> fatigue increases
     tick = {"timestamp": base_time, "interval": 3600}
@@ -105,6 +375,7 @@ async def test_fatigue_evolution(state_service):
     # Idle -> fatigue decreases
     state_service.current_state.fatigue = 0.5
     state_service.current_state.last_user_interaction = base_time - 600.0
+    state_service.current_state.last_update = datetime.fromtimestamp(base_time - 3600.0)
     await state_service.handle_system_tick(tick)
     # Check bounded range reflecting configuration (timezone day/night safe)
     assert 0.29 < state_service.current_state.fatigue < 0.40

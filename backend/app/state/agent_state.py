@@ -193,6 +193,7 @@ class AgentState:
 
     # PAD Affective Dimensions (Mehrabian & Russell, 1974)
     mood: float = 0.0  # V (Valence): -1.0 to 1.0
+    momentary_valence: float = 0.0  # Fast event emotion; mood remains the slower layer.
     energy: float = 0.5  # Ar (Arousal): 0.0 to 1.0
     dominance: float = 0.5  # D (Dominance): 0.0 to 1.0 -- NEW
 
@@ -329,7 +330,17 @@ class AgentState:
 
     @arousal.setter
     def arousal(self, value: float):
-        self.energy = value
+        # Keep transient fatigue/startle lift derived. Writing a displayed
+        # arousal value must not bake those transients into the base channel.
+        self.energy = max(
+            0.0,
+            min(1.0, value - 0.2 * self.fatigue - 0.3 * self.adrenaline),
+        )
+
+    @property
+    def relationship_sentiment(self) -> float:
+        """Slow bounded trust/attachment summary exposed to W3."""
+        return max(-1.0, min(1.0, self.trust - 0.5 + 0.1 * self.attachment))
 
     @property
     def trust(self) -> float:
@@ -593,6 +604,12 @@ class StateService:
         from ..cognitive.trace import emit
 
         emit(kind, **fields)
+
+    def _advance_last_update(self, timestamp: datetime) -> None:
+        """Keep the elapsed-affect watermark monotonic across clock rollback."""
+        last_update = getattr(self.current_state, "last_update", None)
+        if last_update is None or timestamp.timestamp() >= last_update.timestamp():
+            self.current_state.last_update = timestamp
 
     def __init__(
         self,
@@ -933,6 +950,7 @@ class StateService:
                     baseline_arousal REAL DEFAULT 0.5,
                     baseline_dominance REAL DEFAULT 0.5,
                     last_proactive_attempt REAL DEFAULT 0.0,
+                    last_update REAL,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
@@ -957,6 +975,8 @@ class StateService:
                 conn.execute(
                     "ALTER TABLE agent_state ADD COLUMN last_proactive_attempt REAL DEFAULT 0.0"
                 )
+            if "last_update" not in existing_cols:
+                conn.execute("ALTER TABLE agent_state ADD COLUMN last_update REAL")
         conn.close()
 
     async def hydrate_state(self, agent_name: str = "my friend"):
@@ -1018,6 +1038,9 @@ class StateService:
         self.current_state.baseline_dominance = float(
             data.get("baseline_dominance", 0.5)
         )
+        last_update = data.get("last_update")
+        if last_update is not None:
+            self.current_state.last_update = datetime.fromtimestamp(float(last_update))
 
     def _apply_sqlite_state(
         self, conn: sqlite3.Connection, row: sqlite3.Row, agent_name: str
@@ -1045,6 +1068,10 @@ class StateService:
         self.current_state.baseline_valence = row["baseline_valence"]
         self.current_state.baseline_arousal = row["baseline_arousal"]
         self.current_state.baseline_dominance = row["baseline_dominance"]
+        if row["last_update"] is not None:
+            self.current_state.last_update = datetime.fromtimestamp(
+                float(row["last_update"])
+            )
         activity_row = conn.execute(
             "SELECT hours_json FROM agent_user_activity_hours WHERE agent_name = ?",
             (agent_name,),
@@ -1180,6 +1207,10 @@ class StateService:
                         self.current_state.baseline_dominance = float(
                             agent_node.get("baseline_dominance", 0.5)
                         )
+                        if agent_node.get("last_update") is not None:
+                            self.current_state.last_update = datetime.fromtimestamp(
+                                float(agent_node["last_update"])
+                            )
                         logger.debug(
                             "[State] Hydrated successfully from Neo4j fallback."
                         )
@@ -1330,6 +1361,10 @@ class StateService:
             self.current_state.baseline_dominance = float(
                 data.get("baseline_dominance", self.current_state.baseline_dominance)
             )
+            if data.get("last_update") is not None:
+                self.current_state.last_update = datetime.fromtimestamp(
+                    float(data["last_update"])
+                )
             if incoming_revision is not None:
                 self.current_state.revision = incoming_revision
                 self.current_state.writer_id = data.get(
@@ -1374,6 +1409,9 @@ class StateService:
                 "trust": self.current_state.trust,
                 "attachment": self.current_state.attachment,
                 "fatigue": self.current_state.fatigue,
+                "last_update": getattr(
+                    self.current_state, "last_update", clock.now()
+                ).timestamp(),
                 "last_user_interaction": self.current_state.last_user_interaction,
                 "last_proactive_attempt": self.current_state.last_proactive_attempt,
                 "user_interaction_hours": list(
@@ -1422,6 +1460,7 @@ class StateService:
                             "trust": str(snapshot["trust"]),
                             "attachment": str(snapshot["attachment"]),
                             "fatigue": str(snapshot["fatigue"]),
+                            "last_update": str(snapshot["last_update"]),
                             "last_user_interaction": str(
                                 snapshot["last_user_interaction"]
                             ),
@@ -1471,6 +1510,7 @@ class StateService:
                 snapshot["baseline_arousal"],
                 snapshot["baseline_dominance"],
                 snapshot["last_proactive_attempt"],
+                snapshot["last_update"],
             )
             try:
                 await asyncio.to_thread(
@@ -1536,9 +1576,9 @@ class StateService:
                         trust_integrity, trust, attachment, fatigue, last_user_interaction,
                         interaction_count, inferred_valence, inferred_arousal, implied_goals,
                         known_concepts, baseline_valence, baseline_arousal, baseline_dominance,
-                        last_proactive_attempt, updated_at
+                        last_proactive_attempt, last_update, updated_at
                     )
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
                     ON CONFLICT(agent_name) DO UPDATE SET
                         mood = excluded.mood,
                         energy = excluded.energy,
@@ -1559,6 +1599,7 @@ class StateService:
                         baseline_arousal = excluded.baseline_arousal,
                         baseline_dominance = excluded.baseline_dominance,
                         last_proactive_attempt = excluded.last_proactive_attempt,
+                        last_update = excluded.last_update,
                         updated_at = CURRENT_TIMESTAMP
                 """,
                     params,
@@ -1789,10 +1830,31 @@ class StateService:
                 trust_before = self._trust_snapshot(
                     "benevolence", "competence", "integrity", "attachment"
                 )
-            # PAD mood-pull (section2.3)
-            self.current_state.mood = (
-                1 - self.alpha
-            ) * self.current_state.mood + self.alpha * (w1 * G + w2 * RI)
+            user_valence = getattr(appraisal, "user_valence", None)
+            significant_event = bool(getattr(appraisal, "significant_event", False))
+            if user_valence is not None:
+                user_valence = max(-1.0, min(1.0, float(user_valence)))
+                emotion_step = max(
+                    -0.35,
+                    min(
+                        0.35,
+                        0.35 * (user_valence - self.current_state.momentary_valence),
+                    ),
+                )
+                self.current_state.momentary_valence += emotion_step
+                if significant_event:
+                    # DR-009's distinct path can reach mood; the ordinary path
+                    # feeds the slower layer at a smaller rate (DR-010).
+                    self.current_state.mood += 0.18 * user_valence
+                else:
+                    self.current_state.mood += 0.08 * (
+                        self.current_state.momentary_valence - self.current_state.mood
+                    )
+            else:
+                # Preserve the established non-W2 appraisal path when disabled.
+                self.current_state.mood = (
+                    1 - self.alpha
+                ) * self.current_state.mood + self.alpha * (w1 * G + w2 * RI)
             self.current_state.energy = (
                 1 - self.beta
             ) * self.current_state.energy + self.beta * (w3 * N + w4 * R)
@@ -1826,7 +1888,7 @@ class StateService:
                 ),
             )
 
-            self.current_state.last_update = clock.now()
+            self._advance_last_update(clock.now())
             self._enforce_bounds()
             self._refresh_global_controls_locked(urgency=R, prediction_error=N)
             if tracing:
@@ -1904,7 +1966,7 @@ class StateService:
             self.current_state.energy -= 0.02
 
             self.current_state.interaction_count += 1
-            self.current_state.last_update = now
+            self._advance_last_update(now)
             self._enforce_bounds()
             self._refresh_global_controls_locked(prediction_error=abs(event_valence))
             if tracing:
@@ -2283,10 +2345,12 @@ class StateService:
         makes this safe. `_enforce_bounds` and `_update_fatigue_python` are
         synchronous and take no lock.
         """
-        now = tick_metadata.get("timestamp", clock.time())
-        dt_hours = tick_metadata.get("interval", 60) / 3600.0
-
+        now = float(tick_metadata.get("timestamp", clock.time()))
         async with self._state_lock:
+            # The message interval is only a scheduling hint. Affect follows
+            # elapsed time from the state snapshot protected by this lock.
+            elapsed_seconds = max(0.0, now - self.current_state.last_update.timestamp())
+            dt_hours = elapsed_seconds / 3600.0
             tracing = self._trace_enabled()
             if tracing:
                 affect_before = self._affect_snapshot(
@@ -2330,19 +2394,34 @@ class StateService:
             self.current_state.dominance = base_d + (
                 self.current_state.dominance - base_d
             ) * math.exp(-self.lambda_decay * dt_hours)
+            self.current_state.momentary_valence *= math.exp(
+                -8.0 * self.lambda_decay * dt_hours
+            )
 
+            # W2 critic round 2, finding 3: this pull used to be a flat 1%
+            # per tick regardless of elapsed time, so a burst of frequent
+            # ticks (e.g. one per simulated minute) collapsed trust -- and
+            # the relationship_sentiment property derived from it -- toward
+            # baseline within an hour, nowhere near DR-010's weeks-to-months
+            # timescale. Scaled by dt_hours like the ALMA decay above it, so
+            # the pull's real-world rate no longer depends on tick frequency.
+            trust_pull = 1.0 - math.exp(
+                -Config.TRUST_BASELINE_DRIFT_LAMBDA_PER_HOUR * dt_hours
+            )
             tb_drift = (
                 self.trust_baseline - self.current_state.trust_benevolence
-            ) * 0.01
+            ) * trust_pull
             tc_drift = (
                 self.trust_baseline - self.current_state.trust_competence
-            ) * 0.01
-            ti_drift = (self.trust_baseline - self.current_state.trust_integrity) * 0.01
+            ) * trust_pull
+            ti_drift = (
+                self.trust_baseline - self.current_state.trust_integrity
+            ) * trust_pull
             self.current_state.trust_benevolence += tb_drift
             self.current_state.trust_competence += tc_drift
             self.current_state.trust_integrity += ti_drift
 
-            self.current_state.last_update = datetime.fromtimestamp(now)
+            self._advance_last_update(datetime.fromtimestamp(now))
             self._enforce_bounds()
             self._refresh_global_controls_locked()
             if tracing:
@@ -2627,6 +2706,9 @@ class StateService:
 
     def _enforce_bounds(self):
         self.current_state.mood = max(-1.0, min(1.0, self.current_state.mood))
+        self.current_state.momentary_valence = max(
+            -1.0, min(1.0, self.current_state.momentary_valence)
+        )
         self.current_state.energy = max(0.0, min(1.0, self.current_state.energy))
         self.current_state.dominance = max(0.0, min(1.0, self.current_state.dominance))
         self.current_state.trust_benevolence = max(
@@ -2711,9 +2793,11 @@ class StateService:
             "revision": self.current_state.revision,
             "writer_id": self.current_state.writer_id,
             "mood": self.current_state.mood,
+            "momentary_valence": self.current_state.momentary_valence,
             "energy": self.current_state.energy,
             "dominance": self.current_state.dominance,
             "trust": self.current_state.trust,
+            "relationship_sentiment": self.current_state.relationship_sentiment,
             "trust_benevolence": self.current_state.trust_benevolence,
             "trust_competence": self.current_state.trust_competence,
             "trust_integrity": self.current_state.trust_integrity,

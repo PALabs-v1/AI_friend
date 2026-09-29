@@ -11,17 +11,13 @@ Sources:
   - EMA (Gratch & Marsella, 2004) for computational implementation
 """
 
-import json
 import logging
-import re
 from collections.abc import Mapping
 from dataclasses import asdict, dataclass
 from types import MappingProxyType
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
-
-from .json_extract import extract_json_blocks
 
 logger = logging.getLogger(__name__)
 
@@ -48,7 +44,9 @@ class AppraisalRecord(BaseModel):
 
     def model_post_init(self, __context: Any, /) -> None:
         """Freeze the nested affect mapping as well as the record itself."""
-        object.__setattr__(self, "affect_delta", MappingProxyType(dict(self.affect_delta)))
+        object.__setattr__(
+            self, "affect_delta", MappingProxyType(dict(self.affect_delta))
+        )
 
 
 def _clamp(value: float, lower: float, upper: float) -> float:
@@ -78,7 +76,9 @@ def _event_goal_ids(event_metadata: dict) -> set[str]:
 def _goal_congruence(event_metadata: dict, active_goals: list[str]) -> float:
     """Resolve explicit congruence first, then infer it from goal overlap."""
     raw_congruence = event_metadata.get("goal_congruence")
-    if isinstance(raw_congruence, (int, float)) and not isinstance(raw_congruence, bool):
+    if isinstance(raw_congruence, (int, float)) and not isinstance(
+        raw_congruence, bool
+    ):
         return _clamp(raw_congruence, -1.0, 1.0)
     if event_metadata.get("goal_congruent") is True:
         return 1.0
@@ -122,9 +122,7 @@ def appraise_event(
     affect_delta = {
         "pleasure": _clamp(0.40 * goal_congruence, -1.0, 1.0),
         "arousal": _clamp(0.30 * novelty + 0.30 * unexpectedness, -1.0, 1.0),
-        "dominance": _clamp(
-            0.40 * (controllability - 0.50) + 0.10 * agency, -1.0, 1.0
-        ),
+        "dominance": _clamp(0.40 * (controllability - 0.50) + 0.10 * agency, -1.0, 1.0),
     }
     event_id = str(event_metadata.get("event_id", event_metadata.get("id", "event")))
     return AppraisalRecord(
@@ -198,8 +196,10 @@ class AppraisalVector:
     agency: float = 0.5
     norm_alignment: float = 1.0
     relationship_impact: float = 0.0
+    user_valence: float | None = None
+    significant_event: bool = False
 
-    def to_dict(self) -> dict[str, float]:
+    def to_dict(self) -> dict[str, float | bool | None]:
         return asdict(self)
 
 
@@ -348,151 +348,3 @@ class AppraisalEngine:
             vector.relationship_impact,
         )
         return vector
-
-    def _parse_semantic_drift_json(self, json_str: str, response: str) -> dict | None:
-        """Parse the appraisal JSON block, falling back through increasingly
-        lenient strategies for a model that didn't emit valid JSON."""
-        data = None
-        try:
-            data = json.loads(json_str)
-        except Exception:
-            try:
-                import ast
-
-                data = ast.literal_eval(json_str)
-            except Exception:
-                cleaned = json_str
-                cleaned = re.sub(r"'\s*([a-zA-Z_0-9]+)\s*'\s*:", r'"\1":', cleaned)
-                cleaned = re.sub(r":\s*'\s*([^']*)\s*'", r': "\1"', cleaned)
-                cleaned = re.sub(r",\s*}", "}", cleaned)
-                try:
-                    data = json.loads(cleaned)
-                except Exception as e2:
-                    logger.error(
-                        f"[System 2 Appraisal] Failed to sanitize and parse LLM response: {json_str}. Error: {e2}"
-                    )
-
-        # Sequential/float extraction fallback if dict structure was not successfully parsed
-        if not data:
-            try:
-                blocks = re.findall(r"\{([^\}]+)\}", response) + re.findall(
-                    r"\[([^\]]+)\]", response
-                )
-                for block in blocks:
-                    floats = [float(x) for x in re.findall(r"-?\d+(?:\.\d+)?", block)]
-                    if len(floats) == 3:
-                        data = {
-                            "goal_congruence": floats[0],
-                            "norm_alignment": floats[1],
-                            "expectedness": floats[2],
-                        }
-                        logger.info(
-                            f"[System 2 Appraisal] Extracted 3-float tuple from block: {data}"
-                        )
-                        break
-
-                if not data:
-                    all_floats = [
-                        float(x) for x in re.findall(r"-?\d+(?:\.\d+)?", response)
-                    ]
-                    if len(all_floats) >= 3:
-                        floats_to_use = (
-                            all_floats[-3:] if len(all_floats) > 3 else all_floats
-                        )
-                        data = {
-                            "goal_congruence": floats_to_use[0],
-                            "norm_alignment": floats_to_use[1],
-                            "expectedness": floats_to_use[2],
-                        }
-                        logger.info(
-                            f"[System 2 Appraisal] Extracted sequential floats from response: {data}"
-                        )
-            except Exception as seq_err:
-                logger.error(
-                    f"[System 2 Appraisal] Sequence extraction fallback failed: {seq_err}"
-                )
-        return data
-
-    def _drift_pad_toward(
-        self, data: dict, current_pad: dict[str, float]
-    ) -> dict[str, float]:
-        """Blend current PAD toward the target implied by one appraisal reading."""
-        gc = float(data.get("goal_congruence", 0.0))
-        na = float(data.get("norm_alignment", 1.0))
-        exp = float(data.get("expectedness", 0.5))
-
-        target_p = max(-1.0, min(1.0, gc))
-        target_a = max(-1.0, min(1.0, -exp))
-        target_d = max(-1.0, min(1.0, na))
-
-        drift_factor = 0.2
-        val = current_pad.get("valence", 0.0)
-        aro = current_pad.get("arousal", 0.5)
-        dom = current_pad.get("dominance", 0.5)
-
-        new_p = val + drift_factor * (target_p - val)
-        new_a = aro + drift_factor * (target_a - aro)
-        new_d = dom + drift_factor * (target_d - dom)
-
-        return {
-            "valence": max(-1.0, min(1.0, new_p)),
-            "arousal": max(0.0, min(1.0, new_a)),
-            "dominance": max(0.0, min(1.0, new_d)),
-        }
-
-    async def appraise_semantic_drift(
-        self, user_utterance: str, llm_client, current_pad: dict[str, float]
-    ) -> dict[str, float]:
-        """
-        System 2 deliberative appraisal using LLM.
-        Drifts target mood via primary/secondary appraisal analysis.
-        """
-        prompt = f"""
-        Analyze the user's statement for deep appraisal dimensions:
-        User statement: "{user_utterance}"
-
-        Evaluate on a scale of -1.0 to 1.0:
-        1. goal_congruence (Is this statement matching the friendly, helpful social goals? Positive if friendly, negative if hostile)
-        2. norm_alignment (Does this align with social norms? 1.0 if perfectly polite, lower if offensive/toxic)
-        3. expectedness (How expected is this statement? 1.0 if very standard, -1.0 if surprising)
-
-        Output JSON ONLY:
-        {{
-          "goal_congruence": 0.0,
-          "norm_alignment": 1.0,
-          "expectedness": 0.5
-        }}
-        """.strip()
-
-        try:
-            from ..config import Config
-
-            response = await llm_client.generate(
-                prompt,
-                model=Config.LLM_FAST_MODEL,
-                options_override={"num_predict": 128},
-            )
-
-            # Extract only the block that looks like our appraisal JSON.
-            # Bracket-depth matched rather than regex-matched: a naive
-            # `\{.*?\}` truncates at the first inner `}` of a nested object
-            # (invalid JSON), and a naive `\{.*\}` spans to the LAST `}` in
-            # the whole response, swallowing any second block or trailing
-            # commentary (H1).
-            candidate_blocks = extract_json_blocks(response, brackets="{")
-            json_str = None
-            for candidate in candidate_blocks:
-                if "goal_congruence" in candidate or "norm_alignment" in candidate:
-                    json_str = candidate
-                    break
-
-            if not json_str and candidate_blocks:
-                json_str = candidate_blocks[0]
-
-            if json_str:
-                data = self._parse_semantic_drift_json(json_str, response)
-                if data and isinstance(data, dict):
-                    return self._drift_pad_toward(data, current_pad)
-        except Exception as e:
-            logger.error(f"[System 2 Appraisal] Semantic drift evaluation failed: {e}")
-        return current_pad

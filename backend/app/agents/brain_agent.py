@@ -5,12 +5,14 @@ import math
 import re
 import time
 import uuid
+from collections import OrderedDict, deque
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
 from pydantic import ValidationError
 
+from .. import clock
 from ..cognitive import CognitiveService, percept
 from ..cognitive.action_intent import (
     ActionIntent,
@@ -23,6 +25,7 @@ from ..cognitive.percept import PerceptEnvelope
 from ..cognitive.somatic import SomaticAppraiser
 from ..config import Config
 from ..contracts import (
+    AudioPerception,
     AudioPlaybackBacklog,
     AudioPlaybackLifecycle,
     AudioPlaybackProgress,
@@ -55,29 +58,55 @@ logger = logging.getLogger(__name__)
 INTERRUPTION_ADRENALINE_SPIKE = 0.3
 
 
-@dataclass
-class _SupersededReply:
-    """The reply a new utterance took over from (ADR-003).
-
-    `_process_chat_input_flow` resets `last_assistant_response` and
-    `last_audio_progress` for the new turn long before Stage 2 publishes the
-    confirmed "stop" addressed to the reply that was playing. Without this
-    snapshot, accepting that stop truncated nothing. Playback progress for
-    the superseded turn keeps landing here (`_on_audio_playback_progress`),
-    so the cut point is what was heard when the stop arrived.
-    """
-
-    turn_id: str
-    text: str | None  # None unless this text is that turn's own, unresolved reply
-    progress: AudioPlaybackProgress | None
-    intent: Any
-    log_task: asyncio.Task | None
-    message_id: uuid.UUID | None
-
-
 # How long a cut waits for the reply's own history insert before giving up
 # (it runs under `_turn_state_lock`; the store's pool has no command timeout).
 REPLY_INSERT_WAIT_S = 2.0
+# How long a replacement or a confirmed stop waits, holding
+# `_generation_lock`, for a cancelled generation to unwind. A generator
+# stalled in its cancellation cleanup would otherwise hold every new
+# chat.input; past this the task is fenced (it can no longer publish) and
+# left to finish on its own.
+GENERATION_TEARDOWN_WAIT_S = 0.25
+REPLY_LEDGER_MAX = 32
+# Resolutions and declined proactive inputs are kept for observation (tests,
+# BrainBench) and for ignoring a stop that names an already-resolved reply.
+# Bounded: one entry per reply for the life of the process otherwise.
+REPLY_RESOLUTIONS_MAX = 256
+
+
+@dataclass(frozen=True)
+class ReplyResolution:
+    turn_id: str
+    status: str
+    heard_text: str
+    character_offset: int
+    source: str
+    reason: str
+
+
+@dataclass
+class _ReplyLedgerEntry:
+    turn_id: str
+    source: str
+    importance: float | None = None
+    text: str = ""
+    intent: ActionIntent | None = None
+    progress: AudioPlaybackProgress | None = None
+    message_id: uuid.UUID | None = None
+    log_task: asyncio.Task | None = None
+    started: bool = False
+    speaking: bool = False
+    cut_pending: bool = False
+    cut_reason: str | None = None
+    resolved: bool = False
+    grace_task: asyncio.Task | None = None
+    # The flow task generating this reply, and why it was cancelled if it
+    # was. A reply whose flow ends before its first chunk resolves CANCELLED
+    # in that flow (§4); nothing was published, so no terminal will come.
+    generation: asyncio.Task | None = None
+    cancel_reason: str | None = None
+    interruption_felt: bool = False  # adrenaline released for a stop on it
+    status: str | None = None  # the terminal status it resolved with
 
 
 def _finite_score(value: Any) -> float | None:
@@ -96,8 +125,8 @@ def _char_offset_after_word(text: str, word_count: int) -> int:
     `word_count`-th whitespace-delimited token.
 
     Used to stamp each published speech chunk with where it ends in the
-    *true* response text, so `_truncate_interrupted_reply` can later slice
-    `last_assistant_response` at a real boundary instead of the reconstructed
+    *true* response text, so a cut (`_resolve_reply`) can later slice the
+    reply at a real boundary instead of the reconstructed
     (`" ".join(words)`) text actually sent to TTS, which does not
     byte-for-byte match `text` wherever the source stream's whitespace was
     collapsed by `.split()`/`.join()`. `re.finditer` walks `text` itself, so
@@ -183,28 +212,6 @@ class BrainAgent(BaseAgent):
         self._playback_lifecycle = PlaybackLifecycleTracker()
         self.last_assistant_response: str | None = None
         self._active_response_turn_id: str | None = None
-        # The turn a new utterance superseded -- usually the reply still
-        # playing when the user barged in. Stage 2 addresses its confirmed
-        # stop / rejected-interruption resume to this id, so `_on_audio_stop`
-        # must accept it alongside the active turn.
-        self._superseded_turn_id: str | None = None
-        self._superseded_reply: _SupersededReply | None = None
-        # Which turn `last_assistant_response` belongs to, whether it has
-        # already been truncated, and the task writing it to history.
-        # `last_assistant_response` is only reset by user turns, so while a
-        # subconscious turn speaks it still holds the previous user turn's
-        # reply; truncating it against the subconscious turn's playback
-        # offset rewrote the wrong row. A truncated reply is resolved: a
-        # second stop (a facial startle fires one for the active turn even
-        # while idle) must not cut or record it again.
-        self._reply_turn_id: str | None = None
-        self._reply_resolved = False
-        self._reply_log_task: asyncio.Task | None = None
-        # The history row id the reply is stored under (generated here, so a
-        # cut can address that row and no other), and whether its generation
-        # is still running (None: unknown, e.g. state seeded outside a turn).
-        self._reply_message_id: uuid.UUID | None = None
-        self._reply_generating: bool | None = None
         # Phase 1 causal slice (§22, §38): the ActionIntent Stage 6 committed
         # for the turn currently generating/playing, and the last terminal
         # OutcomeRecord emitted for one. Both are read-mostly diagnostics
@@ -221,7 +228,31 @@ class BrainAgent(BaseAgent):
         # durable (in-process, not yet persisted -- WorkspaceStore's job)
         # ledger, queryable via `get_outcome_history`.
         self._outcome_history: list[OutcomeRecord] = []
-        self._reply_contexts: dict[str, tuple[str, ActionIntent | None]] = {}
+        # W5 (ADR-W5 §3): every reply that has not resolved yet, by turn id.
+        # It replaced the single superseded-reply slot: each reply carries
+        # its own text, progress, intent and history row, so a cut, a stale
+        # stop and a transport terminal all address that reply and no other.
+        self.reply_resolutions: deque[ReplyResolution] = deque(
+            maxlen=REPLY_RESOLUTIONS_MAX
+        )
+        self.declined_proactive_inputs: deque[str] = deque(maxlen=REPLY_RESOLUTIONS_MAX)
+        self._reply_ledger: OrderedDict[str, _ReplyLedgerEntry] = OrderedDict()
+        # Resolved replies, still addressable by a stop (`_handle_ledger_audio_stop`).
+        self._resolved_replies: OrderedDict[str, _ReplyLedgerEntry] = OrderedDict()
+        self._accepted_utterances: OrderedDict[str, None] = OrderedDict()
+        self._seen_audio_stops: OrderedDict[tuple[Any, ...], None] = OrderedDict()
+        # I10 (W5 critic round 2): an unscoped stop (`turn_id` is None)
+        # resolves to whatever turn is active *the first time it is seen*.
+        # `_seen_audio_stops` shares its 256-key window with every scoped
+        # stop too, so heavy scoped traffic can evict an unscoped stop's key
+        # long before JetStream redelivers the same message -- at which
+        # point it would resolve against a completely different, later
+        # active turn. Kept separately, keyed on identity minus `turn_id`
+        # (which is always None here), so a redelivery always finds the
+        # turn it first resolved to.
+        self._unscoped_stop_targets: OrderedDict[tuple[Any, ...], str] = OrderedDict()
+        self._last_user_partial_at: float | None = None
+        self._reply_terminal_events: set[tuple[str, str, int]] = set()
         # Bucket 1 (VOICE_REMEDIATION_PLAN.md): stamped on the first playback
         # progress frame of each turn (see _on_audio_playback_progress) and
         # read by _on_chat_input's barge-in grace period below.
@@ -233,16 +264,192 @@ class BrainAgent(BaseAgent):
         # backlog) rather than None so a cold start doesn't need a null check
         # on the hot filler-decision path.
         self.last_playback_backlog: int = 0
-        # P2-14/M1-A14: `last_audio_progress` and `last_assistant_response`
-        # are written from three independent NATS subscription tasks --
-        # chat.input's turn flow, audio.playback.progress's tracker, and
-        # audio.stop's truncation handler -- and read-then-written together
-        # by audio.stop's truncation. `_generation_lock` guards only which
-        # task owns `_active_generation_task`; it says nothing about this
-        # data, and `_cancel_active_generation` yields back to the event
-        # loop when its awaited task finishes, which is exactly the window a
-        # concurrent chat.input reset can land in. See _truncate_interrupted_reply.
+        # P2-14/M1-A14: the active turn, the ledger entries and the
+        # `last_*` fields are written from independent NATS subscription
+        # tasks -- chat.input's turn flow, the playback progress tracker and
+        # the audio.stop handler. `_generation_lock` guards only which task
+        # owns `_active_generation_task`; this lock keeps each of those
+        # read-then-write sections whole.
         self._turn_state_lock = asyncio.Lock()
+
+    def reply_ledger_size(self) -> int:
+        return len(self._reply_ledger)
+
+    def _is_user_mid_utterance(self, now: float | None = None) -> bool:
+        last_partial = self._last_user_partial_at
+        return bool(
+            last_partial is not None
+            and (clock.monotonic() if now is None else now) - last_partial
+            <= Config.USER_MID_UTTERANCE_TIMEOUT_S
+        )
+
+    def _remember_accepted_utterance(self, utterance_id: str | None) -> bool:
+        if not utterance_id:
+            return True
+        if utterance_id in self._accepted_utterances:
+            return False
+        self._accepted_utterances[utterance_id] = None
+        while len(self._accepted_utterances) > 256:
+            self._accepted_utterances.popitem(last=False)
+        return True
+
+    async def _resolve_reply(
+        self,
+        entry: _ReplyLedgerEntry,
+        status: str,
+        *,
+        offset: int | None = None,
+        reason: str,
+        error: str | None = None,
+    ) -> None:
+        if entry.resolved:
+            return
+        entry.resolved = True
+        entry.status = status
+        # Everything up to the history write is synchronous, so a caller
+        # cancelled during that write has already freed the ledger slot and
+        # recorded the outcome (the overflow caller also shields the write).
+        self._reply_ledger.pop(entry.turn_id, None)
+        resolved = getattr(self, "_resolved_replies", None)
+        if resolved is not None:
+            resolved[entry.turn_id] = entry
+            while len(resolved) > REPLY_RESOLUTIONS_MAX:
+                resolved.popitem(last=False)
+        progress = getattr(self, "last_audio_progress", None)
+        if getattr(progress, "utterance_id", None) == entry.turn_id:
+            self.last_audio_progress = None
+        if entry.grace_task and entry.grace_task is not asyncio.current_task():
+            entry.grace_task.cancel()
+        text = entry.text
+        heard_offset = (
+            len(text)
+            if status == "COMPLETED"
+            else max(
+                0,
+                min(
+                    offset
+                    if offset is not None
+                    else (entry.progress.character_offset if entry.progress else 0),
+                    len(text),
+                ),
+            )
+        )
+        heard = text[:heard_offset].strip()
+        if status == "COMPLETED":
+            heard = text
+            heard_offset = len(text)
+        # `entry` is already out of `_reply_ledger` (popped above); the only
+        # other reader of `.text` is `_finish_reply`, which checks
+        # `_resolved_replies` when it finds no live entry. Narrowing it to
+        # `heard` here means that lookup always sees what was actually
+        # heard, never the full generation this reply was cut from -- the
+        # ordering that beats `_finish_reply` to a row id has nothing to
+        # rewrite (I3): the row gets created with the true text the first
+        # time, and never needs cutting down.
+        entry.text = heard
+        await self._emit_outcome_record(
+            entry.intent,
+            status=status,
+            actual_delivered_text=heard,
+            character_offset=heard_offset,
+            error=error,
+        )
+        self.reply_resolutions.append(
+            ReplyResolution(
+                turn_id=entry.turn_id,
+                status=status,
+                heard_text=heard,
+                character_offset=heard_offset,
+                source=entry.source,
+                reason=reason,
+            )
+        )
+        if heard != text:  # a reply never stored has no row (`_store_heard_reply`)
+            await self._store_heard_reply(heard, entry.log_task, entry.message_id)
+
+    async def _cut_reply(
+        self, entry: _ReplyLedgerEntry, reason: str, *, publish: bool = True
+    ) -> None:
+        if entry.resolved or entry.cut_pending:
+            return
+        if not entry.started:
+            await self._resolve_reply(entry, "CANCELLED", reason=reason)
+            return
+        entry.cut_pending = True
+        entry.cut_reason = reason
+        if publish:
+            await self.publish(
+                Topics.AUDIO_STOP,
+                AudioStop(
+                    interrupt=True,
+                    speculative=False,
+                    reason=reason,
+                    turn_id=entry.turn_id,
+                ).model_dump(),
+            )
+
+        async def terminal_timeout() -> None:
+            await clock.sleep(Config.REPLY_TERMINAL_WAIT_S)
+            if entry.resolved:
+                return
+            status = "TRUNCATED" if entry.speaking else "CANCELLED"
+            offset = entry.progress.character_offset if entry.progress else 0
+            await self._resolve_reply(entry, status, offset=offset, reason=reason)
+
+        entry.grace_task = self.spawn(terminal_timeout())
+
+    def _request_generation_cancel(self, turn_id: str) -> None:
+        """Stop future chunks for a cut reply without awaiting its flow task."""
+        if getattr(self, "_active_response_turn_id", None) != turn_id:
+            return
+        task = getattr(self, "_active_generation_task", None)
+        if task is not None and not task.done():
+            task.cancel()
+
+    def _generation_entry(self, task: asyncio.Task | None) -> _ReplyLedgerEntry | None:
+        """The unresolved reply `task` is generating, if any."""
+        if task is None:
+            return None
+        return next(
+            (
+                entry
+                for entry in self._reply_ledger.values()
+                if entry.generation is task
+            ),
+            None,
+        )
+
+    async def _end_generation(
+        self, turn_id: str, ended: str, generation: asyncio.Task | None = None
+    ) -> None:
+        """Resolve a reply whose flow ended before its first chunk.
+
+        Nothing was published for it and nothing will be, so no transport
+        terminal can come; left in the ledger it waited for an overflow to
+        record it FAILED. Runs in the flow's own `finally`, so a cancelled
+        flow has resolved its reply by the time its canceller's await
+        returns (or, past `GENERATION_TEARDOWN_WAIT_S`, the canceller runs
+        it for that flow's `generation`). Only the entry that flow created
+        is touched: a flow cancelled before `_begin_turn` added one must not
+        resolve another flow's reply under the same turn id.
+        """
+        entry = self._reply_ledger.get(turn_id)
+        if generation is None:
+            generation = asyncio.current_task()
+        if (
+            entry is None
+            or entry.started
+            or entry.resolved
+            or entry.generation is not generation
+        ):
+            return
+        reason = entry.cancel_reason or ended
+        await self._resolve_reply(
+            entry,
+            "CANCELLED",
+            reason=reason,
+            error=None if reason == "nothing_generated" else reason,
+        )
 
     async def start(self):
         await self.connect()
@@ -268,6 +475,12 @@ class BrainAgent(BaseAgent):
             Topics.CHAT_INPUT,
             self._on_chat_input,
             durable=f"{self.name}_chat_input_live",
+            deliver_policy="new",
+        )
+        await self.subscribe(
+            Topics.AUDIO_PERCEPTION,
+            self._on_user_speech_partial,
+            durable=f"{self.name}_audio_perception_live",
             deliver_policy="new",
         )
         await self.subscribe(
@@ -508,54 +721,65 @@ class BrainAgent(BaseAgent):
         return [record for record in history if record.turn_id == turn_id]
 
     async def _cancel_active_generation(self, reason: str):
-        """Cancel the in-flight generation task and wait for it to fully unwind.
+        """Cancel the in-flight generation task and wait for it to unwind.
 
         A4: a fire-and-forget .cancel() only *requests* cancellation - the task
-        keeps running until its next await point, so it can still write stale
-        last_assistant_response/last_audio_progress after a new turn has already
-        reset that state, or after _on_audio_stop has already read it for
-        truncation. Awaiting the task here closes that race by guaranteeing the
-        previous turn has stopped touching shared state before the caller
-        (a new chat.input turn, or a confirmed audio.stop) proceeds.
+        keeps running until its next await point, so it could still publish
+        chunks for a reply that was already cut. By the time this returns the
+        task has stopped, or (past `GENERATION_TEARDOWN_WAIT_S`) is fenced
+        from publishing, before the caller (a confirmed audio.stop) cuts the
+        reply. A reply the task had not started resolves CANCELLED, with
+        `reason`, in the task's own `finally` (`_end_generation`).
         """
         async with self._generation_lock:
             task = self._active_generation_task
             if not task or task.done():
                 return
+            entry = self._generation_entry(task)
+            if entry is not None and entry.cancel_reason is None:
+                entry.cancel_reason = reason
             logger.info("Cancelling active generation task: %s", reason)
             task.cancel()
             try:
-                await task
-            except asyncio.CancelledError:
-                pass
-            except Exception:
-                logger.exception(
-                    "Previous generation task raised while being cancelled"
-                )
+                await self._await_generation_teardown(task, entry)
             finally:
                 if self._active_generation_task is task:
                     self._active_generation_task = None
 
-        # Phase 1 causal slice: a cancellation that landed before any content
-        # was ever produced has no truncation offset for
-        # _truncate_interrupted_reply to compute (its own branches both
-        # require last_assistant_response) -- record the outcome here instead,
-        # while the intent that was cancelled is still known. A cancellation
-        # that landed after some content streamed defers to
-        # _truncate_interrupted_reply, called immediately after this by the
-        # only production caller (_on_audio_stop), so the turn gets exactly
-        # one terminal record rather than two disagreeing ones.
-        async with self._turn_state_lock:
-            produced_nothing = not self.last_assistant_response
-            intent = getattr(self, "_active_action_intent", None)
-            already_resolved = getattr(self, "_reply_resolved", False)
-            # Whatever was running has stopped; a later replacement must not
-            # record this reply CANCELLED again.
-            self._reply_generating = False
-            if produced_nothing:
-                self._reply_resolved = True
-        if produced_nothing and not already_resolved:
-            await self._emit_outcome_record(intent, status="CANCELLED", error=reason)
+    async def _await_generation_teardown(
+        self, task: asyncio.Task, entry: _ReplyLedgerEntry | None
+    ) -> None:
+        """Wait, bounded, for a cancelled generation task to unwind.
+
+        Past `GENERATION_TEARDOWN_WAIT_S` the task is left running: it is
+        fenced from publishing (`_generation_fenced`), and the reply it had
+        not started is resolved here instead of in its own `finally`.
+        """
+        done, _pending = await asyncio.wait({task}, timeout=GENERATION_TEARDOWN_WAIT_S)
+        if task in done:
+            if not task.cancelled() and task.exception() is not None:
+                logger.error(
+                    "Previous generation task raised while being cancelled",
+                    exc_info=task.exception(),
+                )
+            return
+        logger.warning(
+            "Cancelled generation still unwinding after %.2f s; continuing without it.",
+            GENERATION_TEARDOWN_WAIT_S,
+        )
+        if entry is not None:
+            await self._end_generation(entry.turn_id, "generation_cancelled", task)
+
+    @staticmethod
+    def _generation_fenced() -> bool:
+        """True inside a generation task that has been told to cancel.
+
+        A generator that catches the cancellation and keeps going, or is
+        still unwinding when its successor starts, must not put more of a
+        superseded reply on the wire.
+        """
+        task = asyncio.current_task()
+        return task is not None and task.cancelling() > 0
 
     async def _store_heard_reply(
         self,
@@ -586,188 +810,73 @@ class BrainAgent(BaseAgent):
                     REPLY_INSERT_WAIT_S,
                 )
                 return
-        await self.conversation_store.rewrite_assistant_message(
-            heard, message_id=message_id
+        # I5 (W5 critic round 2): this call used to be awaited directly with
+        # no deadline of its own, so a stalled rewrite blocked whichever
+        # lifecycle handler called us -- and with it, every later lifecycle
+        # event, since NATS delivers them to this callback one at a time.
+        # The insert wait above has to be synchronous (the rewrite would
+        # otherwise race the insert), but the rewrite itself does not: it is
+        # this call's last statement, so nothing here depends on its result.
+        # Spawned and tracked (kept alive past this call's return, unlike a
+        # bare `create_task`) rather than awaited, so the handler's return
+        # is never at the mercy of the store's latency.
+        self.spawn(
+            self.conversation_store.rewrite_assistant_message(
+                heard, message_id=message_id
+            )
         )
 
-    async def _truncate_interrupted_reply(self, reply: _SupersededReply | None = None):
-        """Rewrite the stored assistant reply down to what was actually
-        heard, using `last_audio_progress`, then clear both fields.
-
-        With `reply`, truncates that superseded reply's snapshot instead and
-        leaves the current turn's fields alone (ADR-003).
-
-        P2-14/M1-A14: this used to read `last_audio_progress` and
-        `last_assistant_response`, compute a truncation offset, and (on one
-        branch) `await` a conversation-store write, all without a lock --
-        while `_process_chat_input_flow` (a different NATS subscription,
-        therefore a different task) can reset both fields to start a new
-        turn, and `_on_audio_playback_progress` (a third subscription) can
-        overwrite `last_audio_progress` mid-computation. `_cancel_active_generation`
-        guarantees the turn that WROTE this reply has stopped -- it does not
-        guarantee nothing else reads or resets it while this method runs.
-        Holding `_turn_state_lock` for the whole read-compute-write section
-        (including the DB write) makes this atomic with respect to those
-        other writers rather than merely reducing the window.
-        """
-        async with self._turn_state_lock:
-            if reply is None:
-                text = self.last_assistant_response
-                progress = self.last_audio_progress
-                intent = getattr(self, "_active_action_intent", None)
-                log_task = getattr(self, "_reply_log_task", None)
-                message_id = getattr(self, "_reply_message_id", None)
-                owner = getattr(self, "_reply_turn_id", None)
-                active = getattr(self, "_active_response_turn_id", None)
-                if getattr(self, "_reply_resolved", False) or (
-                    owner is not None and active is not None and owner != active
-                ):
-                    # Already truncated, or the active turn is not the one
-                    # that produced this text (a subconscious turn speaking).
-                    text = None
-                else:
-                    self._reply_resolved = True
-            else:
-                text, progress, intent = reply.text, reply.progress, reply.intent
-                log_task, message_id = reply.log_task, reply.message_id
-                owner = reply.turn_id
-            outcome_already_recorded = bool(owner and self.get_outcome_history(owner))
-            if progress and not progress.completed and text:
-                offset = progress.character_offset
-                if 0 < offset < len(text):
-                    truncated_text = text[:offset].strip()
-                    original_length = len(text)
-                    truncated_length = len(truncated_text)
-                    logger.info(
-                        f"Truncating history (via progress): original_length={original_length}, truncated_length={truncated_length}, offset={offset}"
-                    )
-                    await self._store_heard_reply(truncated_text, log_task, message_id)
-                    if not outcome_already_recorded:
-                        await self._emit_outcome_record(
-                            intent,
-                            status="TRUNCATED",
-                            actual_delivered_text=truncated_text,
-                            character_offset=offset,
-                        )
-            elif not progress and text:
-                # No real playback progress, so we do not know how much of
-                # the reply was actually heard -- and we no longer guess.
-                #
-                # This used to estimate `int(elapsed * 15)`, a hardcoded
-                # 15 characters per second, and rewrite the stored reply at
-                # that offset. Two things were wrong with it. The rate was
-                # invented and unbounded in error: real speech rate varies
-                # with prosody, pauses and the synthesiser, so the cut
-                # landed wherever the arithmetic said. And
-                # `assistant_response_start_time` is only set on one of the
-                # two streaming paths, so `elapsed` could be measured from a
-                # *previous* turn entirely.
-                #
-                # The transcript is not a log; it is what memory and the
-                # persona prompt read back later. A wrong cut point puts
-                # words in the agent's mouth that it never said, or deletes
-                # ones it did, and nothing downstream can tell that the
-                # sentence was reconstructed. Keeping the full text is also
-                # wrong -- the agent may believe it said more than was heard
-                # -- but it is wrong in a way that is honest and visible in
-                # the log, rather than silently fabricated.
-                logger.info(
-                    "Interrupted with no playback progress; keeping the full "
-                    "reply (%d chars) rather than guessing a cut point.",
-                    len(text),
-                )
-                # Still a terminal record for this intent -- best-known
-                # offset (the full text) rather than no record at all, same
-                # honesty tradeoff as the log line above: this is what we
-                # believe was delivered, not a claim that it was verified.
-                await self._emit_outcome_record(
-                    intent,
-                    status="TRUNCATED",
-                    actual_delivered_text=text,
-                    character_offset=len(text),
-                )
-
-            if reply is not None:
-                return  # the current turn's fields belong to the new turn
-            # Cleared however this turn resolved. It was previously reset
-            # only on the branch that actually truncated, so a stop that
-            # matched none of the guards left the progress marker in place
-            # for the *next* interrupt to truncate against -- a stale offset
-            # from a reply that had already ended.
-            self.last_audio_progress = None
-
-    async def _replace_active_generation(self, coro, reason: str):
+    async def _replace_active_generation(self, coro_factory, reason: str):
         """Atomically replace the active generation task with a new one.
 
         Holds the lock through the entire critical section: cancel the prior task,
-        await its completion, create the new task, and assign it to
+        await its teardown (bounded, `_await_generation_teardown`), create
+        the new task, and assign it to
         _active_generation_task. This prevents concurrent callers from both
         creating tasks and losing ownership when one overwrites the other's
         assignment (TOCTOU race).
 
+        A reply the prior task had not started resolves CANCELLED with
+        `reason` in that task's `finally` (`_end_generation`), before the new
+        task exists. A started reply is not touched: it plays on until a stop
+        cuts it or its transport terminal resolves it.
+
+        `coro_factory` is a zero-argument callable, not a coroutine, and is
+        called only after teardown (W5 critic round 2, LOW): a coroutine
+        built by the caller before this call exists in memory the moment
+        it's constructed, so a caller cancelled while this method still
+        awaits the prior task's teardown would otherwise leave that
+        already-built coroutine neither scheduled nor closed, an unawaited
+        coroutine leaked past this call's own cancellation.
+
         Args:
-            coro: Coroutine to wrap in the new generation task
+            coro_factory: Zero-argument callable returning the coroutine to
+                wrap in the new generation task, called once teardown of any
+                prior task has finished
             reason: Reason for cancelling the prior task (if any)
 
         Returns:
             The newly created task
         """
-        cancelled_a_running_turn = False
         async with self._generation_lock:
-            # Cancel and await prior task if it exists
             prior_task = self._active_generation_task
             if prior_task and not prior_task.done():
+                prior_entry = self._generation_entry(prior_task)
+                if prior_entry is not None and prior_entry.cancel_reason is None:
+                    prior_entry.cancel_reason = reason
                 logger.info("Cancelling active generation task: %s", reason)
                 prior_task.cancel()
-                try:
-                    await prior_task
-                except asyncio.CancelledError:
-                    pass
-                except Exception:
-                    logger.exception(
-                        "Previous generation task raised while being cancelled"
-                    )
-                cancelled_a_running_turn = True
+                await self._await_generation_teardown(prior_task, prior_entry)
 
-            # Create and assign new task while still holding the lock
-            new_task = asyncio.create_task(coro)
+            # Create and assign new task while still holding the lock. The
+            # coroutine itself is built here, after teardown, not by the
+            # caller before this call -- see the LOW fix note above.
+            new_task = self.spawn(coro_factory())
             self._active_generation_task = new_task
-
-        # The intent belongs to the last user turn's reply. Record it
-        # CANCELLED only if that reply's generation was what got cut: the
-        # task replaced may be a proactive turn, or a later turn still in
-        # its pacing sleep, after that reply had finished (and been
-        # recorded COMPLETED or TRUNCATED on its own).
-        if cancelled_a_running_turn and (
-            getattr(self, "_reply_generating", None) is False
-        ):
-            cancelled_a_running_turn = False
-        if cancelled_a_running_turn:
-            # FIX-CLD-05: a new incoming turn preempting one still in flight
-            # never called `_cancel_active_generation`/`_truncate_interrupted_reply`
-            # (those only run on `_on_audio_stop`'s path), so the replaced
-            # turn's ActionIntent previously got no terminal record at all --
-            # its partial `last_assistant_response` is simply overwritten by
-            # `_process_chat_input_flow`'s reset for the new turn. Read
-            # before returning: `new_task` (`coro`) has only been scheduled
-            # above, not yet run, so `_active_action_intent` here is still
-            # the interrupted turn's own, never the new one's.
-            async with self._turn_state_lock:
-                intent = getattr(self, "_active_action_intent", None)
-                # Its terminal record is written here; a later truncation of
-                # this reply (a superseded "stop", ADR-003) must not add a
-                # second, disagreeing one.
-                self._active_action_intent = None
-                self._reply_resolved = True
-                self._reply_generating = False
-            await self._emit_outcome_record(intent, status="CANCELLED", error=reason)
 
         return new_task
 
     async def _on_chat_input(self, message: dict[str, Any]):
-        now = datetime.now()
-        self.last_interaction_time = now
-
         try:
             msg = ChatInput.model_validate(message)
             is_subconscious = msg.metadata.source == "subconscious"
@@ -778,10 +887,112 @@ class BrainAgent(BaseAgent):
             logger.exception("Unexpected error processing chat.input")
             return
 
+        if not self._remember_accepted_utterance(msg.utterance_id):
+            return
+
+        if is_subconscious:
+            if not await self._allow_proactive_input(msg):
+                return
+        else:
+            self._last_user_partial_at = None
+
+        self.last_interaction_time = datetime.now()
+
         self.last_percept = percept.from_chat_input(msg.model_dump())
 
         # If it is not a subconscious pulse, publish a confirmed stop to silence any playing voice agent audio.
         #
+        # Bucket 1 (VOICE_REMEDIATION_PLAN.md): this used to fire unconditionally, on every
+        # chat.input, with no gate at all -- bypassing decision.py's
+        # `is_speculative_stop_confirmed`, the arbiter `_resolve_turn_conflict`
+        # (pipeline.py) already calls moments later on this same final text. Measured
+        # directly in a live session (2026-09-01): on "Let's stop it.", the arbiter
+        # correctly REJECTED the interruption ("contradicts early perception"), but this
+        # unconditional publish had already cut playback half a second earlier regardless.
+        #
+        # The fix is not to duplicate the arbiter's keyword logic here -- that logic is
+        # specifically for confirming an explicit command (stop/wait/hold/...), not for
+        # deciding whether a new, keyword-free user turn should mute old audio, which is
+        # this publish's actual job and must keep working unconditionally. The real defect
+        # is only the double-fire: when STT's speculative duck already flagged this
+        # utterance as command-like (`last_speculative_intent` is set), the pipeline's own
+        # Stage 2 conflict resolution is about to run the arbiter on this exact text and
+        # will itself publish audio.stop (confirmed) or audio.resume (rejected) --
+        # skipping the immediate stop here defers entirely to that already-correct,
+        # already-gated decision instead of racing ahead of it. Audio is already ducked
+        # (not silenced) from the speculative signal, so nothing is lost by waiting the
+        # extra tens of milliseconds for the real verdict.
+        if not is_subconscious and not await self._handle_user_final(msg):
+            return
+
+        # The per-subject NATS callback accepts one message at a time and this
+        # task replacement is serialized by _generation_lock. Ack now means
+        # accepted: at most one generator runs, rapid inputs cancel its
+        # predecessor, and no in-process input queue can grow without bound.
+        task = await self._replace_active_generation(
+            lambda: self._process_chat_input_flow(msg, is_subconscious, message),
+            "new incoming speech turn",
+        )
+
+        def clear_generation(done_task: asyncio.Task) -> None:
+            if done_task.cancelled():
+                logger.info("Active generation flow task cancelled.")
+            # This callback runs after the flow ends, without holding up the
+            # serial NATS callback that must accept the next input.
+            if self._active_generation_task is done_task:
+                self._active_generation_task = None
+
+        task.add_done_callback(clear_generation)
+
+    async def _allow_proactive_input(self, msg: ChatInput) -> bool:
+        active_id = getattr(self, "_active_response_turn_id", None)
+        active_reply = self._reply_ledger.get(active_id) if active_id else None
+        # An unresolved user reply is in flight from the moment its turn
+        # begins: pacing, generating or playing. Keyed on a generating flag,
+        # a user reply in its pacing sleep (300-900 ms) did not count, and
+        # any thought landing then ceded it CANCELLED below: the user's
+        # question went unanswered. A flow that ends without a chunk
+        # resolves its reply (`_end_generation`), so unresolved means live.
+        user_reply_in_flight = bool(
+            active_reply and active_reply.source == "user" and not active_reply.resolved
+        )
+        importance = _finite_score(msg.metadata.importance) or 0.0
+        if self._is_user_mid_utterance() or (
+            user_reply_in_flight
+            and importance < Config.SELF_THOUGHT_INTERRUPT_MIN_IMPORTANCE
+        ):
+            self.declined_proactive_inputs.append(msg.utterance_id or "")
+            return False
+        if user_reply_in_flight and active_reply is not None:
+            if not active_reply.started:
+                # `_cut_reply` publishes only for a started reply, but the
+                # interrupt announces itself either way (ADR-W5 §5): a
+                # filler may already be playing under this turn.
+                await self.publish(
+                    Topics.AUDIO_STOP,
+                    AudioStop(
+                        interrupt=True,
+                        speculative=False,
+                        reason="self_thought_interrupt",
+                        turn_id=active_reply.turn_id,
+                    ).model_dump(),
+                )
+            await self._cut_reply(active_reply, "self_thought_interrupt")
+        elif active_reply is not None:
+            await self._cut_reply(active_reply, "proactive_ceded")
+        # I8 (W5 critic round 2): the checks above ran before the awaited
+        # cut publish, and a real user partial can land during that await.
+        # Recheck the state this gate exists to enforce, right before
+        # granting the floor, rather than trusting a read that is now
+        # stale -- the cut already under way (if any) still proceeds; only
+        # the floor grant itself is race-safe.
+        if self._is_user_mid_utterance():
+            self.declined_proactive_inputs.append(msg.utterance_id or "")
+            return False
+        return True
+
+    async def _handle_user_final(self, msg: ChatInput) -> bool:
+        """Apply onset filtering and cut the reply before accepting its turn."""
         # Bucket 1 (VOICE_REMEDIATION_PLAN.md): this used to fire unconditionally, on every
         # chat.input, with no gate at all -- bypassing decision.py's
         # `is_speculative_stop_confirmed`, the arbiter `_resolve_turn_conflict`
@@ -816,14 +1027,10 @@ class BrainAgent(BaseAgent):
         # pop, or brief echo tail before echoCancellation has settled.
         within_onset_grace = (
             self._last_audio_onset_at is not None
-            and (time.time() - self._last_audio_onset_at)
+            and (clock.time() - self._last_audio_onset_at)
             < Config.BARGE_IN_ONSET_GRACE_S
         )
-        if (
-            not is_subconscious
-            and not speculative_intent_pending
-            and not within_onset_grace
-        ):
+        if not speculative_intent_pending and not within_onset_grace:
             stop_msg = AudioStop(
                 interrupt=True,
                 speculative=False,
@@ -832,12 +1039,17 @@ class BrainAgent(BaseAgent):
                 intent="CONFIRMED_STOP",
                 utterance_id=msg.utterance_id,
             )
+            # Unscoped, as before W5: the user talking over the agent
+            # silences whatever is playing, and that may be an older reply
+            # still draining while a newer turn is active. A stop scoped to
+            # the active turn left it playing over the user.
             await self.publish(Topics.AUDIO_STOP, stop_msg.model_dump())
-        elif (
-            not is_subconscious
-            and within_onset_grace
-            and not speculative_intent_pending
-        ):
+            # Every reply the transport is flushing is cut here, so each one
+            # resolves from its INTERRUPTED heard offset (DR-028, F-013).
+            for reply in tuple(self._reply_ledger.values()):
+                if reply.started and not reply.resolved:
+                    await self._cut_reply(reply, "confirmed_user_speech", publish=False)
+        elif within_onset_grace and not speculative_intent_pending:
             # Reviewer finding: this transcript is exactly the case the onset
             # grace comment above describes as most likely onset noise (a
             # click, pop, or echo tail), not real speech -- STT's own
@@ -853,23 +1065,13 @@ class BrainAgent(BaseAgent):
                 "speculative intent (likely onset noise): %r",
                 msg.text,
             )
-            return
-
-        # Atomically replace the active generation task to prevent concurrent
-        # chat inputs from both creating tasks and losing ownership.
-        task = await self._replace_active_generation(
-            self._process_chat_input_flow(msg, is_subconscious, message),
-            "new incoming speech turn",
-        )
-        try:
-            await task
-        except asyncio.CancelledError:
-            logger.info("Active generation flow task cancelled.")
-        finally:
-            # Clean up only if we still own this task
-            async with self._generation_lock:
-                if self._active_generation_task == task:
-                    self._active_generation_task = None
+            return False
+        # With a speculative intent pending nothing is cut here: no stop was
+        # published, and Stage 2 either confirms (a `confirmed_command` stop
+        # that cuts the reply through the ledger) or rejects and resumes the
+        # audio, in which case the reply plays on and must not be recorded
+        # as cut. A reply still generating is cancelled by the replacement.
+        return True
 
     @staticmethod
     def _resolve_chat_input_metadata(
@@ -921,47 +1123,87 @@ class BrainAgent(BaseAgent):
             or "User"
         )
 
-    async def _begin_turn(self, turn_id: str) -> str | None:
+    async def _on_user_speech_partial(self, data: dict[str, Any]) -> None:
+        try:
+            partial = AudioPerception.model_validate(data)
+        except ValidationError:
+            return
+        if not partial.text.strip():
+            return
+        onset = getattr(self, "_last_audio_onset_at", None)
+        if onset is not None and clock.time() - onset < Config.BARGE_IN_ONSET_GRACE_S:
+            return
+        self._last_user_partial_at = clock.monotonic()
+        active_id = getattr(self, "_active_response_turn_id", None)
+        entry = self._reply_ledger.get(active_id) if active_id else None
+        if entry is None or entry.source != "proactive" or entry.resolved:
+            return
+        if (
+            not entry.started
+            or (entry.importance or 0.0) < Config.PROACTIVE_GRACE_MIN_IMPORTANCE
+        ):
+            await self._cut_reply(entry, "proactive_ceded")
+            self._request_generation_cancel(entry.turn_id)
+            return
+        if entry.grace_task is not None:
+            return
+
+        async def expire_grace() -> None:
+            await clock.sleep(Config.PROACTIVE_GRACE_WINDOW_S)
+            if not entry.resolved and not entry.cut_pending:
+                await self._cut_reply(entry, "proactive_grace_expired")
+                self._request_generation_cancel(entry.turn_id)
+
+        entry.grace_task = self.spawn(expire_grace())
+
+    async def _begin_turn(
+        self,
+        turn_id: str,
+        *,
+        source: str = "user",
+        importance: float | None = None,
+    ) -> str | None:
         """Make `turn_id` the active turn; returns the turn it superseded.
 
-        The superseded reply's text, playback progress, intent and history
-        state are snapshotted here (ADR-003): Stage 2 addresses the confirmed
-        "stop" to that reply, and by the time it arrives this turn has reset
-        the live fields.
+        The superseded turn's reply keeps its own ledger entry (ADR-W5 §3):
+        the confirmed "stop" Stage 2 addresses to it, its progress and its
+        transport terminal all find it there, whatever this turn does to the
+        live fields. The returned id goes into the pipeline's metadata as
+        `interrupted_turn_id`, which is how Stage 2 knows what to address.
         """
         async with self._turn_state_lock:
             interrupted_turn_id = getattr(self, "_active_response_turn_id", None)
-            self._superseded_turn_id = interrupted_turn_id
-            # The previous turn's generation has already been cancelled (or
-            # had finished) by `_replace_active_generation`, so this is its
-            # final state; its audio may still be playing. The reply text is
-            # carried only if it is that turn's own and not yet truncated.
-            owns_reply = (
-                interrupted_turn_id is not None
-                and getattr(self, "_reply_turn_id", None) == interrupted_turn_id
-                and not getattr(self, "_reply_resolved", False)
+            self._active_response_turn_id = turn_id
+            self._reply_ledger[turn_id] = _ReplyLedgerEntry(
+                turn_id=turn_id,
+                source=source,
+                importance=importance,
+                generation=asyncio.current_task(),
             )
-            self._superseded_reply = (
-                _SupersededReply(
-                    turn_id=interrupted_turn_id,
-                    text=self.last_assistant_response if owns_reply else None,
-                    progress=getattr(self, "last_audio_progress", None),
-                    intent=(
-                        getattr(self, "_active_action_intent", None)
-                        if owns_reply
-                        else None
-                    ),
-                    log_task=(
-                        getattr(self, "_reply_log_task", None) if owns_reply else None
-                    ),
-                    message_id=(
-                        getattr(self, "_reply_message_id", None) if owns_reply else None
-                    ),
-                )
-                if interrupted_turn_id
+            overflow = (
+                next(iter(self._reply_ledger.values()))
+                if len(self._reply_ledger) > REPLY_LEDGER_MAX
                 else None
             )
-            self._active_response_turn_id = turn_id
+        if overflow is not None:
+            # Shielded: this flow can be cancelled by the next input while
+            # the evicted reply's row is being cut, and that write must still
+            # land. (`_resolve_reply` frees the slot before it awaits.)
+            await asyncio.shield(
+                self.spawn(
+                    self._resolve_reply(
+                        overflow,
+                        "FAILED",
+                        offset=(
+                            overflow.progress.character_offset
+                            if overflow.progress
+                            else 0
+                        ),
+                        reason="reply_ledger_overflow",
+                        error="reply ledger capacity exceeded",
+                    )
+                )
+            )
         return interrupted_turn_id
 
     async def _process_chat_input_flow(
@@ -972,12 +1214,51 @@ class BrainAgent(BaseAgent):
         metadata, latency_metadata = self._resolve_chat_input_metadata(
             chat_input, message
         )
-        utterance_id = chat_input.utterance_id
 
         if not user_text:
             return
 
-        interrupted_turn_id = await self._begin_turn(turn_id)
+        # However the flow ends, a reply it never started is resolved here
+        # (`_end_generation`); a started one resolves on its terminal or cut.
+        # `_begin_turn` is inside: a flow cancelled while its overflow
+        # resolves has already added its own entry.
+        try:
+            interrupted_turn_id = await self._begin_turn(
+                turn_id,
+                source="proactive" if is_subconscious else "user",
+                importance=_finite_score(metadata.get("importance")),
+            )
+            await self._run_turn(
+                chat_input,
+                is_subconscious,
+                message,
+                turn_id=turn_id,
+                metadata=metadata,
+                latency_metadata=latency_metadata,
+                interrupted_turn_id=interrupted_turn_id,
+            )
+        except asyncio.CancelledError:
+            await self._end_generation(turn_id, "generation_cancelled")
+            raise
+        except Exception:
+            await self._end_generation(turn_id, "generation_failed")
+            raise
+        await self._end_generation(turn_id, "nothing_generated")
+
+    async def _run_turn(
+        self,
+        chat_input: ChatInput,
+        is_subconscious: bool,
+        message: dict[str, Any],
+        *,
+        turn_id: str,
+        metadata: dict[str, Any],
+        latency_metadata: dict[str, Any],
+        interrupted_turn_id: str | None,
+    ) -> None:
+        """Pace, run the pipeline, stream the reply and store it."""
+        user_text = chat_input.text
+        utterance_id = chat_input.utterance_id
 
         # Pacing Conversational Turn: calculate silence duration and pause
         state_snap = self.cognitive_core.state.get_context_snapshot()
@@ -1046,18 +1327,12 @@ class BrainAgent(BaseAgent):
                 thought_prompt=user_text
             )
         else:
-            # P2-14/M1-A14: locked so this reset cannot land mid-computation
-            # inside _truncate_interrupted_reply, running concurrently on the
-            # audio.stop subscription's own task for a still-unwinding turn.
+            # P2-14/M1-A14: locked so this reset cannot land inside another
+            # subscription's read-then-write of the same fields.
             async with self._turn_state_lock:
                 self.last_assistant_response = None
                 self.last_audio_progress = None
                 self._active_action_intent = None
-                self._reply_log_task = None
-                self._reply_message_id = None
-                self._reply_turn_id = turn_id
-                self._reply_resolved = False
-                self._reply_generating = True
             process_kwargs = {
                 "percept": self.last_percept,
                 "workspace": workspace_snapshot,
@@ -1117,47 +1392,51 @@ class BrainAgent(BaseAgent):
     async def _finish_reply(
         self, turn_id: str, full_response: str, is_subconscious: bool
     ) -> None:
-        """Record the finished reply and store it in history (ADR-003).
+        """Record the finished reply on its ledger entry and store it.
 
-        For a user turn, the text, the end of generation, the history row id
-        and the insert task are set in one critical section; a proactive
-        turn's reply is only stored.
+        The history row id and its insert task go on the entry before the
+        state lock is taken: a stop can arrive while this flow waits for
+        that lock, and its cut must wait for and rewrite this reply's own
+        insert (`_store_heard_reply`), never cancel the only writer.
+
+        A terminal can instead beat this call to the ledger entirely: the
+        done marker was still publishing when `_on_audio_playback_lifecycle`
+        resolved the reply and popped it (I3, W5 critic round 2). `entry` is
+        then `None` here, but the reply is not unaccounted for -- it moved
+        to `_resolved_replies`, with `.text` already narrowed to what was
+        actually heard. Storing `full_response` in that case would write
+        the whole generation after the fact, so the resolved entry's text
+        is what gets stored, never the parameter.
         """
-        store = self.conversation_store if full_response else None
-        message_id = uuid.uuid4() if store is not None else None
-        if not is_subconscious:
-            # One critical section: a stop must never see this reply as
-            # finished but without the row id its insert is about to use
-            # (it would cut nothing while the full text lands in history).
-            # Spawning does not yield, so the insert task is recorded here too.
-            async with self._turn_state_lock:
-                self.last_assistant_response = full_response
-                log_task = (
-                    self.spawn(
-                        store.log_message(
-                            "assistant", full_response, message_id=message_id
-                        )
-                    )
-                    if store is not None
-                    else None
-                )
-                if self._reply_turn_id == turn_id:
-                    self._reply_generating = False
-                    self._reply_log_task = log_task
-                    self._reply_message_id = message_id
-                self._remember_reply_context(turn_id, full_response)
-        elif store is not None:
-            self.spawn(
-                store.log_message("assistant", full_response, message_id=message_id)
-            )
-
-    def _remember_reply_context(self, turn_id: str, full_response: str) -> None:
-        self._reply_contexts[turn_id] = (
-            full_response,
-            getattr(self, "_active_action_intent", None),
+        entry = self._reply_ledger.get(turn_id)
+        resolved_entry = self._resolved_replies.get(turn_id) if entry is None else None
+        store_text = (
+            resolved_entry.text if resolved_entry is not None else full_response
         )
-        if len(self._reply_contexts) > 128:
-            self._reply_contexts.pop(next(iter(self._reply_contexts)))
+        store = self.conversation_store if store_text else None
+        target = entry if entry is not None else resolved_entry
+        message_id = uuid.uuid4() if store is not None else None
+        log_task = None
+        if store is not None:
+            if target is not None:
+                message_id = target.message_id or message_id
+                target.message_id = message_id
+                log_task = target.log_task
+            if log_task is None:
+                log_task = self.spawn(
+                    store.log_message("assistant", store_text, message_id=message_id)
+                )
+            if target is not None:
+                target.log_task = log_task
+        async with self._turn_state_lock:
+            if not is_subconscious:
+                self.last_assistant_response = full_response
+            if entry is not None:
+                entry.text = full_response
+                if not is_subconscious:
+                    entry.intent = getattr(self, "_active_action_intent", None)
+                entry.log_task = log_task
+                entry.message_id = message_id
 
     async def _on_audio_playback_progress(self, data: dict[str, Any]):
         """Tracks the current word/character progress of the audio playback."""
@@ -1165,18 +1444,12 @@ class BrainAgent(BaseAgent):
             self.last_percept = percept.from_playback_progress(data)
             progress = AudioPlaybackProgress.model_validate(data)
             async with self._turn_state_lock:
+                entry = self._reply_ledger.get(progress.utterance_id)
+                if entry is not None and not entry.resolved:
+                    entry.progress = progress
+                    entry.started = True
+                    entry.speaking = True
                 active_turn_id = getattr(self, "_active_response_turn_id", None)
-                superseded = getattr(self, "_superseded_reply", None)
-                if (
-                    superseded is not None
-                    and active_turn_id
-                    and progress.utterance_id == superseded.turn_id
-                    and progress.utterance_id != active_turn_id
-                ):
-                    # Still playing after the user took the floor: this is
-                    # the cut point a confirmed "stop" for it will use.
-                    superseded.progress = progress
-                    return
                 if active_turn_id and progress.utterance_id != active_turn_id:
                     logger.debug(
                         "Ignoring playback progress for stale turn %s; active turn is %s.",
@@ -1189,7 +1462,7 @@ class BrainAgent(BaseAgent):
                     # Bucket 1: the first frame of a new utterance actually
                     # starting to play, not just being queued -- the moment
                     # _on_chat_input's grace period below measures from.
-                    self._last_audio_onset_at = time.time()
+                    self._last_audio_onset_at = clock.time()
             logger.debug(
                 f"🔊 Audio Playback Progress | Word Index: {progress.word_index} | Offset: {progress.character_offset} | Completed: {progress.completed}"
             )
@@ -1222,38 +1495,33 @@ class BrainAgent(BaseAgent):
                 return
             if event.state not in {"COMPLETED", "INTERRUPTED", "FAILED"}:
                 return
-            async with self._turn_state_lock:
-                prior = self.get_outcome_history(event.turn_id)
-                context = self._reply_contexts.get(event.turn_id)
-                if prior or context is None:
-                    return
-                delivered, intent = context
-                # A flushed INTERRUPTED is the rejected take of a
-                # self-correction (DR-029): the same turn's retry is still
-                # coming, under its own utterance id, and its terminal is the
-                # reply's outcome. Any other INTERRUPTED, the retry's included,
-                # is a real cut.
+            entry = self._reply_ledger.get(event.turn_id)
+            if entry is not None:
                 if event.state == "INTERRUPTED" and event.flushed:
                     return
-                offset = min(event.heard_offset, len(delivered))
-                self._reply_contexts.pop(event.turn_id, None)
-                if event.state in {"COMPLETED", "FAILED"} and event.turn_id == getattr(
-                    self, "_reply_turn_id", None
-                ):
-                    self._reply_resolved = True
-                await self._emit_outcome_record(
-                    intent,
-                    status={
+                entry.started = True
+                entry.speaking = False
+                await self._resolve_reply(
+                    entry,
+                    {
                         "COMPLETED": "COMPLETED",
                         "INTERRUPTED": "TRUNCATED",
                         "FAILED": "FAILED",
                     }[event.state],
-                    actual_delivered_text=delivered,
-                    character_offset=offset,
+                    offset=event.heard_offset,
+                    reason=entry.cut_reason or event.state.lower(),
                     error=(
                         "playback transport failed" if event.state == "FAILED" else None
                     ),
                 )
+                return
+            # No ledger entry: the reply already resolved (its one outcome is
+            # recorded) or was never this brain's. Nothing to apply.
+            logger.debug(
+                "Ignoring playback %s for unknown or resolved turn %s.",
+                event.state,
+                event.turn_id,
+            )
         except Exception:
             logger.exception("Error consuming audio playback lifecycle event")
 
@@ -1269,7 +1537,9 @@ class BrainAgent(BaseAgent):
 
     async def _on_audio_stop(self, data: dict[str, Any]):
         """Handles confirmed audio stops: cancels in-flight generation for the
-        interrupted turn and truncates the last played utterance in history.
+        interrupted turn and cuts the addressed reply through the ledger
+        (`_handle_ledger_audio_stop`), which rewrites its history to what
+        was heard once the transport's terminal (or the wait) resolves it.
 
         audit/ROADMAP.md P1-4: this is now the single place that reacts to a
         confirmed interrupt -- previously a second, unscoped classifier here
@@ -1284,6 +1554,8 @@ class BrainAgent(BaseAgent):
         try:
             self.last_percept = percept.from_audio_stop(data)
             stop_msg = AudioStop.model_validate(data)
+            if not self._remember_audio_stop(stop_msg):
+                return
 
             # A flush stop silences the rejected take while its same-turn
             # self-correction continues generating (DR-029). The transport
@@ -1298,70 +1570,113 @@ class BrainAgent(BaseAgent):
             # happen on confirmed (non-speculative) interrupts -- a
             # speculative duck has not stopped anything yet.
             if not stop_msg.speculative:
-                # If this stop was emitted for a new incoming user speech turn to silence
-                # the voice agent, do NOT cancel the newly spawned generation task.
-                if stop_msg.reason == "confirmed_user_speech":
+                if self._is_brain_stop_reason(stop_msg.reason):
                     return
 
-                async with self._turn_state_lock:
-                    active_turn_id = getattr(self, "_active_response_turn_id", None)
-                    # Only Stage 2's confirmed voice command is addressed to
-                    # the superseded reply (ADR-003). Any other stop for that
-                    # turn -- e.g. a facial-startle stop published before the
-                    # user's new utterance took over -- is stale, as before.
-                    # Consumed on use so it cannot match twice.
-                    accepts_superseded = (
-                        stop_msg.reason == "confirmed_command"
-                        and stop_msg.turn_id is not None
-                        and stop_msg.turn_id
-                        == getattr(self, "_superseded_turn_id", None)
-                    )
-                    superseded_reply = None
-                    if accepts_superseded:
-                        self._superseded_turn_id = None
-                        superseded_reply = getattr(self, "_superseded_reply", None)
-                        self._superseded_reply = None
-                if (
-                    stop_msg.turn_id
-                    and active_turn_id
-                    and stop_msg.turn_id != active_turn_id
-                    and not accepts_superseded
-                ):
+                if not await self._handle_ledger_audio_stop(stop_msg):
+                    # No live reply is addressed: a stop for a superseded
+                    # reply that is not Stage 2's command, one for a turn
+                    # that never had a reply, or one with nothing active.
                     logger.debug(
-                        "Ignoring audio stop for stale turn %s; active turn is %s.",
+                        "Ignoring audio stop for turn %s (reason=%s); no live "
+                        "reply is addressed.",
                         stop_msg.turn_id,
-                        active_turn_id,
-                    )
-                    return
-                if accepts_superseded:
-                    # The superseded reply's generation already ended when
-                    # the new utterance started; the task running now is
-                    # that utterance's own turn, which Stage 2 stops itself.
-                    # Cancelling it would cut the "stop" turn off mid-persist.
-                    if superseded_reply is not None:
-                        await self._truncate_interrupted_reply(superseded_reply)
-                else:
-                    await self._cancel_active_generation(
-                        stop_msg.reason or "confirmed audio.stop"
-                    )
-                    await self._truncate_interrupted_reply()
-                # Bucket 11 (voice remediation Phase 3, item 2): this branch
-                # is reached only for a confirmed, non-speculative interrupt
-                # that actually cut off an in-progress turn -- not a
-                # same-turn "confirmed_user_speech" silence (returned above)
-                # and not a speculative duck (filtered above that). That is
-                # exactly the "genuine interruption" the adrenaline channel
-                # exists to feel different from a false one.
-                try:
-                    await self.cognitive_core.state.release_adrenaline(
-                        INTERRUPTION_ADRENALINE_SPIKE, reason="confirmed interruption"
-                    )
-                except Exception as e:
-                    logger.warning(
-                        "[Endocrine] Interruption adrenaline release failed: %s", e
+                        stop_msg.reason,
                     )
         except Exception as e:
             logger.error(f"Error handling audio stop truncation: {e}")
+
+    def _remember_audio_stop(self, stop_msg: AudioStop) -> bool:
+        key = (
+            stop_msg.utterance_id,
+            stop_msg.turn_id,
+            stop_msg.reason,
+            stop_msg.speculative,
+            stop_msg.flush,
+            stop_msg.interrupt,
+        )
+        seen = getattr(self, "_seen_audio_stops", None)
+        if seen is None:
+            return True
+        if key in seen:
+            return False
+        seen[key] = None
+        while len(seen) > 256:
+            seen.popitem(last=False)
+        return True
+
+    @staticmethod
+    def _is_brain_stop_reason(reason: str | None) -> bool:
+        return reason in {
+            "confirmed_user_speech",
+            "proactive_ceded",
+            "proactive_grace_expired",
+            "self_thought_interrupt",
+        }
+
+    async def _handle_ledger_audio_stop(self, stop_msg: AudioStop) -> bool:
+        active_id = getattr(self, "_active_response_turn_id", None)
+        # A confirmed stop that names no turn is addressed to the active one
+        # (ADR-003 for unscoped signals). Looked up under "" it missed the
+        # ledger and cut nothing.
+        target = stop_msg.turn_id or active_id
+        if stop_msg.turn_id is None:
+            # I10: bind an unscoped stop's target once, and hold it there
+            # for any later redelivery of the exact same message -- never
+            # to whichever turn happens to be active when it is re-seen.
+            sig = (
+                stop_msg.utterance_id,
+                stop_msg.reason,
+                stop_msg.speculative,
+                stop_msg.flush,
+                stop_msg.interrupt,
+            )
+            remembered = self._unscoped_stop_targets.get(sig)
+            if remembered is not None:
+                target = remembered
+            elif target is not None:
+                self._unscoped_stop_targets[sig] = target
+                while len(self._unscoped_stop_targets) > REPLY_RESOLUTIONS_MAX:
+                    self._unscoped_stop_targets.popitem(last=False)
+        if target is None:
+            return False
+        reply = getattr(self, "_reply_ledger", {}).get(target)
+        if reply is None:
+            # A reply the user's own speech already cut stays addressable:
+            # Stage 2's confirmed "stop" for it lands after that cut, whatever
+            # the history write is doing, and is the interruption felt. A
+            # reply that completed, or never played, was not interrupted.
+            done = getattr(self, "_resolved_replies", {}).get(target)
+            if done is not None and done.status == "TRUNCATED":
+                reply = done
+        addressed = target == active_id or stop_msg.reason == "confirmed_command"
+        if reply is None or not addressed:
+            return False
+        if target == active_id:
+            await self._cancel_active_generation(
+                stop_msg.reason or "confirmed audio.stop"
+            )
+        # Idempotent: a reply already cut or resolved is left as it is.
+        await self._cut_reply(
+            reply, stop_msg.reason or "confirmed audio.stop", publish=False
+        )
+        # One interruption is felt once. A second stop for the same reply
+        # (a startle and a voice command, or one landing after the cut
+        # resolved it) is not a second interruption. The user's own speech cuts
+        # through the brain's stop and never gets here, so a voice command
+        # after it is the first one felt.
+        if reply.interruption_felt:
+            return True
+        reply.interruption_felt = True
+        try:
+            await self.cognitive_core.state.release_adrenaline(
+                INTERRUPTION_ADRENALINE_SPIKE, reason="confirmed interruption"
+            )
+        except Exception as exc:
+            logger.warning(
+                "[Endocrine] Interruption adrenaline release failed: %s", exc
+            )
+        return True
 
     async def _on_user_voice_properties(self, data: dict[str, Any]):
         """Ingest real-time user voice properties (System 1 feature stream)."""
@@ -1427,7 +1742,7 @@ class BrainAgent(BaseAgent):
         """Publish the turn's terminal chat.output chunk, if there's
         anything worth sending (a proactive turn with nothing generated
         stays silent rather than publishing an empty message)."""
-        if not (full_response.strip() or not is_proactive):
+        if not (full_response.strip() or not is_proactive) or self._generation_fenced():
             return
         state_snap = self.cognitive_core.state.get_context_snapshot()
         output_msg = self.coordinator.create_chunk_payload(
@@ -1448,53 +1763,47 @@ class BrainAgent(BaseAgent):
             (incoming_metadata or {}).get("category")
         )
         output_msg.latency_metadata = incoming_latency_metadata
-        if not is_proactive:
-            # Context is synchronous process state. Keep it visible before
-            # publishing the done marker without inserting a lock wait between
-            # generation completion and the row-id write in _finish_reply.
-            self._remember_reply_context(turn_id, full_response)
+        # The reply's text is on its entry before the done marker goes out,
+        # so a transport terminal that beats `_finish_reply` still resolves
+        # it against the whole text. Synchronous: no lock wait between the
+        # end of generation and the row-id write in `_finish_reply`.
+        entry = self._reply_ledger.get(turn_id)
+        if entry is not None and not entry.resolved:
+            entry.text = full_response
         await self.publish(Topics.CHAT_OUTPUT, output_msg.model_dump())
 
     async def _publish_stream_error_fallback(
         self,
         error: Exception,
         *,
+        full_response: str,
         turn_id: str,
         incoming_metadata: dict[str, Any] | None,
         incoming_latency_metadata: dict[str, Any] | None,
     ) -> None:
-        """Recovery path for `_stream_to_speech`'s outer exception handler,
-        for a non-proactive turn only (the caller checks `is_proactive`).
+        """The done marker for `_stream_to_speech`'s exception handler, for
+        a non-proactive turn only (the caller checks `is_proactive`).
 
-        P4-2: deliberately untracked (no character_offset/word_index) --
-        unlike the empty-generation fallback, the caller's `full_response`
-        is NOT reassigned to `fallback_text` here, and it will set
-        `last_assistant_response` to whatever partial `full_response`
-        `_stream_to_speech` returns, not to `fallback_text`. Stamping this
-        chunk's audio against `fallback_text` would produce an offset that
-        indexes into a string `last_assistant_response` never actually holds
-        -- a pre-existing gap (that mismatch exists whether or not this
-        chunk carries progress metadata), not one to paper over with a
-        fabricated-looking offset.
+        `full_response` is what reached the voice: the chunks published
+        before the error, then the fallback, which the caller has already
+        published tracked against this same text. It goes on the reply's
+        ledger entry before the done marker, as `_publish_final_chunk_payload`
+        does, so a terminal resolves the reply against what was spoken.
         """
-        fallback_text = "I'm having trouble thinking right now..."
-        await self._publish_speech_chunk(
-            fallback_text.split(),
-            turn_id,
-            incoming_metadata=incoming_metadata,
-            incoming_latency_metadata=incoming_latency_metadata,
-        )
+        if self._generation_fenced():
+            return
         output_msg = self.coordinator.create_chunk_payload(
             done=True,
-            full_response=fallback_text,
+            full_response=full_response,
             turn_id=turn_id,
             generation_error=str(error),
             user_distance=self.last_user_distance,
         )
         output_msg.metadata = incoming_metadata
         output_msg.latency_metadata = incoming_latency_metadata
-        async with self._turn_state_lock:
-            self._remember_reply_context(turn_id, fallback_text)
+        entry = self._reply_ledger.get(turn_id)
+        if entry is not None and not entry.resolved:
+            entry.text = full_response
         await self.publish(Topics.CHAT_OUTPUT, output_msg.model_dump())
 
     async def _stream_to_speech(
@@ -1561,7 +1870,9 @@ class BrainAgent(BaseAgent):
                 # more than the microscopic saving from skipping it.
                 async with self._turn_state_lock:
                     self.last_assistant_response = full_response
-                    self._remember_reply_context(turn_id, full_response)
+                    entry = self._reply_ledger.get(turn_id)
+                    if entry is not None:
+                        entry.text = full_response
 
             # Reviewer finding: this glue step used to run *after* the
             # timer-flush check below. If formation_buffer_s had already
@@ -1647,13 +1958,15 @@ class BrainAgent(BaseAgent):
                     # Phase 1 causal slice (§22, §38): Stage 6 committed this
                     # before any of the content above was generated. Bound
                     # here, before playback/interruption events can race it,
-                    # so _on_audio_playback_progress/_truncate_interrupted_reply/
-                    # _cancel_active_generation always have the right intent
-                    # to attribute their OutcomeRecord to.
+                    # so the reply's ledger entry always has the right
+                    # intent to attribute its OutcomeRecord to.
                     try:
                         intent = ActionIntent.model_validate(output["data"])
                         async with self._turn_state_lock:
                             self._active_action_intent = intent
+                            entry = self._reply_ledger.get(turn_id)
+                            if entry is not None:
+                                entry.intent = intent
                     except Exception:
                         logger.warning(
                             "[Brain] Malformed action_intent chunk on turn_id=%s",
@@ -1687,8 +2000,18 @@ class BrainAgent(BaseAgent):
         except Exception as e:
             logger.error("Cognitive Loop error on turn_id=%s: %s", turn_id, e)
             if not is_proactive:
+                # The reply is what reached the voice: the words already
+                # published, then the fallback. Unpublished words are
+                # dropped. Tracked like any chunk, so the ledger, the history
+                # row and the transport's offsets all index this one text.
+                spoken = full_response[
+                    : _char_offset_after_word(full_response, published_word_count)
+                ].rstrip()
+                full_response = f"{spoken} {fallback_text}" if spoken else fallback_text
+                await _publish_tracked(fallback_text.split(), full_response)
                 await self._publish_stream_error_fallback(
                     e,
+                    full_response=full_response,
                     turn_id=turn_id,
                     incoming_metadata=incoming_metadata,
                     incoming_latency_metadata=incoming_latency_metadata,
@@ -1711,8 +2034,14 @@ class BrainAgent(BaseAgent):
         Implements the Brain→Voice contract from psychological_layer.md §5.3.
         """
         text = " ".join(words).strip()
-        if not text:
+        if not text or self._generation_fenced():
             return
+        entry = self._reply_ledger.get(turn_id) if turn_id else None
+        # Started before the publish, not after: a stop that lands while the
+        # chunk is on its way must cut it, not resolve an unstarted reply.
+        was_started = entry.started if entry is not None else True
+        if entry is not None:
+            entry.started = True
 
         # Built by the coordinator, which is where every other chunk on this
         # subject is built. This method used to re-derive the affect vector
@@ -1740,9 +2069,9 @@ class BrainAgent(BaseAgent):
         # transport_agent relays them as `audio.playback.progress` once that
         # PCM has actually reached the LiveKit audio source -- the closest
         # observable "reached the speaker" point in this architecture.
-        # Deliberately omitted (None) for the one caller that cannot make
-        # them meaningful (see _stream_to_speech's exception-handler
-        # fallback) -- absent metadata is honest; a fabricated offset is not.
+        # Every chunk `_stream_to_speech` publishes is tracked, the
+        # exception-handler fallback included (W5); a caller without an
+        # offset gets none rather than a fabricated one.
         if character_offset is not None and word_index is not None:
             metadata = dict(incoming_metadata) if incoming_metadata else {}
             metadata["character_offset"] = character_offset
@@ -1751,7 +2080,20 @@ class BrainAgent(BaseAgent):
         else:
             payload.metadata = incoming_metadata
         payload.latency_metadata = incoming_latency_metadata
-        await self.publish(Topics.CHAT_OUTPUT, payload.model_dump())
+        try:
+            await self.publish(Topics.CHAT_OUTPUT, payload.model_dump())
+        except Exception:
+            # Nothing reached the voice. Unless an earlier chunk did, or the
+            # transport has reported playing it, the reply is still
+            # unstarted, so the flow's end resolves it (`_end_generation`).
+            if (
+                entry is not None
+                and not was_started
+                and entry.progress is None
+                and not entry.speaking
+            ):
+                entry.started = False
+            raise
 
     async def stop(self):
         """P3-4: brain_agent owns the most resources of any agent in the

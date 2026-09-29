@@ -168,6 +168,8 @@ class AppSettings(BaseSettings):
     # file (see H2 / issue #113). Containers should point this at a mounted
     # volume, e.g. `/app/data`.
     IDENTITY_BASE_PATH: str | None = None
+    TEMPORAL_MEMORY_DB_PATH: str | None = None
+    TEMPORAL_MEMORY_SUBJECT: str | None = None
     # Whether a fresh write location with no existing personality.json/
     # history.json gets seeded from the shipped `PERSONALITY_SEED_PATH`/
     # `HISTORY_SEED_PATH` (or package-directory defaults) on first use. True in
@@ -215,6 +217,9 @@ class AppSettings(BaseSettings):
         default=True,
         validation_alias=AliasChoices("MEMORY_TRUTH_ENABLED", "PHASE_02_MEMORY_TRUTH"),
     )
+    # Temporal fact projection remains opt-in until its retrieval behavior has
+    # passed the BrainBench memory acceptance arm on the deployment model.
+    MEMORY_TEMPORAL_TRUTH_ENABLED: bool = False
 
     # Global-control scoring and emotion-regulation candidates. Canonical names
     # win when both spellings occur within the same settings source.
@@ -224,6 +229,17 @@ class AppSettings(BaseSettings):
             "AFFECT_CONTROL_ENABLED", "PHASE_03_AFFECT_CONTROL"
         ),
     )
+    # W2 user-word-to-affect path. It stays off until a candidate clears the
+    # pre-registered ADR-002 estimator gate for both held-in evaluation sets.
+    AFFECT_USER_INPUT_ENABLED: bool = False
+    AFFECT_VALENCE_ESTIMATOR: str = (
+        "ensemble:vader,j-hartmann/emotion-english-distilroberta-base,"
+        "SamLowe/roberta-base-go_emotions"
+    )
+    # Maximum end-to-end wait for one interactive user-text estimate. This
+    # leaves most of DR-024's 300-500 ms first-audio budget to appraisal and
+    # response generation; expiry falls back to prior mood for this turn.
+    AFFECT_VALENCE_ESTIMATOR_TIMEOUT_S: float = Field(default=0.15, gt=0)
 
     # Authoritative workspace instance: production turns supply an authoritative workspace instance
     # to ActionIntent rather than falling back to (0, 0) -- see
@@ -304,6 +320,11 @@ class AppSettings(BaseSettings):
     PROACTIVE_ACTIVITY_HISTORY_MINIMUM: int = 8
     PROACTIVE_USEFUL_IMPORTANCE_MIN: float = 0.45
     PROACTIVE_SELF_DIRECTED_IMPORTANCE_MIN: float = 0.75
+    PROACTIVE_GRACE_MIN_IMPORTANCE: float = 0.75
+    PROACTIVE_GRACE_WINDOW_S: float = 0.6
+    SELF_THOUGHT_INTERRUPT_MIN_IMPORTANCE: float = 0.9
+    USER_MID_UTTERANCE_TIMEOUT_S: float = 1.2
+    REPLY_TERMINAL_WAIT_S: float = 2.0
     # Three ignored raises drive resurfacing probability to exactly zero;
     # each is reviewed after a day, avoiding a fast tick-driven penalty.
     PROACTIVE_IGNORE_ZERO_AFTER: int = 3
@@ -315,6 +336,16 @@ class AppSettings(BaseSettings):
     PSYCH_DELTA: float = 0.1
     PSYCH_EPSILON: float = 0.03
     PSYCH_LAMBDA_DECAY: float = 0.05
+
+    # Trust's pull back toward `trust_baseline` (agent_state.py, the input
+    # `relationship_sentiment` derives from). DR-010 places relationship
+    # sentiment on a weeks-to-months timescale, far slower than mood's
+    # hours-to-days PSYCH_LAMBDA_DECAY above. ln(2)/672 gives a 4-week
+    # half-life -- provisional, pending W3's own trust/relationship-sentiment
+    # design (DR-015); this round only fixes the drift being tick-count-
+    # scaled instead of elapsed-time-scaled (W2 critic round 2, finding 3),
+    # not the final rate.
+    TRUST_BASELINE_DRIFT_LAMBDA_PER_HOUR: float = 0.001031
 
     ACTR_DECAY_RATE: float = 0.5
     ACTR_SPREAD_WEIGHT: float = 1.0

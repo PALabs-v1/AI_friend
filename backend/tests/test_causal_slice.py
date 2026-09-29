@@ -13,19 +13,21 @@ structural stand-in (`_FakeWorkspaceSnapshot`) satisfying
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from app.agents.brain_agent import BrainAgent
+from app.agents.brain_agent import BrainAgent, _ReplyLedgerEntry
 from app.cognitive import percept
 from app.cognitive.action_intent import ActionIntent, OutcomeRecord
 from app.cognitive.appraisal import AppraisalVector
 from app.cognitive.behavior_contracts import BehaviorDecision, CommunicativeIntent
 from app.cognitive.decision import ActionPlan
 from app.cognitive.pipeline import CognitivePipeline
+from app.contracts import AudioPlaybackProgress, ChatInput
 
 # --- PerceptEnvelope normalization (AC-04) --------------------------------
 
@@ -606,8 +608,55 @@ def _seed_active_intent(agent: BrainAgent, turn_id: str = "turn-1") -> ActionInt
     return intent
 
 
+def _seed_reply(agent, intent, text, progress=None):
+    """The reply as the turn flow leaves it once its chunks are published:
+    the active turn's ledger entry (ADR-W5 §3)."""
+    entry = _ReplyLedgerEntry(
+        turn_id=intent.turn_id,
+        source="user",
+        text=text,
+        intent=intent,
+        progress=progress,
+        started=True,
+        speaking=progress is not None,
+    )
+    agent._reply_ledger[intent.turn_id] = entry
+    return entry
+
+
+async def _start_parked_flow(agent, turn_id="turn-1", *, started=False):
+    """Run the real `_process_chat_input_flow` wrapper with a turn body that
+    commits its intent (and, if `started`, publishes its first chunk) and
+    then blocks, as a generation still streaming does."""
+    parked = asyncio.Event()
+    intent = ActionIntent(
+        intent_id="intent-1",
+        turn_id=turn_id,
+        workspace_epoch=1,
+        workspace_revision=1,
+        kind="SPEAK",
+        behavior_decision={"goal": "ENGAGE"},
+    )
+
+    async def run_turn(_chat_input, _is_subconscious, _message, **kwargs):
+        entry = agent._reply_ledger[kwargs["turn_id"]]
+        agent._active_action_intent = entry.intent = intent
+        entry.started = started
+        parked.set()
+        await asyncio.Event().wait()
+
+    agent._run_turn = run_turn
+    msg = ChatInput(text="hello", turn_id=turn_id, utterance_id=turn_id)
+    task = asyncio.create_task(
+        agent._process_chat_input_flow(msg, False, msg.model_dump())
+    )
+    agent._active_generation_task = task
+    await parked.wait()
+    return intent, task
+
+
 async def _emit_completed_lifecycle(agent, intent, text, offset, words):
-    agent._reply_contexts[intent.turn_id] = (text, intent)
+    _seed_reply(agent, intent, text)
     for seq, state in enumerate(("STARTED", "COMPLETED")):
         await agent._on_audio_playback_lifecycle(
             {
@@ -659,15 +708,25 @@ async def test_turn_interruption_emits_truncated_outcome(
     agent = _make_agent(mock_graph_db, mock_memory_store)
     intent = _seed_active_intent(agent)
     full_text = "I was about to say something long but got cut off here."
-    agent.last_assistant_response = full_text
+    progress = AudioPlaybackProgress(
+        utterance_id=intent.turn_id, character_offset=20, word_index=4, completed=False
+    )
+    agent.last_audio_progress = progress
+    entry = _seed_reply(agent, intent, full_text, progress)
 
-    class _Progress:
-        completed = False
-        character_offset = 20
-
-    agent.last_audio_progress = _Progress()
-
-    await agent._truncate_interrupted_reply()
+    await agent._cut_reply(entry, "confirmed_command", publish=False)
+    await agent._on_audio_playback_lifecycle(
+        {
+            "utterance_id": intent.turn_id,
+            "turn_id": intent.turn_id,
+            "seq": 0,
+            "state": "INTERRUPTED",
+            "words_played": 4,
+            "words_streamed": 11,
+            "heard_offset": 20,
+            "streamed_offset": len(full_text),
+        }
+    )
 
     record = agent._last_outcome_record
     assert record is not None
@@ -675,8 +734,8 @@ async def test_turn_interruption_emits_truncated_outcome(
     assert record.status == "TRUNCATED"
     assert record.character_offset == 20
     assert record.actual_delivered_text == full_text[:20].strip()
-    # The progress marker must be cleared regardless of outcome so a later
-    # interrupt cannot truncate against a stale offset.
+    # The progress marker is cleared with the reply it belongs to, so a
+    # later interrupt cannot truncate against a stale offset.
     assert agent.last_audio_progress is None
 
 
@@ -688,15 +747,7 @@ async def test_cancelled_generation_emits_cancelled_outcome(
     truncate) must still produce a terminal OutcomeRecord, distinct from
     TRUNCATED, so a turn that never spoke is not left without any record."""
     agent = _make_agent(mock_graph_db, mock_memory_store)
-    intent = _seed_active_intent(agent)
-    agent.last_assistant_response = None  # nothing was ever generated
-
-    import asyncio
-
-    async def never_finishes():
-        await asyncio.Event().wait()
-
-    agent._active_generation_task = asyncio.create_task(never_finishes())
+    intent, _ = await _start_parked_flow(agent)
 
     await agent._cancel_active_generation("confirmed_user_speech")
 
@@ -705,34 +756,28 @@ async def test_cancelled_generation_emits_cancelled_outcome(
     assert record.intent_id == intent.intent_id
     assert record.status == "CANCELLED"
     assert record.error == "confirmed_user_speech"
-    assert record.actual_delivered_text is None
+    assert record.actual_delivered_text == ""
+    assert "turn-1" not in agent._reply_ledger
 
 
 @pytest.mark.asyncio
-async def test_cancel_active_generation_defers_to_truncation_when_text_exists(
+async def test_cancel_active_generation_leaves_a_started_reply_to_its_cut(
     mock_graph_db, mock_memory_store
 ):
-    """A cancellation that lands *after* content has already streamed must
-    not also emit a CANCELLED record -- `_truncate_interrupted_reply` (called
-    immediately after by the only production caller, `_on_audio_stop`) owns
-    the terminal record for that case, so a turn gets exactly one, not two
-    disagreeing outcomes."""
+    """A cancellation that lands *after* the reply's first chunk must not
+    emit a CANCELLED record: the reply is playing, and its cut (resolved by
+    the transport's INTERRUPTED or the terminal wait) owns its one outcome,
+    so a turn gets exactly one, not two disagreeing ones."""
     agent = _make_agent(mock_graph_db, mock_memory_store)
-    _seed_active_intent(agent)
-    agent.last_assistant_response = "partial reply already streamed"
-
-    import asyncio
-
-    async def never_finishes():
-        await asyncio.Event().wait()
-
-    agent._active_generation_task = asyncio.create_task(never_finishes())
+    await _start_parked_flow(agent, started=True)
 
     await agent._cancel_active_generation("confirmed_command")
 
     assert agent._last_outcome_record is None
+    assert "turn-1" in agent._reply_ledger
 
 
+@pytest.mark.asyncio
 @pytest.mark.asyncio
 async def test_outcome_record_with_no_active_intent_is_skipped(
     mock_graph_db, mock_memory_store
@@ -848,6 +893,7 @@ async def test_chat_input_flow_passes_last_percept_into_process_event(
     await agent._on_chat_input(
         {"text": "hello", "turn_id": "turn-9", "utterance_id": "utt-9"}
     )
+    await agent._active_generation_task
 
     assert received["percept"] is not None
     # Bound to the same object _on_chat_input stamped onto last_percept --
@@ -937,13 +983,14 @@ async def test_outcome_history_initializes_lazily_without_init():
 
 
 @pytest.mark.asyncio
-async def test_completed_outcome_uses_the_reported_offset_when_smaller_than_full_text(
+async def test_completed_outcome_records_the_whole_reply_whatever_offset_it_reports(
     mock_graph_db, mock_memory_store
 ):
-    """FIX-CLD-04: a COMPLETED frame's own `character_offset` must be
-    trusted rather than assumed to always equal the full response length --
-    that assumption would fabricate a delivered-length claim playback never
-    actually reported."""
+    """ADR-W5 §3 supersedes FIX-CLD-04 here: COMPLETED is the transport
+    reporting it played out everything it was given, so the whole reply was
+    heard and the record says so. Chunk offsets are stamped into the true
+    text (`_char_offset_after_word`), so a smaller COMPLETED offset can only
+    be trailing whitespace; it is not a partial delivery."""
     agent = _make_agent(mock_graph_db, mock_memory_store)
     intent = _seed_active_intent(agent)
     full_text = "This response is longer than what was actually reported delivered."
@@ -952,7 +999,8 @@ async def test_completed_outcome_uses_the_reported_offset_when_smaller_than_full
     await _emit_completed_lifecycle(agent, intent, full_text, 10, 2)
 
     record = agent._last_outcome_record
-    assert record.character_offset == 10
+    assert record.status == "COMPLETED"
+    assert record.character_offset == len(full_text)
     assert record.actual_delivered_text == full_text
 
 
@@ -987,20 +1035,13 @@ async def test_replace_active_generation_emits_cancelled_outcome_for_preempted_t
     `_replace_active_generation` is the *other* production path that cancels
     an in-flight generation, and must do the same."""
     agent = _make_agent(mock_graph_db, mock_memory_store)
-    intent = _seed_active_intent(agent, turn_id="turn-old")
-
-    import asyncio
-
-    async def never_finishes():
-        await asyncio.Event().wait()
-
-    agent._active_generation_task = asyncio.create_task(never_finishes())
+    intent, _ = await _start_parked_flow(agent, turn_id="turn-old")
 
     async def new_turn_coro():
         return "new turn ran"
 
     new_task = await agent._replace_active_generation(
-        new_turn_coro(), "new incoming speech turn"
+        new_turn_coro, "new incoming speech turn"
     )
     await new_task
 
@@ -1009,6 +1050,7 @@ async def test_replace_active_generation_emits_cancelled_outcome_for_preempted_t
     assert record.intent_id == intent.intent_id
     assert record.status == "CANCELLED"
     assert record.error == "new incoming speech turn"
+    assert [r.reason for r in agent.reply_resolutions] == ["new incoming speech turn"]
 
 
 @pytest.mark.asyncio
@@ -1025,7 +1067,7 @@ async def test_replace_active_generation_emits_no_outcome_when_nothing_was_runni
     async def new_turn_coro():
         return "ran"
 
-    new_task = await agent._replace_active_generation(new_turn_coro(), "first turn")
+    new_task = await agent._replace_active_generation(new_turn_coro, "first turn")
     await new_task
 
     assert agent._last_outcome_record is None

@@ -184,6 +184,7 @@ def test_all_selects_only_suites_legal_in_mode():
     )
     assert {cell.suite for cell in plan} == {
         "attention",
+        "affect",
         "trust",
         "proactive",
         "bargein",

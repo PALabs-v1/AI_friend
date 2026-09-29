@@ -168,7 +168,7 @@ GATE_METRICS: tuple[GateMetric, ...] = (
             "lower",
             f"barge-in lifecycle invariant `{invariant}` (ADR-003)",
         )
-        for invariant in bargein_suite._CLAIMED
+        for invariant in bargein_suite.V2_INVARIANTS
     ),
     GateMetric(
         "bargein.zero_terminal_reply_rate",
@@ -364,14 +364,18 @@ async def _bargein() -> dict[str, float | None]:
                 seed,
                 archetype,
                 HORIZON,
+                families=bargein_suite.V2_FAMILIES,
                 n_scenarios_per_family=BARGEIN_SCENARIOS_PER_FAMILY,
             )
         )
+    # V2 has recorded bands only for the original family set. W5's three new
+    # scenario families and I6-I8 remain visible in suite reports, but cannot
+    # be compared to a historical baseline that never measured them.
     result: dict[str, float | None] = {
         f"bargein.{invariant}_violation_rate": _mean(
             _values(pooled, f"{invariant}_violation")
         )
-        for invariant in bargein_suite._CLAIMED
+        for invariant in bargein_suite.V2_INVARIANTS
     }
     replies = sum(_values(pooled, "terminal_outcome_replies_eligible"))
     zero = sum(_values(pooled, "replies_with_zero_terminal_outcomes"))

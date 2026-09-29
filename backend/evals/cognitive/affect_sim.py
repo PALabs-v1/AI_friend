@@ -33,7 +33,9 @@ import asyncio
 import math
 import statistics
 import tempfile
+import time
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 
 MESSAGES: dict[str, tuple[tuple[str, float], ...]] = {
@@ -68,7 +70,7 @@ MESSAGES: dict[str, tuple[tuple[str, float], ...]] = {
     ),
 }
 
-APPRAISAL_SOURCES = ("agent_mood", "oracle", "vader")
+APPRAISAL_SOURCES = ("agent_mood", "oracle", "vader", "vader_w2")
 
 
 def script(name: str, turns: int = 60, seed: int = 0) -> list[tuple[str, float]]:
@@ -124,6 +126,7 @@ class Trace:
     w1: list[float] = field(default_factory=list)
     w2: list[float] = field(default_factory=list)
     mood_after_idle_24h: float | None = None
+    mood_after_single_neutral: float | None = None
     baseline_valence: float = 0.0
 
     def metrics(self) -> dict:
@@ -152,6 +155,20 @@ class Trace:
             "distance_to_baseline_after_idle": None
             if self.mood_after_idle_24h is None
             else round(abs(self.mood_after_idle_24h - self.baseline_valence), 4),
+            "one_conversation_long_term_effect": None
+            if self.mood_after_idle_24h is None
+            else round(self.mood_after_idle_24h - self.baseline_valence, 4),
+            "mood_after_single_neutral": None
+            if self.mood_after_single_neutral is None
+            else round(self.mood_after_single_neutral, 4),
+            "single_neutral_preserved_mood": None
+            if self.mood_after_single_neutral is None or not self.mood
+            else abs(self.mood_after_single_neutral - self.baseline_valence)
+            >= 0.5 * abs(self.mood[-1] - self.baseline_valence),
+            "recovered_toward_baseline": None
+            if self.mood_after_idle_24h is None
+            else abs(self.mood_after_idle_24h - self.baseline_valence)
+            < abs(self.mood[-1] - self.baseline_valence),
         }
 
 
@@ -179,6 +196,16 @@ def _vader():
     return SentimentIntensityAnalyzer()
 
 
+def _input_valence(source, text, label, snapshot, vader, valence_map):
+    if source == "agent_mood":
+        return snapshot.get("mood", 0.0)
+    if source == "oracle":
+        return label
+    if source == "precomputed":
+        return float((valence_map or {})[text])
+    return vader.polarity_scores(text)["compound"]
+
+
 async def simulate(
     script_name: str,
     source: str = "agent_mood",
@@ -199,8 +226,8 @@ async def simulate(
     from app.cognitive.reappraisal import ReappraisalEngine
     from app.state.agent_state import StateService
 
-    vader = _vader() if source == "vader" else None
-    if source == "vader" and vader is None:
+    vader = _vader() if source in {"vader", "vader_w2"} else None
+    if source in {"vader", "vader_w2"} and vader is None:
         raise RuntimeError("vaderSentiment not installed")
 
     with tempfile.TemporaryDirectory() as tmp:
@@ -212,6 +239,8 @@ async def simulate(
             return None
 
         state.persist_state = _no_persist  # type: ignore[method-assign]
+        simulated_epoch = time.time()
+        state.current_state.last_update = datetime.fromtimestamp(simulated_epoch)
         if initial_mood is not None:
             state.current_state.mood = initial_mood
         appraisal = AppraisalEngine()
@@ -232,14 +261,7 @@ async def simulate(
         next_tick = 60.0
         for text, label in script(script_name, turns, seed):
             snapshot = state.get_context_snapshot()
-            if source == "agent_mood":
-                bias = snapshot.get("mood", 0.0)
-            elif source == "oracle":
-                bias = label
-            elif source == "precomputed":
-                bias = float((valence_map or {})[text])
-            else:
-                bias = vader.polarity_scores(text)["compound"]
+            bias = _input_valence(source, text, label, snapshot, vader, valence_map)
             vector = appraisal.appraise(
                 event_content=text,
                 event_type="USER_MESSAGE",
@@ -248,6 +270,9 @@ async def simulate(
                 identity_boundaries=[],
                 user_voice_properties=None,
             )
+            if source == "vader_w2":
+                vector.user_valence = bias
+                vector.significant_event = abs(bias) >= 0.8
             reappraisal._last_evaluation_time = 0.0
             await reappraisal.evaluate_outcome(
                 actual_text_valence=vector.goal_congruence
@@ -268,10 +293,37 @@ async def simulate(
             trace.w2.append(reappraisal.appraisal_weights["w2_ri_to_v"])
             elapsed += turn_gap_s
             while elapsed >= next_tick:
-                await state.handle_system_tick({"interval": 60})
+                await state.handle_system_tick(
+                    {"timestamp": simulated_epoch + next_tick, "interval": 60}
+                )
                 next_tick += 60.0
-        for _ in range(int(idle_hours_after * 60)):
-            await state.handle_system_tick({"interval": 60})
+        if script_name == "hostile":
+            text, label = MESSAGES["neutral"][0]
+            snapshot = state.get_context_snapshot()
+            bias = _input_valence(source, text, label, snapshot, vader, valence_map)
+            vector = appraisal.appraise(
+                event_content=text,
+                event_type="USER_MESSAGE",
+                emotional_bias=bias,
+                state_snapshot=snapshot,
+                identity_boundaries=[],
+                user_voice_properties=None,
+            )
+            if source == "vader_w2":
+                vector.user_valence = bias
+                vector.significant_event = abs(bias) >= 0.8
+            reappraisal._last_evaluation_time = 0.0
+            await reappraisal.evaluate_outcome(
+                actual_text_valence=vector.goal_congruence
+            )
+            await state.update_from_appraisal(vector, weights=reappraisal.get_weights())
+            trace.mood_after_single_neutral = state.current_state.mood
+        await state.handle_system_tick(
+            {
+                "timestamp": simulated_epoch + elapsed + idle_hours_after * 3600,
+                "interval": 60,
+            }
+        )
         trace.mood_after_idle_24h = state.current_state.mood
         return trace
 

@@ -51,11 +51,17 @@ from .scenarios import Probe, Scenario
 
 _WORD3 = re.compile(r"\b\w{3,}\b")
 _WORD = re.compile(r"\b\w+\b")
+_E8_CHANGE_CUE = re.compile(
+    r"\b(?:quit|switched|moved|changed|no longer|not anymore|now|last month)\b",
+    re.IGNORECASE,
+)
+_E8_NEGATION = re.compile(r"\b(?:no|not|never|without|quit|stopped)\b", re.IGNORECASE)
 
 
 @dataclass
 class MemoryRow:
     key: str
+    slot: str
     content: str
     vec: np.ndarray
     importance: float
@@ -100,6 +106,7 @@ def build_state(scenario: Scenario, embedder) -> list[MemoryRow]:
         if row is None:
             rows[event.text] = MemoryRow(
                 key=event.key,
+                slot=event.facet,
                 content=event.text,
                 vec=np.asarray(embedder.embed(event.text)),
                 importance=event.importance,
@@ -229,6 +236,46 @@ def with_validity_oracle(generator: CandidateGenerator) -> CandidateGenerator:
             if not (r.key in revised_at and revised_at[r.key] <= ctx.now_h)
         ]
         return generator(alive, ctx)
+
+    return gen
+
+
+def e8_superseded_keys(state: list[MemoryRow], threshold: float = 0.72) -> set[str]:
+    """Apply the frozen E8-style cosine-plus-polarity write detector.
+
+    It uses stored slot keys, text, and vectors. A temporal cue locates a
+    candidate update; same-slot cosine plus polarity/negation or explicit
+    change language must support closure.
+    """
+    ordered = sorted(state, key=lambda row: (row.created_h, row.order))
+    superseded: set[str] = set()
+    for index, incoming in enumerate(ordered):
+        if not _E8_CHANGE_CUE.search(incoming.content):
+            continue
+        candidates = [
+            row
+            for row in ordered[:index]
+            if row.key not in superseded and row.slot == incoming.slot
+        ]
+        candidates.sort(key=lambda row: float(incoming.vec @ row.vec), reverse=True)
+        if candidates and float(incoming.vec @ candidates[0].vec) >= threshold:
+            polarity_changed = bool(_E8_NEGATION.search(candidates[0].content)) != bool(
+                _E8_NEGATION.search(incoming.content)
+            )
+            if polarity_changed or _E8_CHANGE_CUE.search(incoming.content):
+                superseded.add(candidates[0].key)
+    return superseded
+
+
+def with_e8_temporal_detector(generator: CandidateGenerator) -> CandidateGenerator:
+    """Exclude rows the deterministic E8-style detector marks superseded."""
+
+    def gen(state, ctx):
+        superseded = e8_superseded_keys(state)
+        return generator(
+            [row for row in state if row.key not in superseded],
+            ctx,
+        )
 
     return gen
 

@@ -26,10 +26,13 @@ from .lab import (
     RRFPolicy,
     V1Policy,
     all_rows,
+    build_state,
+    e8_superseded_keys,
     pg_actr_topn,
     run_lab,
     sqlite_recency,
     vector_topn,
+    with_e8_temporal_detector,
     with_validity_oracle,
 )
 from .metrics import ProbeResult, aggregate, paired_delta
@@ -56,6 +59,7 @@ GENERATORS = {
     "all": all_rows,
     # Upper bound: a perfect write-time supersession detector (see lab.py).
     "vec60+validity": with_validity_oracle(lambda s, c: vector_topn(s, c, 60)),
+    "vec60+e8": with_e8_temporal_detector(lambda s, c: vector_topn(s, c, 60)),
 }
 
 
@@ -168,6 +172,47 @@ def _jsonable(obj):
     return str(obj)
 
 
+def detector_false_closure_metrics(profiles, regimes, seeds) -> dict:
+    """Measure false and true closures without using scenario labels to detect."""
+    false_closed = still_true = true_closed = obsolete = 0
+    for profile in profiles:
+        for regime in regimes:
+            base, _, distress = regime.partition("+distress")
+            for seed in seeds:
+                scenario = build_history(
+                    seed, regime=base, distress_share=float(distress or 0.0)
+                )
+                embedder = LatentTopicEmbedder(profile, seed=seed)
+                register_embeddings(scenario, embedder)
+                rows = build_state(scenario, embedder)
+                closed = e8_superseded_keys(rows)
+                known_obsolete = {
+                    key for probe in scenario.probes for key in probe.obsolete
+                }
+                stable = {
+                    row.key
+                    for row in rows
+                    if row.key.startswith("fact:")
+                    and not row.key.endswith(":v2")
+                    and row.key not in known_obsolete
+                }
+                false_closed += len(closed & stable)
+                still_true += len(stable)
+                true_closed += len(closed & known_obsolete)
+                obsolete += len(known_obsolete)
+    return {
+        "arm": "deterministic_cosine_polarity",
+        "false_closure_rate": round(false_closed / still_true, 6)
+        if still_true
+        else 0.0,
+        "false_closed": false_closed,
+        "still_true": still_true,
+        "true_closure_recall": round(true_closed / obsolete, 6) if obsolete else 0.0,
+        "true_closed": true_closed,
+        "obsolete": obsolete,
+    }
+
+
 # ---------------------------------------------------------------------------
 # Named experiments
 # ---------------------------------------------------------------------------
@@ -244,6 +289,14 @@ def experiment_definitions(
                 (chosen_hybrid + "/pool", "vec60+validity"),
                 ("v1", "vec60"),
                 ("v1", "vec60+validity"),
+            ],
+            "baseline": chosen_hybrid + "/pool@vec60",
+        },
+        "E8_temporal_detector": {
+            "question": "Does deterministic cosine plus polarity gating improve temporal retrieval?",
+            "arms": [
+                (chosen_hybrid + "/pool", "vec60"),
+                (chosen_hybrid + "/pool", "vec60+e8"),
             ],
             "baseline": chosen_hybrid + "/pool@vec60",
         },

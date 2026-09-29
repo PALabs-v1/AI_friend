@@ -2,7 +2,7 @@
 Surfacing Agent — Episodic + Semantic Memory (psychological_layer.md §6-7).
 
 Two memory channels:
-  1. Episodic (pgvector): ACT-R scored, mood-congruent recall (Bower, 1981)
+  1. Episodic (pgvector): hybrid similarity and lexical retrieval
   2. Semantic (Neo4j):   Structured facts/relationships from the knowledge graph
 
 The agent alternates between channels to provide the cognitive core with both
@@ -39,7 +39,7 @@ class SurfacingAgent(BaseAgent):
     as mesh events for current cognition.
 
     Dual-channel retrieval:
-      - Episodic: pgvector similarity + ACT-R activation + emotional alignment
+      - Episodic: pgvector similarity, lexical evidence, and history signals
       - Semantic: Neo4j entity/relationship lookup for structured knowledge
     """
 
@@ -59,7 +59,7 @@ class SurfacingAgent(BaseAgent):
 
         # Dual-channel state
         self._last_channel = "episodic"  # Alternate between channels
-        self._current_valence = 0.0  # For mood-congruent retrieval
+        self._current_valence = 0.0  # Passed through to rankers that use affect
         self._current_arousal = 0.5
         self._current_cortisol = 0.0
 
@@ -89,7 +89,7 @@ class SurfacingAgent(BaseAgent):
             durable=f"{self.name}_system_tick_live",
             deliver_policy="new",
         )
-        # Subscribe to state broadcasts to track current valence for mood-congruent recall
+        # Keep affect context available to configured retrieval policies.
         await self.subscribe(
             "state.update",
             self._on_agent_state,
@@ -200,7 +200,7 @@ class SurfacingAgent(BaseAgent):
     ):
         """
         Dual-Channel Surfacing Logic (§6-7):
-        1. Episodic channel: pgvector ACT-R + mood-congruent retrieval
+        1. Episodic channel: configured pgvector and hybrid retrieval
         2. Semantic channel: Neo4j entity/relationship lookup
         3. Publish 'memory.surfaced' events with source tagging
         """
@@ -242,14 +242,13 @@ class SurfacingAgent(BaseAgent):
         except Exception as e:
             logger.error(f"[Surfacing] Error in background sweep: {e}")
 
-    # ── Episodic Channel (pgvector + ACT-R) ──
+    # ── Episodic Channel (pgvector + configured ranker) ──
 
     async def _surface_episodic(
         self, now: float, source_metadata: dict[str, Any] | None = None
     ) -> bool:
         """
-        Episodic retrieval via pgvector with ACT-R scoring and
-        mood-congruent recall (Bower, 1981 — §6.4).
+        Episodic retrieval via the configured hybrid or ACT-R ranker.
 
         Surfaces memories as narrative episodes (Tulving, 1972):
         not just "User likes coding" but "Late night debugging session,

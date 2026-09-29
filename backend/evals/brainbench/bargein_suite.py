@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import random
+import time
 from dataclasses import dataclass, field
 from typing import Any, Literal
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -17,6 +18,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from app.agents.brain_agent import BrainAgent
 from app.cognitive.action_intent import build_action_intent
 from app.config import Config
+from app.contracts import Topics
 from evals.brainbench.stats import SuiteOutcome
 from evals.lifesim.generate import build
 
@@ -27,7 +29,27 @@ FAMILIES = (
     "stale_stop",
     "unknown_stop",
     "rapid_fire",
+    "self_thought_interrupt",
+    "proactive_grace_high",
+    "proactive_grace_low",
     "random",
+)
+V2_FAMILIES = (
+    "clean",
+    "confirmed_barge_in",
+    "superseded_stop",
+    "stale_stop",
+    "unknown_stop",
+    "rapid_fire",
+    "random",
+)
+V2_INVARIANTS = (
+    "terminal_outcomes_per_reply",
+    "history_matches_heard",
+    "stale_stop_applied",
+    "current_turn_harmed",
+    "completed_outcome_seen",
+    "hung",
 )
 TARGETS = ("playing", "superseded", "stale", "unknown")
 _CLAIMED = {
@@ -37,6 +59,9 @@ _CLAIMED = {
     "current_turn_harmed": True,
     "completed_outcome_seen": True,
     "hung": True,
+    "proactive_grace_bound": True,
+    "low_proactive_ceded": True,
+    "self_thought_interrupt_gate": True,
 }
 
 
@@ -44,12 +69,24 @@ _CLAIMED = {
 class Event:
     """One deterministic operation in a scenario."""
 
-    type: Literal["user_utterance", "progress", "stop", "stream_chunk_delay", "idle"]
+    type: Literal[
+        "user_utterance",
+        "subconscious_input",
+        "partial",
+        "progress",
+        "stop",
+        "stream_chunk_delay",
+        "idle",
+    ]
     turn_id: str | None = None
     target: str | None = None
     word_offset: int = 0
     chunks: int = 0
     reason: str = "confirmed_command"
+    importance: float | None = None
+    # A user final STT flagged as command-like (a speculative duck is
+    # pending): no unscoped stop is published, and Stage 2 decides (ADR-003).
+    speculative: bool = False
 
 
 @dataclass(frozen=True)
@@ -83,6 +120,9 @@ class ScenarioEvidence:
     completed_outcome_count: int = 0
     hung: bool = False
     terminal_eligible: tuple[str, ...] = ()
+    proactive_grace_bound_violated: bool = False
+    low_proactive_ceded_violated: bool = False
+    self_thought_interrupt_violated: bool = False
 
 
 def _word_prefix(text: str, words: int) -> str:
@@ -121,7 +161,11 @@ def _scenario(
     sequence: list[Event],
     texts: tuple[str, ...],
 ) -> Scenario:
-    ids = [e.turn_id for e in sequence if e.type == "user_utterance"]
+    ids = [
+        e.turn_id
+        for e in sequence
+        if e.type in {"user_utterance", "subconscious_input"}
+    ]
     tokens = [f"[reply:{turn_id}]" for turn_id in ids]
     assert len(tokens) == len(set(tokens))
     reply_texts = {
@@ -138,18 +182,27 @@ def _scenario(
 
 
 def _attribute_assistant_rows(
-    rows: list[list[Any]], reply_texts: dict[str, str]
+    rows: list[list[Any]],
+    reply_texts: dict[str, str],
+    origins: dict[Any, str] | None = None,
 ) -> tuple[list[tuple[str, str]], int]:
-    """Attribute every assistant row to its longest prefix-compatible reply."""
+    """Attribute every assistant row to its longest prefix-compatible reply.
+
+    A row is identified by the text it was first logged with (`origins`, by
+    message id) when that is known, and its current content is what gets
+    compared. A reply cut before any word was heard is rewritten to "" (ADR-W5
+    section 4), and "" by content alone matches no reply.
+    """
     attributed: list[tuple[str, str]] = []
     unattributed = 0
-    for _row_id, role, content in rows:
+    for row_id, role, content in rows:
         if role != "assistant":
             continue
+        identity = (origins or {}).get(row_id, content)
         matches = [
             (turn_id, reply)
             for turn_id, reply in reply_texts.items()
-            if content and (reply.startswith(content) or content.startswith(reply))
+            if identity and (reply.startswith(identity) or identity.startswith(reply))
         ]
         if not matches:
             unattributed += 1
@@ -159,9 +212,39 @@ def _attribute_assistant_rows(
     return attributed, unattributed
 
 
+def _random_scenario(seed, index, rng, weights, texts, n_events):
+    a = f"{seed}-{index}-a"
+    random_events = [_utterance(a)]
+    while len(random_events) < n_events - 1:
+        kind = rng.choices(
+            ("user_utterance", "progress", "stop", "stream_chunk_delay"),
+            weights=(2, 4, 2, 3),
+            k=1,
+        )[0]
+        if kind == "user_utterance":
+            random_events.append(_utterance(f"{seed}-{index}-r{len(random_events)}"))
+        elif kind in ("progress", "stop"):
+            target = rng.choices(list(weights), weights=list(weights.values()), k=1)[0]
+            random_events.append(
+                Event(
+                    kind,
+                    target=target,
+                    word_offset=rng.randint(0, 8),
+                    reason=(
+                        _stop_reason(target) if kind == "stop" else "confirmed_command"
+                    ),
+                )
+            )
+        elif kind == "stream_chunk_delay":
+            random_events.append(Event(kind, chunks=rng.randint(1, 3)))
+    random_events.append(Event("idle"))
+    return _scenario("random", index, random_events, texts)
+
+
 def generate_scenarios(
     seed: int,
     *,
+    families: tuple[str, ...] | None = None,
     n_scenarios_per_family: int = 1,
     n_events: int = 20,
     mix_weights: dict[str, float] | None = None,
@@ -183,6 +266,10 @@ def generate_scenarios(
         raise ValueError("mix_weights must contain a positive weight")
     rng = random.Random(seed)
     texts = _text_bank(reply_texts)
+    selected_families = families or FAMILIES
+    unknown_families = set(selected_families) - set(FAMILIES)
+    if unknown_families:
+        raise ValueError(f"unknown barge-in families: {sorted(unknown_families)}")
     generated: list[Scenario] = []
     for index in range(n_scenarios_per_family):
         a, b, c = (f"{seed}-{index}-{suffix}" for suffix in ("a", "b", "c"))
@@ -209,7 +296,7 @@ def generate_scenarios(
             ],
             "superseded_stop": first
             + [
-                _utterance(b),
+                Event("user_utterance", turn_id=b, speculative=True),
                 Event("progress", target="superseded", word_offset=4),
                 Event("stop", target="superseded"),
                 Event("idle"),
@@ -229,39 +316,35 @@ def generate_scenarios(
             ],
             "rapid_fire": [_utterance(a), _utterance(b), _utterance(c), Event("idle")],
         }
-        for family in FAMILIES[:-1]:
+        cases["self_thought_interrupt"] = [
+            _utterance(a),
+            Event("stream_chunk_delay", chunks=1),
+            Event("progress", target="playing", word_offset=1),
+            Event("subconscious_input", turn_id=b, importance=0.95),
+            Event("idle"),
+        ]
+        cases["proactive_grace_high"] = [
+            Event("subconscious_input", turn_id=a, importance=0.9),
+            Event("stream_chunk_delay", chunks=1),
+            Event("progress", target="playing", word_offset=1),
+            Event("partial", target="playing"),
+            Event("idle"),
+        ]
+        cases["proactive_grace_low"] = [
+            Event("subconscious_input", turn_id=a, importance=0.5),
+            Event("stream_chunk_delay", chunks=1),
+            Event("progress", target="playing", word_offset=1),
+            Event("partial", target="playing"),
+            Event("idle"),
+        ]
+        for family in selected_families:
+            if family == "random":
+                continue
             generated.append(_scenario(family, index, cases[family], texts))
-        random_events = [_utterance(a)]
-        while len(random_events) < n_events - 1:
-            kind = rng.choices(
-                ("user_utterance", "progress", "stop", "stream_chunk_delay"),
-                weights=(2, 4, 2, 3),
-                k=1,
-            )[0]
-            if kind == "user_utterance":
-                random_events.append(
-                    _utterance(f"{seed}-{index}-r{len(random_events)}")
-                )
-            elif kind in ("progress", "stop"):
-                target = rng.choices(
-                    list(weights), weights=list(weights.values()), k=1
-                )[0]
-                random_events.append(
-                    Event(
-                        kind,
-                        target=target,
-                        word_offset=rng.randint(0, 8),
-                        reason=(
-                            _stop_reason(target)
-                            if kind == "stop"
-                            else "confirmed_command"
-                        ),
-                    )
-                )
-            elif kind == "stream_chunk_delay":
-                random_events.append(Event(kind, chunks=rng.randint(1, 3)))
-        random_events.append(Event("idle"))
-        generated.append(_scenario("random", index, random_events, texts))
+        if "random" in selected_families:
+            generated.append(
+                _random_scenario(seed, index, rng, weights, texts, n_events)
+            )
     return generated
 
 
@@ -371,6 +454,25 @@ def check_invariants(evidence: ScenarioEvidence) -> dict[str, float | int | None
         "hung_claimed_violation": float(evidence.hung),
         "hung_unclaimed_violation": 0.0,
         "hung": float(evidence.hung),
+        "proactive_grace_bound_violation": float(
+            evidence.proactive_grace_bound_violated
+        ),
+        "proactive_grace_bound_claimed_violation": float(
+            evidence.proactive_grace_bound_violated
+        ),
+        "proactive_grace_bound_unclaimed_violation": 0.0,
+        "low_proactive_ceded_violation": float(evidence.low_proactive_ceded_violated),
+        "low_proactive_ceded_claimed_violation": float(
+            evidence.low_proactive_ceded_violated
+        ),
+        "low_proactive_ceded_unclaimed_violation": 0.0,
+        "self_thought_interrupt_gate_violation": float(
+            evidence.self_thought_interrupt_violated
+        ),
+        "self_thought_interrupt_gate_claimed_violation": float(
+            evidence.self_thought_interrupt_violated
+        ),
+        "self_thought_interrupt_gate_unclaimed_violation": 0.0,
     }
     return metrics
 
@@ -437,6 +539,9 @@ def outcome_accounting(
 class _History:
     def __init__(self) -> None:
         self._rows: list[list[Any]] = []
+        # message id -> the text the row was first logged with, so a row
+        # rewritten to what was heard (possibly "") stays attributable.
+        self.origins: dict[Any, str] = {}
 
     @property
     def rows(self) -> list[list[Any]]:
@@ -446,6 +551,8 @@ class _History:
         self, role: str, content: str, message_id: Any = None
     ) -> None:
         self._rows.append([message_id, role, content])
+        if message_id is not None:
+            self.origins.setdefault(message_id, content)
 
     async def rewrite_assistant_message(self, content: str, *, message_id: Any) -> None:
         for row in self._rows:
@@ -476,13 +583,19 @@ def _make_agent(
             memory_store=MagicMock(),
             conversation_store=history,
         )
-    agent.publish = AsyncMock()
+    agent.published = []
+
+    async def publish(subject: str, payload: dict[str, Any]) -> None:
+        agent.published.append((time.monotonic(), subject, payload))
+
+    agent.publish = publish
     agent.set_state = AsyncMock()
     agent.conversational_runtime = _Runtime()
     core = MagicMock()
     core.state.last_speculative_intent = None
     core.state.get_context_snapshot = MagicMock(return_value={})
     core.state.record_user_interaction = MagicMock()
+    core.state.persist_state = AsyncMock()
     core.state.release_adrenaline = AsyncMock()
     core.workspace_store.get_snapshot = AsyncMock(return_value=None)
 
@@ -503,7 +616,16 @@ def _make_agent(
             yield {"type": "content", "data": chunk + suffix}
         yield {"type": "done"}
 
+    async def proactive(thought_prompt: str):
+        words = texts[thought_prompt].split()
+        for index, word in enumerate(words):
+            await gates[thought_prompt].get()
+            suffix = " " if index < len(words) - 1 else ""
+            yield {"type": "content", "data": word + suffix}
+        yield {"type": "done"}
+
     core.process_event = process_event
+    core.generate_proactive_response = proactive
     agent.cognitive_core = core
     return agent, history
 
@@ -556,10 +678,13 @@ async def _run_scenario(
     stale_changed = False
     current_harmed = False
     hung = False
+    grace_bound_violated = False
+    low_grace_violated = False
+    self_thought_violated = False
 
     async def wait_ready(turn_id: str) -> None:
         for _ in range(100):
-            if agent._reply_turn_id == turn_id:
+            if agent._active_response_turn_id == turn_id:
                 return
             await asyncio.sleep(0)
         raise TimeoutError(f"turn {turn_id} did not enter the reply flow")
@@ -641,6 +766,23 @@ async def _run_scenario(
     try:
         for event in scenario.events:
             if event.type == "user_utterance" and event.turn_id:
+                # A user final publishes an unscoped `confirmed_user_speech`
+                # stop (ADR-W5 section 5): the transport flushes every reply
+                # still playing and reports each INTERRUPTED at its heard
+                # offset, and W5 cuts each row to that prefix (DR-028).
+                flushed = (
+                    []
+                    if event.speculative
+                    else [
+                        turn_id
+                        for turn_id in started
+                        if turn_id not in lifecycle_terminal
+                        and turn_id in scenario.reply_texts
+                    ]
+                )
+                agent.cognitive_core.state.last_speculative_intent = (
+                    {"name": "STOP", "text": "stop"} if event.speculative else None
+                )
                 if playing:
                     older.append(playing)
                 superseded = playing
@@ -657,7 +799,132 @@ async def _run_scenario(
                     )
                 )
                 await wait_ready(event.turn_id)
+                for turn_id in flushed:
+                    text = scenario.reply_texts[turn_id]
+                    offset = min(progress_offsets.get(turn_id, 0), len(text))
+                    if offset >= len(text):
+                        # Played to the end before the user spoke.
+                        await complete(turn_id)
+                        continue
+                    expected_heard[turn_id] = (
+                        progress_prefixes.get(turn_id, "") if offset else ""
+                    )
+                    unmeasurable_history.discard(turn_id)
+                    terminal_eligible.add(turn_id)
+                    terminal_claimed[turn_id] = True
+                    await lifecycle(
+                        turn_id, "INTERRUPTED", offset, released.get(turn_id, 0)
+                    )
                 await asyncio.sleep(0)
+            elif event.type == "subconscious_input" and event.turn_id:
+                if playing:
+                    older.append(playing)
+                superseded = playing
+                playing = event.turn_id
+                started.append(event.turn_id)
+                user_tasks[event.turn_id] = asyncio.create_task(
+                    agent._on_chat_input(
+                        {
+                            "text": event.turn_id,
+                            "turn_id": event.turn_id,
+                            "utterance_id": event.turn_id,
+                            "metadata": {
+                                "source": "subconscious",
+                                "importance": event.importance,
+                                "category": "self_directed",
+                            },
+                        }
+                    )
+                )
+                await wait_ready(event.turn_id)
+                if scenario.family == "self_thought_interrupt":
+                    self_thought_violated = not any(
+                        subject == Topics.AUDIO_STOP
+                        and payload.get("reason") == "self_thought_interrupt"
+                        and payload.get("turn_id") == superseded
+                        for _, subject, payload in agent.published
+                    )
+                    if superseded in scenario.reply_texts:
+                        text = scenario.reply_texts[superseded]
+                        offset = progress_offsets.get(superseded, 0)
+                        expected_heard[superseded] = progress_prefixes.get(
+                            superseded, ""
+                        )
+                        if offset == 0:
+                            unclaimed_history.add(superseded)
+                        elif offset < len(text):
+                            terminal_eligible.add(superseded)
+                            terminal_claimed[superseded] = True
+                    if (
+                        superseded in scenario.reply_texts
+                        and superseded not in lifecycle_terminal
+                    ):
+                        await lifecycle(
+                            superseded,
+                            "INTERRUPTED",
+                            progress_offsets.get(superseded, 0),
+                            released.get(superseded, 0),
+                        )
+                await asyncio.sleep(0)
+            elif event.type == "partial":
+                target_id = _target_id(event.target, playing, superseded, older)
+                started_at = time.monotonic()
+                await agent._on_user_speech_partial(
+                    {
+                        "text": "I want to say something",
+                        "utterance_id": f"partial-{index}",
+                    }
+                )
+                if scenario.family == "proactive_grace_low":
+                    low_grace_violated = not any(
+                        subject == Topics.AUDIO_STOP
+                        and payload.get("reason") == "proactive_ceded"
+                        and payload.get("turn_id") == target_id
+                        for _, subject, payload in agent.published
+                    )
+                    if target_id in scenario.reply_texts:
+                        expected_heard[target_id] = progress_prefixes.get(target_id, "")
+                        if progress_offsets.get(target_id, 0) == 0:
+                            unclaimed_history.add(target_id)
+                    if (
+                        target_id in scenario.reply_texts
+                        and target_id not in lifecycle_terminal
+                    ):
+                        await lifecycle(
+                            target_id,
+                            "INTERRUPTED",
+                            progress_offsets.get(target_id, 0),
+                            released.get(target_id, 0),
+                        )
+                if scenario.family == "proactive_grace_high":
+                    await asyncio.sleep(Config.PROACTIVE_GRACE_WINDOW_S + 0.01)
+                    stop_at = next(
+                        (
+                            at
+                            for at, subject, payload in agent.published
+                            if subject == Topics.AUDIO_STOP
+                            and payload.get("reason") == "proactive_grace_expired"
+                            and payload.get("turn_id") == target_id
+                        ),
+                        None,
+                    )
+                    grace_bound_violated = stop_at is None or (
+                        stop_at - started_at > Config.PROACTIVE_GRACE_WINDOW_S + 0.05
+                    )
+                    if target_id in scenario.reply_texts:
+                        expected_heard[target_id] = progress_prefixes.get(target_id, "")
+                        if progress_offsets.get(target_id, 0) == 0:
+                            unclaimed_history.add(target_id)
+                    if (
+                        target_id in scenario.reply_texts
+                        and target_id not in lifecycle_terminal
+                    ):
+                        await lifecycle(
+                            target_id,
+                            "INTERRUPTED",
+                            progress_offsets.get(target_id, 0),
+                            released.get(target_id, 0),
+                        )
             elif event.type == "stream_chunk_delay" and playing:
                 await release(playing, max(1, event.chunks))
                 await asyncio.sleep(0)
@@ -777,15 +1044,10 @@ async def _run_scenario(
                             expected_heard[target_id] = ""
                             unclaimed_history.add(target_id)
                     mid_playback = offset is not None and 0 < offset < len(reply_text)
-                    if event.reason == "confirmed_user_speech":
-                        unclaimed_history.add(target_id)
-                        if mid_playback:
-                            # ADR-003 Known, lines 106-107: ordinary confirmed
-                            # speech flushes playback without cutting the row;
-                            # it does not claim a terminal outcome for that reply.
-                            terminal_eligible.add(target_id)
-                            terminal_claimed[target_id] = False
-                    elif mid_playback:
+                    if mid_playback:
+                        # W5 (DR-028, F-013) claims ordinary confirmed speech
+                        # too: ADR-003's "flushes without cutting the row" is
+                        # closed, so every mid-playback cut is claimed.
                         terminal_eligible.add(target_id)
                         terminal_claimed[target_id] = True
             elif event.type == "idle":
@@ -812,11 +1074,24 @@ async def _run_scenario(
     cancelled_before_insert = {
         record.turn_id for record in records if record.status == "CANCELLED"
     }
+    # A proactive reply has no ActionIntent, so no OutcomeRecord (ADR-W5 I2);
+    # its ReplyResolution is its terminal record.
+    proactive_turns = {
+        event.turn_id for event in scenario.events if event.type == "subconscious_input"
+    }
     terminal_counts = {
-        turn_id: len(agent.get_outcome_history(turn_id)) for turn_id in started
+        turn_id: (
+            sum(
+                item.turn_id == turn_id
+                for item in getattr(agent, "reply_resolutions", ())
+            )
+            if turn_id in proactive_turns
+            else len(agent.get_outcome_history(turn_id))
+        )
+        for turn_id in started
     }
     actual_history, unattributed_rows = _attribute_assistant_rows(
-        history.rows, scenario.reply_texts
+        history.rows, scenario.reply_texts, history.origins
     )
     expected_history: dict[str, str] = {}
     claimed: dict[str, bool] = {}
@@ -851,8 +1126,15 @@ async def _run_scenario(
         completed_outcome_count=completed_count,
         hung=hung,
         terminal_eligible=tuple(terminal_eligible),
+        proactive_grace_bound_violated=grace_bound_violated,
+        low_proactive_ceded_violated=low_grace_violated,
+        self_thought_interrupt_violated=self_thought_violated,
     )
     metrics = check_invariants(evidence)
+    # Each BrainAgent starts a SubjectMetrics worker thread that wakes every
+    # 50 ms and never exits on its own; at 50 scenarios per family one
+    # leaked per scenario drove the load average into the hundreds.
+    agent._metrics.shutdown(timeout=0.2)
     return SuiteOutcome(
         probe_key=f"{seed}:{scenario.family}:{index}",
         persona_seed=seed,
@@ -869,7 +1151,12 @@ async def _run(
     seed: int, scenarios: list[Scenario], timeout: float
 ) -> list[SuiteOutcome]:
     original_grace = Config.BARGE_IN_ONSET_GRACE_S
+    original_terminal_wait = Config.REPLY_TERMINAL_WAIT_S
     Config.BARGE_IN_ONSET_GRACE_S = 0.0
+    # The harness has no audio transport to deliver a lifecycle terminal for
+    # every synthetic cut. Keep the brain's fallback inside the scenario
+    # budget so pending replies resolve before `settle()` times out.
+    Config.REPLY_TERMINAL_WAIT_S = min(original_terminal_wait, timeout / 10)
     try:
         return [
             await _run_scenario(scenario, seed, scenario.index, timeout)
@@ -877,11 +1164,13 @@ async def _run(
         ]
     finally:
         Config.BARGE_IN_ONSET_GRACE_S = original_grace
+        Config.REPLY_TERMINAL_WAIT_S = original_terminal_wait
 
 
 def run_bargein_suite(
     seed: int,
     *,
+    families: tuple[str, ...] | None = None,
     n_scenarios_per_family: int = 1,
     n_events: int = 20,
     mix_weights: dict[str, float] | None = None,
@@ -890,6 +1179,7 @@ def run_bargein_suite(
     """Run all deterministic lifecycle families against fresh BrainAgents."""
     scenarios = generate_scenarios(
         seed,
+        families=families,
         n_scenarios_per_family=n_scenarios_per_family,
         n_events=n_events,
         mix_weights=mix_weights,
@@ -902,6 +1192,7 @@ def run_bargein_suite_for_seed(
     archetype: str,
     horizon_label: str,
     *,
+    families: tuple[str, ...] | None = None,
     n_scenarios_per_family: int = 1,
     n_events: int = 20,
     mix_weights: dict[str, float] | None = None,
@@ -914,6 +1205,7 @@ def run_bargein_suite_for_seed(
     realistic = [turn.text for turn in turns if turn.text.strip()]
     scenarios = generate_scenarios(
         seed,
+        families=families,
         n_scenarios_per_family=n_scenarios_per_family,
         n_events=n_events,
         mix_weights=mix_weights,
