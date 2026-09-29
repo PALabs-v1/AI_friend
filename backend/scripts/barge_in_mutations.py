@@ -67,8 +67,8 @@ MUTATIONS = [
     Mutation(
         "M7_cut_not_addressed_by_id",
         BRAIN,
-        "            heard, message_id=message_id\n        )",
-        "            heard, message_id=None\n        )",
+        "                heard, message_id=message_id\n            )",
+        "                heard, message_id=None\n            )",
     ),
     Mutation(
         "M8_insert_wait_unbounded",
@@ -229,16 +229,16 @@ MUTATIONS = [
     Mutation(
         "W5_row_id_only_inside_the_lock",  # was N4, N17, M14
         BRAIN,
-        "            if entry is not None:\n"
-        "                message_id = entry.message_id or message_id\n"
-        "                entry.message_id = message_id\n"
-        "                log_task = entry.log_task\n",
+        "            if target is not None:\n"
+        "                message_id = target.message_id or message_id\n"
+        "                target.message_id = message_id\n"
+        "                log_task = target.log_task\n",
         "",
         additional=(
             (
                 (
-                    "            if entry is not None:\n"
-                    "                entry.log_task = log_task\n"
+                    "            if target is not None:\n"
+                    "                target.log_task = log_task\n"
                     "        async with self._turn_state_lock:\n"
                 ),
                 "        async with self._turn_state_lock:\n",
@@ -269,10 +269,10 @@ MUTATIONS = [
     Mutation(
         "W5_insert_ignores_brain_id",  # was M10
         BRAIN,
-        'store.log_message("assistant", full_response, message_id=message_id)\n'
-        "                )\n            if entry is not None:\n",
-        'store.log_message("assistant", full_response)\n'
-        "                )\n            if entry is not None:\n",
+        'store.log_message("assistant", store_text, message_id=message_id)\n'
+        "                )\n            if target is not None:\n",
+        'store.log_message("assistant", store_text)\n'
+        "                )\n            if target is not None:\n",
     ),
     Mutation(
         "W5_record_offset_is_trimmed_length",  # was Y20

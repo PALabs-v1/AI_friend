@@ -477,3 +477,71 @@ killed.
 | Full backend suite (`CI=1`) | 3,218 passed, 11 skipped, 0 failed |
 | BrainBench barge-in suite | 500 scenarios, 0 violations in every family |
 | Ruff check and format | clean |
+
+## 10. Cold critic, round 2 (Codex, last round per the cap)
+
+A fresh Codex session reviewed the round-1 fixes against the same withheld
+sections, this time with its own scratch reproducers targeting concurrent
+subscription interleavings the state machines and BrainBench suite cannot
+reach: both harnesses await each event's handler before delivering the
+next, so a real race between two `asyncio` tasks (a lifecycle event and an
+in-flight publish, a partial and an awaited cut) never occurs in them.
+Verdict: **FAIL**, four real-flow defects and one LOW. Each has a
+reproducer copied verbatim into `backend/tests/test_w5_critic_r2_race.py`
+and confirmed red on the code the critic reviewed before any fix landed.
+
+| # | Sev | Defect (critic's reproducer) | Fix | Test (red on the reviewed code) |
+|---|---|---|---|---|
+| I3 | MED | An `INTERRUPTED` lifecycle arriving while the final `chat.output` publish is awaited let `_resolve_reply` remove the ledger entry before `_finish_reply` assigned its history row ID. When the flow resumed, `_finish_reply` saw no entry and inserted the full, unheard text. | `_resolve_reply` now narrows `entry.text` to the heard text at resolution time (before the entry can be popped), and keeps a bounded record of resolved replies (`_resolved_replies`, already used for the felt-once stop lookup). `_finish_reply` checks that record when the live ledger has nothing, and stores the resolved entry's (narrowed) text instead of the raw `full_response` argument. | `test_interrupted_terminal_before_finish_reply_must_not_store_full_history` |
+| I8 | MED | `_allow_proactive_input` checked `_is_user_mid_utterance()` on entry, then awaited the stop publish through `_cut_reply` without rechecking. A real user partial delivered during that await updated the mid-utterance state but was never consulted again, so the thought was granted the floor anyway. | A second `_is_user_mid_utterance()` check runs immediately before `return True`, after the await. A partial that lands during the cut now declines the thought the same way a partial present at entry always did. | `test_partial_arriving_during_proactive_cut_must_decline_thought` |
+| I5 | MED | The pending-insert wait was bounded, but the following `rewrite_assistant_message` await in `_store_heard_reply` had no deadline. A stalled store held `_on_audio_playback_lifecycle` open, which serialises later lifecycle events behind it. | The rewrite is spawned via `self.spawn(...)` (tracked, fire-and-forget) instead of awaited. A first attempt bounded it with `asyncio.wait(timeout=REPLY_INSERT_WAIT_S)`, which still failed the critic's own reproducer (a 30 ms return-time contract against a rewrite jammed forever): any positive bound is still a wait. Fire-and-forget is the only shape that satisfies both "the row eventually gets the heard text" and "the handler never blocks on it." Three pre-existing tests that asserted on stored history immediately after resolution needed an explicit drain of `agent._background_tasks` added before their assertions, since the write can now still be in flight when the handler returns. | `test_history_rewrite_is_unbounded_inside_lifecycle_handler` |
+| I10 | MED | Stop deduplication (`_seen_audio_stops`) keeps only 256 keys. After eviction, replaying an old unscoped (`turn_id=None`) stop resolved its target against whatever turn was active *now*, not the turn active when it was first seen. | A separate `_unscoped_stop_targets` `OrderedDict` binds an unscoped stop's target once, independent of the 256-key eviction window, and is consulted first. An evicted-then-redelivered unscoped stop rebinds to its original target, never to a newer turn. | `test_evicted_stop_redelivery_must_not_cut_a_later_turn` |
+| LOW | LOW | The next flow's coroutine was constructed before `_replace_active_generation` awaited prior teardown. A caller cancelled during that wait left the coroutine neither scheduled nor closed, which surfaced as `RuntimeWarning: coroutine ... was never awaited`. A `warnings.catch_warnings`-based regression test was tried first and found unreliable (the warning fires outside the capture window relative to GC timing). Replaced with a deterministic contract test. | `_replace_active_generation` now takes a zero-arg coroutine **factory**, called only after teardown finishes. Its two existing test call sites (`test_causal_slice.py`) and the one production call site (`_on_chat_input`) pass the bare function; nothing is constructed before teardown completes. | `test_replace_active_generation_builds_the_next_coroutine_only_after_teardown` |
+
+**Two round-1 reproducers now fail against round-2 code, by design, not as
+new defects.** The critic's evidence section flags: (a) the overflow
+reproducer expects a resolved reply to remain in `_reply_ledger`, but round
+1's fix #2 (§9) deliberately removes a resolved entry from the ledger at
+once; (b) the cancellation reproducer expects replacement within 10 ms,
+while `GENERATION_TEARDOWN_WAIT_S` is 250 ms by design (§9 #3). Both are
+stale expectations against round-1's own frozen behaviour, not code paths
+this round touched.
+
+**Speech-segmentation note.** The critic flagged a change outside W5 (token-
+fragment merge ordering, split threshold `score >= 0.7`) in the diff it was
+given. That change predates this round and is unrelated to any of the five
+findings above; left as-is.
+
+### Mutation re-run after round 2
+
+The 3 mutation patterns whose source lines changed shape under I3/I5/I10
+(`M7_cut_not_addressed_by_id`, `W5_row_id_only_inside_the_lock`,
+`W5_insert_ignores_brain_id`) were updated to match; `check_patterns()`
+reports 0 problems, all 41 patterns match exactly once before the run.
+
+**Result: 41 mutants, 39 killed, the same 2 recorded equivalents (S5,
+Y14) survive, 0 unexplained survivors, 0 errors.** No new mutants were
+added this round; the fixes are races and a factory-vs-value signature
+change, not new branches the existing mutation set misses.
+
+### Verification after round 2
+
+| Check | Result |
+|---|---|
+| The critic's 4 reproducers (`test_w5_critic_r2_race.py`) | red before the fix, green after |
+| Machine A, 1,000 examples | pass |
+| Machine B, 1,000 examples | pass |
+| BrainBench barge-in suite (500 scenarios) | 0 violations in every family (90/90 rate entries) |
+| Targeted W5/barge-in/causal-slice/clock-seam battery | 231 passed |
+| Full backend suite (`CI=1`) | 3,280 passed, 11 skipped, 1 failed |
+| Mutation re-run | 41 mutants, 39 killed, 2 equivalent (unchanged from round 1) |
+
+The one full-suite failure,
+`test_stored_injection_corpus.py::test_stored_injection_corpus_is_quarantined_on_every_prompt_path`,
+is a pre-existing intermittent flake, not a round-2 regression: it passed
+12/12 across 3 isolated runs, and a bisect running all 193 `tests/test_*.py`
+files alphabetically up to and including it (same code, same file set)
+passed cleanly (3,004 passed, 0 failed). W5/`brain_agent.py` never touches
+the memory/embedding/injection-gate path this test exercises. Filed in
+`findings.md` for whoever next touches that suite; not chased further
+under W5's critic-rounds cap.

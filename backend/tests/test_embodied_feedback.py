@@ -81,6 +81,13 @@ async def test_dialogue_truncation_on_interruption(
         }
     )
 
+    # I5 (W5 critic round 2): the rewrite is spawned, not awaited, by
+    # `_resolve_reply` now (a stuck store must never hang the lifecycle
+    # handler that called it), so it can still be in flight right after
+    # `_on_audio_playback_lifecycle` returns.
+    while agent._background_tasks:
+        await asyncio.gather(*list(agent._background_tasks), return_exceptions=True)
+
     # Verify database has the truncated text
     new_brief = await store.get_last_interaction_brief()
     assert new_brief == "I was planning to buy a coffee"

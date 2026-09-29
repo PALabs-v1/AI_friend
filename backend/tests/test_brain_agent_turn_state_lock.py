@@ -84,6 +84,11 @@ async def test_a_new_turn_during_a_cuts_db_write_cannot_change_what_it_writes(
 
     db_write_may_finish.set()
     await cut_task
+    # I5 (W5 critic round 2): the rewrite is spawned, not awaited, by
+    # `_resolve_reply` now (a stuck store must never hang its caller), so it
+    # can still be in flight once `cut_task` itself is done.
+    while agent._background_tasks:
+        await asyncio.gather(*list(agent._background_tasks), return_exceptions=True)
 
     assert await store.get_last_interaction_brief() == "I was planning to buy a coffee"
     assert [(r.turn_id, r.status, r.heard_text) for r in agent.reply_resolutions] == [

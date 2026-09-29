@@ -266,6 +266,22 @@ Running record of pre-existing problems found during the Brain V3 cycle (Objecti
 - **Fix (planned)**: delete it, or make every fallback a hard failure and rename it for what it measures (system timing and stored trajectories). The same check applies to `scripts/research/human_fidelity_test.py`.
 - **Status**: open, owned by SW.
 
+## F-023: `test_stored_injection_corpus_is_quarantined_on_every_prompt_path` is intermittently flaky only inside a full-suite run
+
+- **Severity**: low (a W10b security gate test, not the mechanism it tests; a real regression could be masked by a shrug at "it's flaky")
+- **Where**: `backend/tests/test_stored_injection_corpus.py::test_stored_injection_corpus_is_quarantined_on_every_prompt_path`
+- **Evidence**: found during the W5 critic round-2 fix (unrelated code path; `brain_agent.py` never touches memory/embedding/injection-gate code). Failed once in a full-suite run (3,280 passed, 11 skipped, 1 failed) and passed in a second full-suite run on the identical diff. Ran clean 12/12 across 3 isolated runs (12 tests each). A bisect running every `tests/test_*.py` file alphabetically up to and including this one (193 files, same code, same file set as the failing full run) passed cleanly: 3,004 passed, 0 failed. Same code, same file set, different outcome across runs — genuine intermittent nondeterminism in the test itself (most likely concurrent embedding/ranking timing), not a fixture-ordering or state-pollution artifact of any single other file.
+- **Fix (planned)**: not diagnosed further under W5 (out of scope, cap already spent on W5's own findings). Whoever next touches this test: reproduce inside a full-suite run first (isolation runs will pass and are not informative), then look at whatever concurrency or timing the quarantine check depends on.
+- **Status**: open, owned by whoever next touches memory/injection-gate tests (W10b or W8).
+
+## F-024: the lifesim `relationship#005` template nests a full rendered sentence inside a noun-phrase slot
+
+- **Severity**: low (research-data quality, not production code)
+- **Where**: `backend/evals/lifesim/banks/utterances.json:185` and `backend/evals/lifesim/expressed_valence.json:361`, both `"There’s news about {line}"`
+- **Evidence**: found while reviewing W2's qwen3:8b prompt-tuning corpus (`scratchpad/w2pt/`, this session). `{line}` is filled from another rendered fragment that can itself be a full clause, producing nested, ungrammatical output such as "There's news about I'm glad; I gave support from Ethan" — a noun-phrase slot holding a subject+verb clause. Distinct from the plan/pet/non-person rendering defects already fixed in `10-lifesim.md` (lines 124-128), which were about wrong sentence *shape* for an entity kind, not a template nesting a complete sentence inside a phrase slot.
+- **Fix (planned)**: either give `relationship#005` a noun-phrase-only fragment set (mirroring the plan-lifecycle noun-phrase/verb-phrase branch at `10-lifesim.md:127`), or render `{line}` through a nominalizing transform before substitution.
+- **Status**: open, owned by lifesim (Phase 5).
+
 ## Real-model resource baseline (not a finding, recorded for Phase 8)
 
 BrainBench resources suite, `llm_augmented`, home-gpu `llama3.2:3b` (RTX 2060 SUPER), seed 1015 `private_minimalist` `1m`, 33 turns: turn latency P50 2.47 s, P95 3.22 s, P99 4.17 s, max 4.37 s (model time dominates; architecture-only overhead is about 3 ms per turn). Memory rows and vectors grew 5 -> 32 (about one per turn, linear), vocabulary 248 -> 422, run directory 0.56 -> 1.55 MB, peak RSS 164 -> 173 MiB.

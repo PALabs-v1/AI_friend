@@ -153,6 +153,10 @@ async def test_proactive_reply_is_stored_with_an_addressable_row_and_cut_by_part
             "streamed_offset": len(thought),
         }
     )
+    # I5 (W5 critic round 2): the history rewrite is now spawned rather than
+    # awaited by the lifecycle handler (so a stuck store can never hang it),
+    # so the row lands slightly after the handler returns, not inside it.
+    await _settle(agent)
 
     cut = _resolution(agent, "proactive-a")
     assert cut.source == "proactive"
@@ -971,6 +975,58 @@ async def test_a_handler_cancelled_while_it_waits_for_teardown_stays_cancelled(
     assert replacement.cancelled()
     assert "second" not in agent._reply_ledger
     assert all(r.turn_id != "second" for r in agent.reply_resolutions)
+
+
+@pytest.mark.asyncio
+async def test_replace_active_generation_builds_the_next_coroutine_only_after_teardown(
+    monkeypatch,
+):
+    # Critic r2 LOW: the caller used to build the next flow's coroutine
+    # (`_process_chat_input_flow(...)`) before calling
+    # `_replace_active_generation`, so it existed in memory before this
+    # method even started waiting on the prior task's teardown. A caller
+    # cancelled during that wait then left the already-built coroutine
+    # referenced nowhere: garbage-collected unawaited and unclosed (whatever
+    # async cleanup its body has never runs), which Python additionally
+    # reports as `RuntimeWarning: coroutine ... was never awaited`. Fixed by
+    # taking a zero-argument factory and calling it only once teardown has
+    # finished, so a cancellation during the wait builds nothing to leak.
+    monkeypatch.setattr(brain_module, "GENERATION_TEARDOWN_WAIT_S", 5.0, raising=False)
+    agent = _agent(History(), {})
+    entered_cleanup, release = asyncio.Event(), asyncio.Event()
+
+    async def prior_coro():
+        try:
+            await asyncio.sleep(100)
+        except asyncio.CancelledError:
+            entered_cleanup.set()
+            await release.wait()
+            raise
+
+    prior_task = agent.spawn(prior_coro())
+    await asyncio.sleep(0)
+    agent._active_generation_task = prior_task
+
+    built: list[bool] = []
+
+    def factory():
+        built.append(True)
+
+        async def _next():
+            return "should never run"
+
+        return _next()
+
+    call = asyncio.create_task(agent._replace_active_generation(factory, "reason"))
+    await asyncio.wait_for(entered_cleanup.wait(), 1.0)
+    call.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await call
+
+    assert built == [], "the next flow's coroutine was built before teardown finished"
+
+    release.set()
+    await asyncio.wait({prior_task}, timeout=1.0)
 
 
 @pytest.mark.asyncio

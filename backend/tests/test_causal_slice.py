@@ -1041,7 +1041,7 @@ async def test_replace_active_generation_emits_cancelled_outcome_for_preempted_t
         return "new turn ran"
 
     new_task = await agent._replace_active_generation(
-        new_turn_coro(), "new incoming speech turn"
+        new_turn_coro, "new incoming speech turn"
     )
     await new_task
 
@@ -1067,7 +1067,7 @@ async def test_replace_active_generation_emits_no_outcome_when_nothing_was_runni
     async def new_turn_coro():
         return "ran"
 
-    new_task = await agent._replace_active_generation(new_turn_coro(), "first turn")
+    new_task = await agent._replace_active_generation(new_turn_coro, "first turn")
     await new_task
 
     assert agent._last_outcome_record is None

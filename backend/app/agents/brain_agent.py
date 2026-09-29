@@ -241,6 +241,16 @@ class BrainAgent(BaseAgent):
         self._resolved_replies: OrderedDict[str, _ReplyLedgerEntry] = OrderedDict()
         self._accepted_utterances: OrderedDict[str, None] = OrderedDict()
         self._seen_audio_stops: OrderedDict[tuple[Any, ...], None] = OrderedDict()
+        # I10 (W5 critic round 2): an unscoped stop (`turn_id` is None)
+        # resolves to whatever turn is active *the first time it is seen*.
+        # `_seen_audio_stops` shares its 256-key window with every scoped
+        # stop too, so heavy scoped traffic can evict an unscoped stop's key
+        # long before JetStream redelivers the same message -- at which
+        # point it would resolve against a completely different, later
+        # active turn. Kept separately, keyed on identity minus `turn_id`
+        # (which is always None here), so a redelivery always finds the
+        # turn it first resolved to.
+        self._unscoped_stop_targets: OrderedDict[tuple[Any, ...], str] = OrderedDict()
         self._last_user_partial_at: float | None = None
         self._reply_terminal_events: set[tuple[str, str, int]] = set()
         # Bucket 1 (VOICE_REMEDIATION_PLAN.md): stamped on the first playback
@@ -328,6 +338,15 @@ class BrainAgent(BaseAgent):
         if status == "COMPLETED":
             heard = text
             heard_offset = len(text)
+        # `entry` is already out of `_reply_ledger` (popped above); the only
+        # other reader of `.text` is `_finish_reply`, which checks
+        # `_resolved_replies` when it finds no live entry. Narrowing it to
+        # `heard` here means that lookup always sees what was actually
+        # heard, never the full generation this reply was cut from -- the
+        # ordering that beats `_finish_reply` to a row id has nothing to
+        # rewrite (I3): the row gets created with the true text the first
+        # time, and never needs cutting down.
+        entry.text = heard
         await self._emit_outcome_record(
             entry.intent,
             status=status,
@@ -791,11 +810,23 @@ class BrainAgent(BaseAgent):
                     REPLY_INSERT_WAIT_S,
                 )
                 return
-        await self.conversation_store.rewrite_assistant_message(
-            heard, message_id=message_id
+        # I5 (W5 critic round 2): this call used to be awaited directly with
+        # no deadline of its own, so a stalled rewrite blocked whichever
+        # lifecycle handler called us -- and with it, every later lifecycle
+        # event, since NATS delivers them to this callback one at a time.
+        # The insert wait above has to be synchronous (the rewrite would
+        # otherwise race the insert), but the rewrite itself does not: it is
+        # this call's last statement, so nothing here depends on its result.
+        # Spawned and tracked (kept alive past this call's return, unlike a
+        # bare `create_task`) rather than awaited, so the handler's return
+        # is never at the mercy of the store's latency.
+        self.spawn(
+            self.conversation_store.rewrite_assistant_message(
+                heard, message_id=message_id
+            )
         )
 
-    async def _replace_active_generation(self, coro, reason: str):
+    async def _replace_active_generation(self, coro_factory, reason: str):
         """Atomically replace the active generation task with a new one.
 
         Holds the lock through the entire critical section: cancel the prior task,
@@ -810,8 +841,18 @@ class BrainAgent(BaseAgent):
         task exists. A started reply is not touched: it plays on until a stop
         cuts it or its transport terminal resolves it.
 
+        `coro_factory` is a zero-argument callable, not a coroutine, and is
+        called only after teardown (W5 critic round 2, LOW): a coroutine
+        built by the caller before this call exists in memory the moment
+        it's constructed, so a caller cancelled while this method still
+        awaits the prior task's teardown would otherwise leave that
+        already-built coroutine neither scheduled nor closed, an unawaited
+        coroutine leaked past this call's own cancellation.
+
         Args:
-            coro: Coroutine to wrap in the new generation task
+            coro_factory: Zero-argument callable returning the coroutine to
+                wrap in the new generation task, called once teardown of any
+                prior task has finished
             reason: Reason for cancelling the prior task (if any)
 
         Returns:
@@ -827,8 +868,10 @@ class BrainAgent(BaseAgent):
                 prior_task.cancel()
                 await self._await_generation_teardown(prior_task, prior_entry)
 
-            # Create and assign new task while still holding the lock
-            new_task = self.spawn(coro)
+            # Create and assign new task while still holding the lock. The
+            # coroutine itself is built here, after teardown, not by the
+            # caller before this call -- see the LOW fix note above.
+            new_task = self.spawn(coro_factory())
             self._active_generation_task = new_task
 
         return new_task
@@ -887,7 +930,7 @@ class BrainAgent(BaseAgent):
         # accepted: at most one generator runs, rapid inputs cancel its
         # predecessor, and no in-process input queue can grow without bound.
         task = await self._replace_active_generation(
-            self._process_chat_input_flow(msg, is_subconscious, message),
+            lambda: self._process_chat_input_flow(msg, is_subconscious, message),
             "new incoming speech turn",
         )
 
@@ -937,6 +980,15 @@ class BrainAgent(BaseAgent):
             await self._cut_reply(active_reply, "self_thought_interrupt")
         elif active_reply is not None:
             await self._cut_reply(active_reply, "proactive_ceded")
+        # I8 (W5 critic round 2): the checks above ran before the awaited
+        # cut publish, and a real user partial can land during that await.
+        # Recheck the state this gate exists to enforce, right before
+        # granting the floor, rather than trusting a read that is now
+        # stale -- the cut already under way (if any) still proceeds; only
+        # the floor grant itself is race-safe.
+        if self._is_user_mid_utterance():
+            self.declined_proactive_inputs.append(msg.utterance_id or "")
+            return False
         return True
 
     async def _handle_user_final(self, msg: ChatInput) -> bool:
@@ -1346,22 +1398,36 @@ class BrainAgent(BaseAgent):
         state lock is taken: a stop can arrive while this flow waits for
         that lock, and its cut must wait for and rewrite this reply's own
         insert (`_store_heard_reply`), never cancel the only writer.
+
+        A terminal can instead beat this call to the ledger entirely: the
+        done marker was still publishing when `_on_audio_playback_lifecycle`
+        resolved the reply and popped it (I3, W5 critic round 2). `entry` is
+        then `None` here, but the reply is not unaccounted for -- it moved
+        to `_resolved_replies`, with `.text` already narrowed to what was
+        actually heard. Storing `full_response` in that case would write
+        the whole generation after the fact, so the resolved entry's text
+        is what gets stored, never the parameter.
         """
-        store = self.conversation_store if full_response else None
         entry = self._reply_ledger.get(turn_id)
+        resolved_entry = self._resolved_replies.get(turn_id) if entry is None else None
+        store_text = (
+            resolved_entry.text if resolved_entry is not None else full_response
+        )
+        store = self.conversation_store if store_text else None
+        target = entry if entry is not None else resolved_entry
         message_id = uuid.uuid4() if store is not None else None
         log_task = None
         if store is not None:
-            if entry is not None:
-                message_id = entry.message_id or message_id
-                entry.message_id = message_id
-                log_task = entry.log_task
+            if target is not None:
+                message_id = target.message_id or message_id
+                target.message_id = message_id
+                log_task = target.log_task
             if log_task is None:
                 log_task = self.spawn(
-                    store.log_message("assistant", full_response, message_id=message_id)
+                    store.log_message("assistant", store_text, message_id=message_id)
                 )
-            if entry is not None:
-                entry.log_task = log_task
+            if target is not None:
+                target.log_task = log_task
         async with self._turn_state_lock:
             if not is_subconscious:
                 self.last_assistant_response = full_response
@@ -1554,6 +1620,24 @@ class BrainAgent(BaseAgent):
         # (ADR-003 for unscoped signals). Looked up under "" it missed the
         # ledger and cut nothing.
         target = stop_msg.turn_id or active_id
+        if stop_msg.turn_id is None:
+            # I10: bind an unscoped stop's target once, and hold it there
+            # for any later redelivery of the exact same message -- never
+            # to whichever turn happens to be active when it is re-seen.
+            sig = (
+                stop_msg.utterance_id,
+                stop_msg.reason,
+                stop_msg.speculative,
+                stop_msg.flush,
+                stop_msg.interrupt,
+            )
+            remembered = self._unscoped_stop_targets.get(sig)
+            if remembered is not None:
+                target = remembered
+            elif target is not None:
+                self._unscoped_stop_targets[sig] = target
+                while len(self._unscoped_stop_targets) > REPLY_RESOLUTIONS_MAX:
+                    self._unscoped_stop_targets.popitem(last=False)
         if target is None:
             return False
         reply = getattr(self, "_reply_ledger", {}).get(target)
