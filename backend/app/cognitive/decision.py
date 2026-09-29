@@ -282,6 +282,26 @@ def _is_acute_distress(
     )
 
 
+def _without_urgency(global_controls: Any | None) -> Any | None:
+    """DR-025 / A-6: while regulation is on the table, urgency is dropped.
+
+    `derive_global_controls` raises urgency_gain with negative valence and
+    arousal, so a distressed turn is the most urgent one and the urgency
+    term rewards SPEAK's zero risk and cost over every regulation candidate
+    by more than their 0.05 score lead. Zeroing it here, and only when
+    acute distress has produced regulation candidates, lets that lead
+    decide. Exploration and effort budgets pass through unchanged. A frozen
+    GlobalControls model or a plain dict are both copied, never mutated.
+    """
+    if global_controls is None:
+        return None
+    if hasattr(global_controls, "model_copy"):
+        return global_controls.model_copy(update={"urgency_gain": 0.0})
+    if isinstance(global_controls, dict):
+        return {**global_controls, "urgency_gain": 0.0}
+    return global_controls
+
+
 def _bucket_relational_stance(trust: float, attachment: float, mood: float) -> str:
     """Clamp+bucket trust/attachment/mood into a named stance -- the same
     clamp-then-map shape `persona/compiler.py::_infer_temperament` uses for
@@ -1160,12 +1180,13 @@ class DecisionService:
         # exists at all" fallback three lines up (which would otherwise
         # silently re-admit a forbidden candidate) into a raised
         # ValueError instead of a silent constraint violation.
+        effective_controls = global_controls if Config.AFFECT_CONTROL_ENABLED else None
+        if any(candidate.source == "regulation" for candidate in survivors):
+            effective_controls = _without_urgency(effective_controls)
         selection = self._candidate_selector.score_and_select(
             survivors,
             active_goals=[goal],
-            global_controls=(
-                global_controls if Config.AFFECT_CONTROL_ENABLED else None
-            ),
+            global_controls=effective_controls,
             forbidden_claims=forbidden_claims,
             metacognitive_directive=metacognitive_directive,
             privacy_filter=privacy_filter,

@@ -35,7 +35,7 @@ that fails on the old code), **DECIDED** (architecture changed by ADR),
 | A-3 | HIGH | Trust rises on any message without a boundary word (`+0.1·NA` per turn) — hostile users earn trust; the asymmetric evidence model in `PersonModel` is never called | affect sim: trust 0.83 after 60 hostile turns | PROPOSED (07 §4) |
 | A-4 | MEDIUM | Derived arousal (energy + fatigue + adrenaline) is written back into `energy` by the somatic path and System-2 appraisal, permanently absorbing phasic signals | reading (`agent_state.py:1538`, `1240-1244`) | OPEN |
 | A-5 | MEDIUM | Tick decay uses the tick message's `interval` field, not elapsed time: if ticks stop, PAD stops decaying while hormones keep decaying | reading | OPEN |
-| A-6 | LOW | `_is_acute_distress` tests the *agent's* state but the resulting guideline says "the user appears to be in acute distress" | reading (`decision.py:178`, `action.py:322`) | OPEN |
+| A-6 | LOW | `_is_acute_distress` tests the *agent's* state but the resulting guideline says "the user appears to be in acute distress" | reading (`decision.py:178`, `action.py:322`) | FIXED (ADR-W2, F-026) |
 | A-7 | LOW | `CapabilityLimitationModel.evaluate_directive`, `GlobalControls.learning_gain`, calibration: computed or defined, never used | reading | OPEN (delete or wire) |
 
 ## Interaction / voice

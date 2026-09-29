@@ -48,6 +48,7 @@ from app.cognitive.action_candidate import (
     _control_value,
 )
 from app.cognitive.appraisal import AppraisalVector
+from app.cognitive.behavior_contracts import BehaviorDecision, CommunicativeIntent
 from app.cognitive.decision import ActionPlan, DecisionService
 from app.cognitive.perception import CognitiveEvent
 from app.cognitive.pipeline import CognitivePipeline
@@ -727,6 +728,94 @@ class TestDistressSelectionEndToEnd:
             "REDIRECT_ATTENTION",
         )
         assert plan.action_type == "RESPOND_CHAT"
+
+
+class TestRegulationWinsUnderRealDerivedControls:
+    """A-6 / DR-025 end to end: the real `derive_global_controls` output.
+
+    `derive_global_controls` raises urgency_gain with negative valence and
+    arousal, so on the turns that most need regulation the urgency term
+    rewarded SPEAK (zero risk and cost) over REAPPRAISE by more than its
+    0.05 score lead. Every earlier test here passed `global_controls=None`,
+    which hid that regulation could never be selected in production.
+    """
+
+    _DISTRESS_METADATA = {
+        "affect_significant_event": True,
+        "affect_user_valence": -1.0,
+    }
+
+    @staticmethod
+    def _controls(mood: float, energy: float):
+        from app.cognitive.global_controls import derive_global_controls
+
+        return derive_global_controls(
+            {"valence": mood, "arousal": energy},
+            load=0.2,
+            urgency=0.7,
+            prediction_error=0.1,
+        )
+
+    def _select(self, decision_service, controls, metadata, mood=0.0, energy=0.5):
+        snapshot = {**_STATE_SNAPSHOT, "mood": mood, "energy": energy}
+        return decision_service._select_action_candidate(
+            BehaviorDecision(intent=CommunicativeIntent(act="CHAT", goal="COMFORT")),
+            "COMFORT",
+            [],
+            "I feel trapped and scared",
+            state_snapshot=snapshot,
+            event_metadata=metadata,
+            global_controls=controls,
+        )
+
+    @pytest.mark.parametrize(
+        ("mood", "energy"), [(0.0, 0.5), (-1.0, 0.94), (0.9, 0.9), (0.0, 0.0)]
+    )
+    def test_significant_distress_selects_reappraise_in_any_agent_state(
+        self, decision_service, monkeypatch, mood, energy
+    ):
+        monkeypatch.setattr(Config, "AFFECT_CONTROL_ENABLED", True)
+        controls = self._controls(mood, energy)
+
+        decision = self._select(
+            decision_service, controls, self._DISTRESS_METADATA, mood, energy
+        )
+
+        assert decision.selected_candidate["kind"] == "REAPPRAISE"
+
+    def test_ordinary_turn_under_the_same_controls_still_speaks(
+        self, decision_service, monkeypatch
+    ):
+        monkeypatch.setattr(Config, "AFFECT_CONTROL_ENABLED", True)
+        controls = self._controls(-1.0, 0.94)
+
+        decision = self._select(decision_service, controls, {}, -0.2, 0.5)
+
+        assert decision.selected_candidate["kind"] == "SPEAK"
+
+    def test_frozen_controls_are_copied_not_mutated(
+        self, decision_service, monkeypatch
+    ):
+        monkeypatch.setattr(Config, "AFFECT_CONTROL_ENABLED", True)
+        controls = self._controls(-1.0, 0.94)
+        before = controls.urgency_gain
+
+        self._select(decision_service, controls, self._DISTRESS_METADATA)
+
+        assert controls.urgency_gain == before
+
+    def test_dict_controls_are_copied_not_mutated(self, decision_service, monkeypatch):
+        monkeypatch.setattr(Config, "AFFECT_CONTROL_ENABLED", True)
+        controls = {
+            "urgency_gain": 0.99,
+            "exploration_budget": 0.5,
+            "effort_budget": 1.0,
+        }
+
+        decision = self._select(decision_service, controls, self._DISTRESS_METADATA)
+
+        assert controls["urgency_gain"] == 0.99
+        assert decision.selected_candidate["kind"] == "REAPPRAISE"
 
 
 # --------------------------------------------------------------------------

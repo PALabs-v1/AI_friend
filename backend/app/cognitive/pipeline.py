@@ -11,6 +11,7 @@ from ..config import Config
 from ..contracts import StateUpdate
 from ..persona.policy import PersonaPolicy
 from ..state.session_state import SessionState, persist_session_state
+from .action import _SAFE_FALLBACK_LINE
 from .action_intent import ActionIntent, ActionKind, build_action_intent
 from .behavior_contracts import BehaviorDecision
 from .decision import is_significant_valence
@@ -445,6 +446,28 @@ class CognitivePipeline:
                     yield chunk
                 full_response = retry_result["response"]
                 done_chunk = retry_result["done"]
+                if full_response:
+                    # The retry used to be trusted unchecked, so a model that
+                    # violated the boundary twice had the second violation
+                    # emitted and stored as what the agent said. Same recovery
+                    # as the action layer's own retry: speak the safe line and
+                    # keep the violating text out of memory (DR-032).
+                    still_valid, still_reason = await self.identity.validate_response(
+                        full_response, plan.goal
+                    )
+                    if not still_valid:
+                        logger.warning(
+                            f"[Identity] Retry also failed validation: {still_reason}. "
+                            "Yielding safe fallback."
+                        )
+                        full_response = _SAFE_FALLBACK_LINE
+                        fallback_chunk: dict[str, Any] = {
+                            "type": "content",
+                            "data": _SAFE_FALLBACK_LINE,
+                        }
+                        if is_spec:
+                            fallback_chunk["speculative"] = True
+                        yield fallback_chunk
         result["full_response"] = full_response
         result["done_chunk"] = done_chunk
 

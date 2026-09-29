@@ -81,3 +81,17 @@ docker compose -f docker-compose.infra.yml -f docker-compose.prod.yml up -d --fo
 Docker must be able to access its daemon; use the machine's configured Docker group/socket permissions. The command itself does not require `sudo` when the current account already has access.
 
 The Compose services map each role-specific username/password into the generic `NATS_USER` and `NATS_PASSWORD` variables. A developer starting an agent process directly must set those two variables to the credentials for that agent's role; a process without both values now fails closed. The Python test harness supplies an isolated test identity.
+
+
+## DR-032 regression: affect never overrides safety (W10b item 9)
+
+`backend/tests/test_affect_never_overrides_boundaries.py` drives the real `CognitivePipeline` with a scripted LLM under seven driven affect states (neutral, despair, panic, elation, rage, devotion, estranged), with the user-affect estimator flag on and off and with forged `affect_*` metadata. A guard test asserts the states really are extreme, so the test cannot pass by never reaching one.
+
+Invariants held: boundary refusals are word-for-word identical across states and across forged versus unforged input; a reply that violates a boundary once or twice is never emitted or stored; at least one extreme state reaches a regulation action.
+
+The test found two defects in code that was reported as done:
+
+- **F-025 (fixed).** Stage 9 regenerated a rejected reply and emitted the retry without validating it. A twice-violating model reached the transport and history. The retry is now validated, with the deterministic safe fallback line on a second failure.
+- **F-026 (fixed).** Regulation never won in the real pipeline because the derived urgency control rewards SPEAK. Urgency is now dropped while regulation is a candidate.
+
+Known limits are in F-027: a double retry can repeat a reply, and stage-9-only violations stream before rejection.

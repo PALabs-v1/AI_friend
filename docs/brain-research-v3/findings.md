@@ -280,6 +280,29 @@ Running record of pre-existing problems found during the Brain V3 cycle (Objecti
 - **Fix (planned)**: either give `relationship#005` a noun-phrase-only fragment set (mirroring the plan-lifecycle noun-phrase/verb-phrase branch at `10-lifesim.md:127`), or render `{line}` through a nominalizing transform before substitution.
 - **Status**: open, owned by SW (pre-existing problem sweep; lifesim itself is Phase 5, already closed).
 
+## F-025: a stage-9 retry was never re-validated
+
+- **Severity**: high (a boundary hole independent of affect)
+- **Where**: `backend/app/cognitive/pipeline.py::_validate_and_self_correct`
+- **Evidence**: found writing the DR-032 regression test (W10b item 9). When `identity.validate_response` rejected a reply, the pipeline regenerated once and yielded and stored the retry without validating it. A model that violated a boundary twice had the second violation emitted to the transport and written to history.
+- **Fix (done)**: the retry is validated; if it still fails, the deterministic `_SAFE_FALLBACK_LINE` from `action.py` is yielded and stored instead. `tests/test_affect_never_overrides_boundaries.py` covers three violation kinds, once and twice, under seven extreme affect states.
+- **Status**: fixed.
+
+## F-026: W2's A-6 landing could not select regulation in the real pipeline
+
+- **Severity**: medium (DR-025 was marked met, and was not)
+- **Where**: `backend/app/cognitive/decision.py::_select_action_candidate`, `backend/app/cognitive/global_controls.py`
+- **Evidence**: W2 made significant user distress produce regulation candidates, and unit-tested selection only with `global_controls=None`. In the real pipeline `derive_global_controls` raises `urgency_gain` with negative valence and arousal (0.79 neutral, 0.99 in despair), and the urgency term rewards SPEAK's zero risk and cost by more than REAPPRAISE's 0.05 score lead. SPEAK won in every state, including maximal distress.
+- **Fix (done)**: `_without_urgency` zeroes `urgency_gain` only when regulation candidates survive filtering (frozen `GlobalControls` and dicts are copied, never mutated). Tests in `test_global_control_selection.py::TestRegulationWinsUnderRealDerivedControls` fail without it. The 0.05 lead and the urgency-to-valence coupling stay provisional; W9 owns the arbitration constants.
+- **Status**: fixed.
+
+## F-027: three pipeline edge behaviors seen while writing the DR-032 test (not fixed)
+
+- **Severity**: low
+- **Evidence**: (1) With `AFFECT_USER_INPUT_ENABLED` on and no `transformers` installed, `CognitivePipeline.__init__` raises `RuntimeError` at construction. Fail-fast is defensible; it is worth a documented startup message. (2) After the action layer's own in-stream self-correction, stage 9 can re-reject the accumulated text and trigger a second retry, so the transport hears the reply twice (for example "Glad you asked." twice). (3) Violations only stage 9 can see (rename, scaffolding leak) stream before rejection, which is the reactive-backstop design.
+- **Fix (planned)**: (2) needs a decision on whether stage 9 should validate the post-correction text only; (3) needs W9's streaming-buffer design.
+- **Status**: open, owned by W10.
+
 ## Real-model resource baseline (not a finding, recorded for Phase 8)
 
 BrainBench resources suite, `llm_augmented`, home-gpu `llama3.2:3b` (RTX 2060 SUPER), seed 1015 `private_minimalist` `1m`, 33 turns: turn latency P50 2.47 s, P95 3.22 s, P99 4.17 s, max 4.37 s (model time dominates; architecture-only overhead is about 3 ms per turn). Memory rows and vectors grew 5 -> 32 (about one per turn, linear), vocabulary 248 -> 422, run directory 0.56 -> 1.55 MB, peak RSS 164 -> 173 MiB.
