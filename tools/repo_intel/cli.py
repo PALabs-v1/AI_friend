@@ -326,6 +326,10 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--prefix", default="")
     add("show", cmd_show, "one file's row and notes").add_argument("path")
     add("resume", cmd_resume, "compact grounding for a new session")
+    from . import intel_cli, knowledge_cli
+
+    intel_cli.register(add)
+    knowledge_cli.register(add)
     return p
 
 

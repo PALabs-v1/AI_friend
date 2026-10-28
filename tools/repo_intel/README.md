@@ -31,6 +31,27 @@ Reading every file is not the same as understanding it. The coverage report prin
 | `show PATH` | One file's row and all notes. | 0 |
 | `resume` | Compact grounding for a new session: coverage line, drift, next action. | 0 |
 
+### Structural index and knowledge commands (phases 2 to 5)
+
+| Command | What it does |
+|---|---|
+| `index [--json]` | Parse every in-scope file (Python `ast`, lexical Rust and JS/TS, SQL, Markdown, JSON, TOML, YAML), store symbols and relationship edges, set the PARSED and INDEXED stages. Refuses files that changed after the inventory. |
+| `symbols NAME` | Where a function, class or type is defined, with line range and decorators. |
+| `refs NAME` | Incoming static edges to a symbol, each tagged `proven`, `lexical`, `inferred` or `unresolved`. An empty answer is not proof of non-use. |
+| `deps PATH [--reverse]` | Files a file imports, or files that import it. |
+| `subjects [--filter S]` | NATS subject matrix across Python and Rust: publishers, subscribers, confidence. |
+| `unreferenced [--kind K]` | Symbols with no static call or import edge, printed with the count of dynamic constructs the index cannot see through. |
+| `claims add FILE.jsonl --author A --family F` | Record claims. Every evidence quote must occur in the cited lines of the current file. |
+| `claims verify [ID\|all] [--runtime]` | Run each claim's deterministic check. `--runtime` also runs allowlisted commands (no shell). |
+| `claims recheck` | After an edit: quotes that moved are re-bound, claims whose evidence vanished or whose checked files changed go `stale`. |
+| `claims packet ID` / `claims review ID --reader R --family F --verdict agree\|disagree\|unsure --note TEXT` | Independent review. The packet carries the claim and the cited source, never the author's reasoning. The author cannot review. |
+| `claims list [--status S]` / `claims show ID` | The ledger and one claim's history. |
+| `repair-notes` | Mark files that were read but failed the symbol check as reviewed by pruning symbols that do not occur in the file; the pruning is recorded in the note. |
+| `bench [--out FILE]` | Run the intelligence-system benchmark on fixtures with known ground truth. |
+| `audit [--out DIR] [--bench]` | Regenerate the architecture map, discrepancy report, debt registry and note-quality report. |
+
+Claim statuses: `unverified`, `supported`, `refuted`, `stale`, `disputed`, `verified`. `verified` needs a passing check and an agreeing independent reader. Negative claims ("no caller") stop at `supported` because static analysis cannot see dynamic dispatch. The full workflow is in `docs/engineering/repo-intel/USAGE.md`.
+
 The progress line in the owner's format (the console prints a real em dash where this shows a hyphen):
 
 ```
