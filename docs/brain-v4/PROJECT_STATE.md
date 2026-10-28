@@ -4,7 +4,7 @@
 
 ```yaml
 cycle: brain-v4-design
-current_phase: 02          # see "Phases" below; advanced only when the previous phase's exit criteria are met
+current_phase: 03          # see "Phases" below; advanced only when the previous phase's exit criteria are met
 status: in-progress        # not-started | in-progress | blocked | awaiting-decision | complete
 blocked_on: null                   # Phase 01 and 01b exit criteria met; Phase 02 is the architecture draft
 branch: main                       # direct pushes, D-016
@@ -60,3 +60,4 @@ Append one line per agent run. Newest at the bottom.
 | 2026-10-28 | claude | 01b | T5 compared (`research/phase01-compare/T5.md`; synthesis in `05-phase01-comparison.md` section 9a). Aniket: narrow role model gated by a pilot, no rented compute until the pilot gains, random weights as the claim, training data may include his logs and frontier outputs (D-034, provider-terms gate and R-14 mine). Two T5 questions left: where state lives, and the model interface now. |
 | 2026-10-28 | claude | 01b | Aniket: state stays external with an optional in-model cache; build the model interface and run the size sweep early (D-035; the sweep waits for a GPU go-ahead). Phase 01 and 01b exit criteria met: 15 reports compared, 35 decisions recorded (D-001 to D-035). Advancing to Phase 02, the architecture draft. |
 | 2026-10-28 | claude | 02 | Claude usage nearly exhausted, so Aniket told me to hand the draft to Codex. Launched Codex (`gpt-6-luna`, detached) to write `phases/02-architecture-draft.md` from decisions D-001 to D-035 and the Phase 01 files. Codex does not commit. **To resume:** check `phases/02-architecture-draft.md` exists and is complete (the Codex summary is in the session scratchpad `P02.codex.last.md` if still there), verify its file:line claims, commit and push to main, then start Phase 03 (cold critique by a different tool, max 2 rounds). Pending from Aniket: apply the V3 doc corrections in `research/v3-recheck.md`? |
+| 2026-10-28 | claude | 02-03 | Codex finished `phases/02-architecture-draft.md` (12 sections, about 7,000 words, pushed `fcfa5006`); its process then stalled on a network error at the closing summary and I stopped it. Not yet verified by me. Phase 03 started: cold critic round 1 by Antigravity (`gemini-3.8-flash-high`) against a frozen 9-point rubric, output `research/phase03-agy/round-1.md`. The critic sees the draft and the decisions, not how it was written. Round 2 only if round 1 fails and findings are fixed; never a round 3. |
