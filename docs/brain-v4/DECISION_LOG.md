@@ -310,3 +310,17 @@ Records every point where the work needs Aniket's judgment. Nothing here is reso
 **Status:** RESOLVED (2026-10-28, Aniket) · **Resolve by:** n/a · **Blocking:** no
 
 Aniket: another project is now working on home-gpu, and since this cycle has no GPU work, he gave it to that project. Effects here: nothing in this cycle runs on home-gpu until he hands it back. That blocks the early size sweep (D-035) and the owed W1 `llm_augmented` run (D-010). Neither is needed to finish Phases 02 to 04: the architecture, the critique and the slice plan do not use a GPU. D-013 still holds (ask before any use); when a slice needs the GPU, the plan asks Aniket for it back and does not assume it. Mac-only work (code, unit tests, no-LLM simulation, seconds-long Ollama smoke checks) is unchanged.
+
+---
+
+## D-037: Split the AI_friend repo into org repos
+**Status:** RESOLVED (2026-10-28, Aniket) · **Resolve by:** n/a · **Blocking:** no
+
+Aniket asked for the folder to be cleaned up and split along a proper org structure, using GitHub history to decide which results belong to whom. Survey (read-only): AI_friend holds product code (`backend/`, `frontend/`), three generations of brain research docs (`docs/brain-research`, `-v3`, `-v4`), benchmark results and scripts (`academic_benchmarks/`, `scripts/results`, `scripts/research`, `notebooks/`, `evidence/`), plus gitignored business notes (`outreach/`, `partnership/`, `orchestration/`, `evidence/IP_REVIEW_CANDIDATES.md`). Outside git: a 1.4 GB `AI_friend-research-data/` and an old `brain-v4/` archive.
+
+- **Layout.** "5 repos". `AI_friend` (product), `brain-research` (docs V2 and V3 now; V4 at cutover), `benchmarks`, `partnerships`, plus the existing `website` and `.github`.
+- **How files move.** "Filtered history". `git filter-repo` on a throwaway clone keeps each moved file's commits, authors and dates. AI_friend's own history is never rewritten.
+- **Outreach, partnership, IP notes.** "Private repo". `partnerships`, private. These were gitignored on purpose (they name real companies and people), so this is a change of earlier practice that Aniket chose.
+- **Timing.** "Copy now, delete later". The new repos are built from copies and the originals stay in AI_friend, including the frozen V3 docs (D-010). Removal, pointer files and path updates (CLAUDE.md, `backend/tests/test_doc_drift.py`, `tools/check_v3_*.py`) happen at a cutover after the Phase 03 critic finishes and Aniket unfreezes V3.
+
+**My additions, open to correction.** (1) The new repos start private; making one public is a later decision. (2) `docs/brain-v4/` is the live work log, so it is left out of the first copy and joins at cutover, to avoid two diverging copies. (3) The 1.4 GB research-data folder is not pushed (size, no large artifacts in git); the new `benchmarks` README describes it. (4) `orchestration/` stays local. (5) No LICENSE is copied until Aniket picks one per repo.
