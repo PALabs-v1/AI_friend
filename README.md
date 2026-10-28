@@ -323,6 +323,18 @@ AI_friend/
 └── docker-compose.heavy.yml               # Cognitive + local STT overlay, no voice cloning
 ```
 
+## Where things live
+
+This repo is the product: backend, frontend, deployment and the engineering ledger. Research records and benchmark results are being split out into sibling repos in the PALabs-v1 organization, with their git history kept:
+
+| Repo | Holds |
+|---|---|
+| [brain-research](https://github.com/PALabs-v1/brain-research) | Brain V2 and V3 design records, decisions and results (V4 joins later). Private for now. |
+| [benchmarks](https://github.com/PALabs-v1/benchmarks) | Academic benchmarks, result files, research scripts, notebooks. Private for now. |
+| [website](https://github.com/PALabs-v1/website) | The public site and documentation hub |
+
+Until the split finishes, the originals (`docs/brain-research*`, `academic_benchmarks/`, `scripts/results/`, `scripts/research/`, `notebooks/`) stay here unchanged. The current design cycle (Brain V4) is recorded in `docs/brain-v4/`; start with `PROJECT_STATE.md`.
+
 ## Hardware
 
 There is no packaged install yet (that's a stated future goal, not a current
