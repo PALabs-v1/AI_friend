@@ -77,7 +77,7 @@ The scratchpad is `/private/tmp/claude-501/-Users-aniketsaha-Projects-PALabs/10f
 
 ### 4.4 Background jobs at checkpoint time
 
-- Antigravity cold critic, round 1 of 2, on the four Wave A commits (pid 21353). Output file `docs/brain-v4/research/waveA-critic/round-1.md` does not exist yet (directory empty).
+- Antigravity cold critic, round 1 of 2, on the four Wave A commits. It finished after this checkpoint was first written: `docs/brain-v4/research/waveA-critic/round-1.md` exists (untracked, 15.8 KB) and its first line is `VERDICT: FAIL`. The table lists HIGH findings F-01 to F-04 at least (slice 0 subprocess not killed on cancellation; slice 14 hybrid search path skips the provenance check; slice 1 interventions accept a bare live `AgentState`; slice 1 multi-row `agent_state` catch-22). **None is verified by me yet.** Per the standing cap, the next step is to check each finding against the code, fix with tests, and run round 2 at most.
 
 ## 5. Known failing checks (found while writing this checkpoint)
 
@@ -96,7 +96,7 @@ From `phases/04-slice-plan.md` (16 slices, 2 split into 2a and 2b):
 
 | Wave | Slices | State |
 |---|---|---|
-| A | 0, 1, 6, 14 | built and pushed; cold critic round 1 pending; CI red (section 5); 12 unbound ledger rows remain from slice 1 |
+| A | 0, 1, 6, 14 | built and pushed; cold critic round 1 returned FAIL (section 4.4), unverified; CI red (section 5); 12 unbound ledger rows remain from slice 1 |
 | B | 2a (baseline harness), 13 (ModelRole routing) | not started; 2a depends on 0 and 1, 13 depends on 1 |
 | C | 2b, 4, 5, 7, 9, 10 | not started; 4, 5, 9 are judgment slices (two-variant tournament plus cold critic) |
 | D | 8, 11, 12, 15, 3 | not started; 11 is a judgment slice; 3 needs the GPU |
@@ -132,7 +132,7 @@ For Aniket (from `PROJECT_STATE.md` and the session record):
 2. `cd /Users/aniketsaha/Projects/PALabs/AI_friend` (the main checkout). Do not work in `~/.claude-worktrees/AI_friend-2527627756/10f9894b`; it is stale.
 3. `git fetch origin && git status` and compare with section 1. If HEAD differs, trust git over this file.
 4. Fix F1 and F2 first, with the matching tests, so `main` is green.
-5. Read the critic report when it exists (`docs/brain-v4/research/waveA-critic/round-1.md`). Verify each finding against the code, fix with tests, run round 2 at most. No round 3.
+5. Read the critic report (`docs/brain-v4/research/waveA-critic/round-1.md`, FAIL). Verify each finding against the code, fix with tests, run round 2 at most. No round 3.
 6. Continue with slice 2a and slice 13.
 7. Standing rules still apply: V3 frozen; no sudo; no secrets; LLM calls only through local Ollama or local Claude Code; GPU only with Aniket's go-ahead; never `--no-verify`; never force-push; before pushing `git fetch origin`, `git rebase origin/main`, `git push origin HEAD:main`.
 8. Remove the throwaway Docker container `pg_slice14_test` (port 55433) when Wave A is clean.
