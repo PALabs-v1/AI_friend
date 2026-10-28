@@ -86,11 +86,7 @@ class CognitivePipeline:
         session_store=None,
         workspace_store=None,
         temporal_memory_store=None,
-        plan_verifier=None,
-        plan_executor=None,
-        episodic_simulator=None,
         learning_governor=None,
-        offline_adapter_gate=None,
         provider_capability_negotiator=None,
         external_action_dispatcher=None,
     ):
@@ -111,11 +107,7 @@ class CognitivePipeline:
         self.session_store = session_store
         self.workspace_store = workspace_store
         self.temporal_memory_store = temporal_memory_store
-        self.plan_verifier = plan_verifier
-        self.plan_executor = plan_executor
-        self.episodic_simulator = episodic_simulator
         self.learning_governor = learning_governor
-        self.offline_adapter_gate = offline_adapter_gate
         self.provider_capability_negotiator = provider_capability_negotiator
         self.external_action_dispatcher = external_action_dispatcher
 

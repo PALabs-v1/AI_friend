@@ -16,11 +16,6 @@ from typing import Any
 
 from .. import clock
 from ..config import Config
-from ..llm.adapter_gate import (
-    OfflineAdapterGate,
-    compute_constitution_digest,
-    compute_prompt_digest,
-)
 from ..llm.model_roles import ProviderCapabilityNegotiator
 from ..metrics import SubjectMetrics
 from ..persona.biography import (
@@ -49,9 +44,7 @@ from .memory_activation import AntiInjectionGate, MemoryActivation, wrap_retriev
 from .percept import PerceptEnvelope
 from .perception import PerceptionService
 from .pipeline import CognitivePipeline, WorkspaceSnapshotLike
-from .planning import DeterministicPlanExecutor, DeterministicPlanVerifier
 from .reappraisal import ReappraisalEngine
-from .simulation import EpisodicSimulator
 
 logger = logging.getLogger(__name__)
 
@@ -98,21 +91,7 @@ class CognitiveService:
         self.temporal_memory_store = TemporalMemoryStore(
             getattr(Config, "TEMPORAL_MEMORY_DB_PATH", None) or temporal_db_path
         )
-        self.plan_verifier = DeterministicPlanVerifier()
-        self.plan_executor = DeterministicPlanExecutor()
-        self.episodic_simulator = EpisodicSimulator()
         self.learning_governor = LearningGovernor()
-        model_tag = Config.LLM_CHAT_MODEL or Config.LLM_FAST_MODEL
-        self.offline_adapter_gate = OfflineAdapterGate(
-            incumbent_adapter_id="base",
-            incumbent_base_model_tag=model_tag,
-            incumbent_prompt_digest=compute_prompt_digest(
-                self.identity.get_persona_prompt()
-            ),
-            incumbent_constitution_digest=compute_constitution_digest(
-                self.identity.persona
-            ),
-        )
         self.provider_capability_negotiator = ProviderCapabilityNegotiator()
         self.external_action_dispatcher = ExternalActionDispatcher()
         self.perception = PerceptionService(llm_service=llm_service)
@@ -185,11 +164,7 @@ class CognitiveService:
             session_store=self.session_store,
             workspace_store=self.workspace_store,
             temporal_memory_store=self.temporal_memory_store,
-            plan_verifier=self.plan_verifier,
-            plan_executor=self.plan_executor,
-            episodic_simulator=self.episodic_simulator,
             learning_governor=self.learning_governor,
-            offline_adapter_gate=self.offline_adapter_gate,
             provider_capability_negotiator=self.provider_capability_negotiator,
             external_action_dispatcher=self.external_action_dispatcher,
         )

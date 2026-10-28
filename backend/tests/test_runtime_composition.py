@@ -14,13 +14,7 @@ from app.cognitive.external_action import ExternalActionDispatcher
 from app.cognitive.learning_governance import LearningGovernor
 from app.cognitive.perception import CognitiveEvent
 from app.cognitive.pipeline import CognitivePipeline
-from app.cognitive.planning import (
-    DeterministicPlanExecutor,
-    DeterministicPlanVerifier,
-)
-from app.cognitive.simulation import EpisodicSimulator
 from app.config import Config
-from app.llm.adapter_gate import OfflineAdapterGate
 from app.llm.model_roles import ProviderCapabilityNegotiator
 from app.state.session_state import SessionState
 from app.state.temporal_store import TemporalMemoryStore
@@ -43,11 +37,7 @@ def test_cognitive_service_composes_phase_services(cognitive_service):
     expected_types = {
         "workspace_store": SQLiteWorkspaceStore,
         "temporal_memory_store": TemporalMemoryStore,
-        "plan_verifier": DeterministicPlanVerifier,
-        "plan_executor": DeterministicPlanExecutor,
-        "episodic_simulator": EpisodicSimulator,
         "learning_governor": LearningGovernor,
-        "offline_adapter_gate": OfflineAdapterGate,
         "provider_capability_negotiator": ProviderCapabilityNegotiator,
         "external_action_dispatcher": ExternalActionDispatcher,
     }
@@ -57,6 +47,15 @@ def test_cognitive_service_composes_phase_services(cognitive_service):
         assert getattr(cognitive_service.pipeline, attribute) is getattr(
             cognitive_service, attribute
         )
+    for attribute in (
+        "plan_verifier",
+        "plan_executor",
+        "episodic_simulator",
+        "offline_adapter_gate",
+        "capability_model",
+    ):
+        assert not hasattr(cognitive_service, attribute)
+        assert not hasattr(cognitive_service.pipeline, attribute)
     assert cognitive_service.learning.governor is cognitive_service.learning_governor
 
 
