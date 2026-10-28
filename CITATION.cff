@@ -22,3 +22,31 @@ keywords:
   - conversational-ai
   - python
   - rust
+references:
+  - type: conference-paper
+    title: "A Novel Framework for Improved Cognitive, Emotional, and Vocal Interaction in Conversational Humanoid Robots Assisted by Hybrid Neuromodulatory Network Architecture"
+    authors:
+      - family-names: "Saha"
+        given-names: "A."
+      - family-names: "Batra"
+        given-names: "S."
+      - family-names: "Dey"
+        given-names: "E."
+    collection-title: "2026 4th International Conference on Intelligent Cyber Physical Systems and Internet of Things (ICoICI)"
+    conference:
+      name: "2026 4th International Conference on Intelligent Cyber Physical Systems and Internet of Things (ICoICI)"
+      city: "Coimbatore"
+      country: IN
+    publisher:
+      name: "IEEE"
+    year: 2026
+    start: 975
+    end: 982
+    doi: "10.1109/ICoICI69824.2026.11723498"
+    url: "https://ieeexplore.ieee.org/document/11723498"
+    keywords:
+      - conversational humanoid robots
+      - cognitive architectures
+      - emotional interaction
+      - vocal interaction
+      - hybrid neuromodulatory networks
