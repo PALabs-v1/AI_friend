@@ -324,3 +324,26 @@ Aniket asked for the folder to be cleaned up and split along a proper org struct
 - **Timing.** "Copy now, delete later". The new repos are built from copies and the originals stay in AI_friend, including the frozen V3 docs (D-010). Removal, pointer files and path updates (CLAUDE.md, `backend/tests/test_doc_drift.py`, `tools/check_v3_*.py`) happen at a cutover after the Phase 03 critic finishes and Aniket unfreezes V3.
 
 **My additions, open to correction.** (1) The new repos start private; making one public is a later decision. (2) `docs/brain-v4/` is the live work log, so it is left out of the first copy and joins at cutover, to avoid two diverging copies. (3) The 1.4 GB research-data folder is not pushed (size, no large artifacts in git); the new `benchmarks` README describes it. (4) `orchestration/` stays local. (5) No LICENSE is copied until Aniket picks one per repo.
+
+---
+
+## D-038: Temperament may drift slowly, inside a band, after corroboration
+**Status:** RESOLVED (2026-10-28, Aniket delegated; Claude decided) · **Resolve by:** Phase 04 · **Blocking:** no
+
+Aniket was asked whether baseline mood and hormone half-lives (constitutional tier in `backend/app/persona/profile.py`, D-005, D-025) stay fixed or drift. His answer: "decide yourself which will help us creating closer to human mind".
+
+**Decision.** Slow drift within a band, off at first. Human temperament has high rank-order stability and still moves over years; the V4 identity band in `03-realism-eval.md:63` asks for exactly that, "neither frozen (r near 1, no drift) nor unstable". A mind whose temperament cannot move at all fails the first half of that band by design. Rules: (1) drift uses the same gate as D-025, N corroborating reflections on separate days; (2) it moves only inside a band set per mind at creation, with the band width and N taken from the lifesim sweep, not guessed; (3) every change records source, date, prior and new value and can be reverted on an offline copy; (4) it ships disabled until the sweep shows the band is stable and the identity probes still pass; (5) the immutable core (values, boundaries) never drifts (D-005). This needs the learning governor's tier rule (`learning.py:402-406`) changed for the temperament fields only, which is a code change for Phase 04, not made here. **Open to correction:** this was my call on Aniket's delegation; he can reverse it. See R-15.
+
+---
+
+## D-039: Months-long study runs on offline copies
+**Status:** RESOLVED (2026-10-28, Aniket) · **Resolve by:** Phase 04 · **Blocking:** no
+
+Aniket chose "Offline copies". The carryover problem is handled by running study conditions on offline copies of a mind (D-029), each deleted after, so no live mind is reset (D-025), swapped (D-026) or forked live (D-027). The cost is that claims are limited to what copies show; every result says so. The design still needs a pre-registered estimand and pass threshold in the realism-eval draft.
+
+---
+
+## D-040: Dead plan, simulation and calibration code: drop the wiring, keep the code until V3 closes
+**Status:** RESOLVED (2026-10-28, Aniket) · **Resolve by:** V3 close-out · **Blocking:** no
+
+Aniket chose "Keep code, drop wiring". This narrows D-028's "deleted unless V4 names a use" in time: now the live wiring is dropped (pipeline injection and the decision and candidate consumers that default to `PROCEED`), and the modules, the `AgentState.capability_model` field, the V3 benchmark scripts and their tests stay so V3 results can still be reproduced while V3 is frozen (D-010). The code is deleted for real when Aniket closes V3 out. Tests that assert the wiring are updated in the same slice.
