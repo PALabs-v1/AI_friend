@@ -12,6 +12,17 @@ Agents and boundaries: `backend/app/agents/brain_agent.py`, `backend/app/agents/
 
 Contracts: `backend/app/contracts.py`, `backend/crates/contracts/src/lib.rs`. Doc-drift guard: `backend/tests/test_doc_drift.py` — every path named above must resolve, or that test fails and CI catches it.
 
+## Owner override: work directly on `main` (Aniket, 2026-10-28)
+
+This section wins over "Branching" and "After every task" below for sessions run as Aniket (git user `Aniket-a14`). His words: "work directly on the repo, no prs nothing ... you can now push code directly to main."
+
+- Work in the checkout you are in (a harness-provided worktree is fine). Commit on `main` and push with `git push origin HEAD:main`. No feature branch, no PR, no per-session worktree ritual.
+- Before every push: `git fetch origin`, `git rebase origin/main`, and stop if the rebase fails rather than pushing a half-rebased tree. The pre-commit hooks pass, and so do the tests that cover the diff (see "Task sizing" for how many).
+- Still forbidden, unchanged: committing secrets, `--no-verify`, any force-push (including `--force-with-lease`), `reset --hard`, rewriting pushed history, `sudo`, and touching production without confirmation. Destructive operations still need explicit confirmation.
+- Two sessions in one checkout overwrite each other's files. Run one session at a time per checkout, or give the second one a worktree (it still pushes to `main`).
+- Contributors who are not Aniket keep the PR flow in "Branching"; `main` protection, where it exists, still binds them.
+- The work log for the current cycle is `docs/brain-v4/PROJECT_STATE.md`; its decisions are in `docs/brain-v4/DECISION_LOG.md`.
+
 ## How to work (high-level mindset)
 
 **This section is non-negotiable and must never be removed.**
@@ -53,6 +64,8 @@ This block is mandatory and verbose on purpose. Aniket reads it to see what mode
 - The final report restates what was actually run (which tests, which agents) so the triage call can be judged after the fact.
 
 ## Branching — one session, one worktree, one branch
+
+*Overridden for Aniket's own sessions by "Owner override" above (direct to `main`, no PR). The rest of this section still applies to every other contributor.*
 
 **This section is non-negotiable and must never be removed.** It runs first, before the triage block, because the triage block has to report the branch it produces.
 
@@ -361,6 +374,8 @@ Reporting a completion status is not the end of the task. Before the final repor
 - This rating is not the review. Wherever a critic pass applies (medium and large, per "Task sizing"), the rating happens only after every unit has passed it; a proud yes never substitutes for a critic pass, and a critic pass never skips the rating.
 
 ## After every task — commit, push, restart
+
+*For Aniket's own sessions, step 1 is replaced by "Owner override" above: commit, rebase on origin/main, push to `main`, no PR. Step 2 still applies.*
 
 Once a task is done, two things happen, no exceptions:
 

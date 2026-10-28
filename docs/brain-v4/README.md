@@ -1,7 +1,7 @@
 # Brain V4: base
 
-Started 2026-09-26. Tracked in the repo since 2026-10-28 (D-011), on branch
-`Aniket-a14/brain-v4-design-10f9894b`; an untracked copy remains at
+Started 2026-09-26. Tracked in the repo since 2026-10-28 (D-011) and worked
+directly on `main` (D-016); an untracked copy remains at
 `~/Projects/PALabs/brain-v4/` as an archive. Nothing here changes code.
 
 **Where are we:** `PROJECT_STATE.md` is the live source of truth. Decisions

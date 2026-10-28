@@ -6,8 +6,8 @@
 cycle: brain-v4-design
 current_phase: 00          # see "Phases" below; advanced only when the previous phase's exit criteria are met
 status: in-progress        # not-started | in-progress | blocked | awaiting-decision | complete
-blocked_on: D-013, D-014, D-015   # open decisions that gate Phase 01 (see DECISION_LOG.md)
-branch: Aniket-a14/brain-v4-design-10f9894b
+blocked_on: Aniket's review of the four briefs and the Antigravity model choice (research/briefs/)
+branch: main                       # direct pushes, D-016
 base: origin/main @ b0d54e0d       # PR #217 merged
 last_updated: 2026-10-28
 last_agent: claude
@@ -46,4 +46,4 @@ Append one line per agent run. Newest at the bottom.
 
 | Date | Agent | Phase | What happened |
 |---|---|---|---|
-| 2026-10-28 | claude | 00 | Re-oriented after a gap of about three weeks. Read the Glioma project's record system (PROJECT_STATE, DECISION_LOG, phase files, registries). Aniket decided: architecture-first cycle (D-009), V3 frozen not deleted (D-010), docs tracked in this repo (D-011), helpers Codex, Antigravity and Claude sub-agents, with Codex also allowed to write code (D-012). Created the branch from `origin/main`, copied `~/Projects/PALabs/brain-v4/` here (26 files, raw `*.log` excluded), added this file, `DECISION_LOG.md`, `RISK_REGISTER.md` and a resume prompt. Saved read-only copies of both W3 builds outside the repo. Checked: home-gpu reachable but changed. Looked for Vision Quest episodes 5 and 6: no recap found, so nothing from them is used yet. |
+| 2026-10-28 | claude | 00 | Re-oriented after a gap of about three weeks. Read the Glioma project's record system (PROJECT_STATE, DECISION_LOG, phase files, registries). Aniket decided: architecture-first cycle (D-009), V3 frozen not deleted (D-010), docs tracked in this repo (D-011), helpers Codex, Antigravity and Claude sub-agents, with Codex also allowed to write code (D-012). Created the branch from `origin/main`, copied `~/Projects/PALabs/brain-v4/` here (26 files, raw `*.log` excluded), added this file, `DECISION_LOG.md`, `RISK_REGISTER.md` and a resume prompt. Saved read-only copies of both W3 builds outside the repo. Then resolved D-013 to D-015 (home-gpu: ask each time; Vision Quest: portable identity and continuity after a transfer; framing: reactive, deliberative and reflective layers with identity across them; all four research briefs) and drafted the briefs in `research/briefs/`, not yet sent. Aniket then ordered direct work on `main` with no PRs (D-016); `CLAUDE.md` updated. Checked: home-gpu reachable but changed. Looked for Vision Quest episodes 5 and 6: no recap found, so nothing from them is used yet. |

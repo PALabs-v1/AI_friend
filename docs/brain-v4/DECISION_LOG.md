@@ -87,8 +87,23 @@ Records every point where the work needs Aniket's judgment. Nothing here is reso
 
 ---
 
+## D-016: Work directly on `main`, no PRs
+**Status:** RESOLVED (2026-10-28, Aniket, stated mid-session, not asked as a choice) · **Resolve by:** Phase 00 · **Blocking:** no
+
+**Decision.** In Aniket's words: "i want you to work directky now on the repo, no prs nothing, add that in your claude.md too ... you can niw push code directky to main". Commit on `main` and push with `git push origin HEAD:main`; no feature branch, no PR.
+
+**Consequence.**
+- Root `CLAUDE.md` has a new section, "Owner override: work directly on main", that wins over "Branching" and "After every task" for Aniket's sessions. Contributors keep the PR flow. The old text is kept, not deleted.
+- Guardrails kept: no secrets, no `--no-verify`, no force-push of any kind, no `reset --hard`, no `sudo`; rebase on `origin/main` and pass the hooks and covering tests before each push.
+- This supersedes the branch `Aniket-a14/brain-v4-design-10f9894b` and draft PR #219. The same commits go to `main`; GitHub then shows #219 as merged.
+- Not covered: PR #218 (`brain-v3`) is frozen by D-010. Pushing it to `main` is a separate decision for Aniket.
+
+---
+
 ## D-013: Use of home-gpu in this cycle
-**Status:** OPEN · **Resolve by:** Phase 01 · **Blocking:** yes for any GPU work
+**Status:** RESOLVED (2026-10-28, Aniket) · **Resolve by:** Phase 01 · **Blocking:** no
+
+**Decision.** "Do not use it; ask each time (Recommended)". No work on home-gpu without Aniket's go-ahead for that specific use. I do not even probe it beyond a reachability check when asked.
 
 **Question.** home-gpu now serves the Glioma capstone too, its storage and services changed, and Ollama is not running. Should this cycle use it?
 
@@ -99,7 +114,9 @@ Records every point where the work needs Aniket's judgment. Nothing here is reso
 ---
 
 ## D-014: What to take from Vision Quest (Jocasta)
-**Status:** OPEN · **Resolve by:** Phase 01 · **Blocking:** yes for the research briefs
+**Status:** RESOLVED (2026-10-28, Aniket) · **Resolve by:** Phase 01 · **Blocking:** no
+
+**Decision.** Ideas (1) portable identity and memory and (2) continuity after a transfer. Idea (3), the inherited-drive failure case, was not chosen; DR-032 stays as the standing rule and is not a research topic here. No account of episodes 5 and 6 was given, so none is used. Both ideas go into the identity-and-continuity brief as fiction-inspired questions, labeled as such (R-07).
 
 **Question.** What from the show should shape the design? I could not find a recap of episodes 5 and 6; the sources I found stop at episode 4 and say Jocasta holds the preserved consciousness of Dr. Josephine Carrington. Candidate ideas that fit this project: (1) identity and memory that can be separated from the model or body that runs them, so a mind can move between models (this is D-003 and D-005 pushed further); (2) what continuity means after a transfer, and what the system should say about itself; (3) the failure case, an inherited grudge or drive that overrides current judgment, which maps to our rule that no affect state overrides safety (DR-032).
 
@@ -108,7 +125,13 @@ Records every point where the work needs Aniket's judgment. Nothing here is reso
 ---
 
 ## D-015: How the closed loop is framed, and the Phase 01 plan
-**Status:** OPEN · **Resolve by:** Phase 00 · **Blocking:** yes for Phase 01
+**Status:** RESOLVED (2026-10-28, Aniket) · **Resolve by:** Phase 00 · **Blocking:** no
+
+**Decision.** Framing: "Layers instead of a loop", chosen over my loop proposal. Reactive, deliberative and reflective layers, with identity across them; the loop appears inside each layer. The two tests still apply to every part: it reads and writes named state, it changes a later behavior traceably, and it has a measure. "How close" is a profile of measures, not one score. Phase 01 briefs: all four offered (loop and layer structure, what changed in the field in 2026, identity and continuity, measuring "how close"), sent to Codex and Antigravity, with a Claude pass written before either report is read.
+
+**The original proposal, kept as the record.** perceive, appraise, remember, feel, decide, act, reflect, back to perceive, with identity as the slow variable. Phase 01 asks the researchers to compare the two framings, not only to fill in the chosen one.
+
+**Still to settle before launch.** Aniket reviews the four briefs (R-05) and picks the Antigravity model. See `research/briefs/`.
 
 **Question.** What counts as the "closed loop", and what does Phase 01 research?
 

@@ -10,7 +10,7 @@ Read `docs/brain-v4/PROJECT_STATE.md`.
 
 | `status` | What you do |
 |---|---|
-| `in-progress` | Resume `current_phase`. Read `git log --oneline origin/main..HEAD` on the branch named in the file and continue from the last commit. |
+| `in-progress` | Resume `current_phase`. Read `git log --oneline -10` and continue from the last commit. |
 | `awaiting-decision` or `blocked` | Re-read `blocked_on`. If `DECISION_LOG.md` now shows those entries RESOLVED, clear the field and continue. If not, present each open decision with its alternatives and recommendation, ask Aniket one question at a time, and stop. |
 | `not-started` | Begin `current_phase`. |
 | `complete` | Report; do not start new work without Aniket. |
@@ -32,9 +32,9 @@ Cross-check against reality (`git log --oneline -10`, `git worktree list`, `git 
 - **Independent research.** Codex and Antigravity (`agy`) each get the same brief and never see my conclusions or each other's reports. Keep their reports unedited. Compare in writing. Launch Codex detached. Briefs carry design text only (risk R-05).
 - **Critics never see builder reasoning.** Max 2 critic rounds per unit; after round 2, fix findings with tests and do not run a round 3.
 - **Honest claims.** No consciousness claim, ever. "Perceived coherence, shown by a blind test" is the working definition. Fiction gives ideas, not evidence (R-07).
-- **Mechanics.** One session, one worktree. Never push to `main`. Never `--no-verify`. No git writes in another agent's worktree. No `sudo`. Do not touch home-gpu without Aniket's go-ahead (D-013). LLM calls only through local Ollama or local Claude Code.
+- **Mechanics.** Work directly on `main` and push with `git push origin HEAD:main`, no PR (D-016; rebase on `origin/main` first). Never force-push. Never `--no-verify`. No git writes in another agent's worktree. No `sudo`. Do not touch home-gpu without Aniket's go-ahead (D-013). LLM calls only through local Ollama or local Claude Code.
 - **Style.** Direct, short, concrete. File names and line numbers. No em dashes. End with the next action.
 
 ## 4. Finish
 
-Append one line to the progress log in `PROJECT_STATE.md`, update `status`, `blocked_on` and `last_updated`, commit, and push the branch. Report one of: DONE, DONE_WITH_CONCERNS, BLOCKED, NEEDS_CONTEXT.
+Append one line to the progress log in `PROJECT_STATE.md`, update `status`, `blocked_on` and `last_updated`, commit, rebase on `origin/main` and push to `main`. Report one of: DONE, DONE_WITH_CONCERNS, BLOCKED, NEEDS_CONTEXT.
