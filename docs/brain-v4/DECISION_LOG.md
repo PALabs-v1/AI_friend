@@ -254,3 +254,14 @@ Records every point where the work needs Aniket's judgment. Nothing here is reso
 **Status:** RESOLVED (2026-10-28, Aniket) · **Resolve by:** Phase 02 · **Blocking:** no
 
 **Decision.** "Re-check all V3 docs V4 cites". Before the architecture draft cites any V3 statement, check it against the code at the current commit. Findings are written to `research/v3-recheck.md`. V3 stays frozen: nothing in `docs/brain-research-v3/` is edited until Aniket sees the findings and says so.
+
+---
+
+## D-031: Raters, work order and the layer map
+**Status:** RESOLVED (2026-10-28, Aniket) · **Resolve by:** Phase 04 · **Blocking:** no
+
+**Raters.** "You plus a few people (Recommended)". Aniket and a few trusted people rate the first studies. Claims are limited to an internal pilot (target preference 0.70 or higher). Aniket cannot be blind to the arm, so this is stated in every result. The 20 to 30 person blind pool stays tied to D-002's external study.
+
+**Work order.** "Measure, then fix (Recommended)". The intervention harness runs first and records the known defects as baselines (mood fed its own value `pipeline.py:817`, dead persona review queue `config.py:278`, stale facts winning retrieval M-5). Fixes follow, and the numbers must move.
+
+**Layer map.** "Reflex+interactive, deliberative, background (Recommended)". Reactive layer = the reflex and interactive paths. Deliberative layer = the deliberative path. Reflective layer = the background path (reflection, consolidation, dreams). The layer-lesion experiment pre-registers its predictions from this map: a reactive lesion degrades timing and barge-in and not memory truth; a deliberative lesion degrades planning and decision quality; a reflective lesion degrades cross-session identity and consolidation and not within-turn timing. No double dissociation means the layers are labels (null N5).
