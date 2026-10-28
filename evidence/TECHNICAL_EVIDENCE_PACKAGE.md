@@ -1,5 +1,8 @@
 # Brain Architecture: Technical Evidence Index
 
+> **Correction, 2026-10-28 (repo-intel claims #2, #3, #4; decision D-042).** Two statements below are out of date. The phasic cortisol half-life in the code is 4,500 s (`backend/app/config.py`, `CORTISOL_PHASIC_HALFLIFE_S`), not 600 s. The bi-temporal memory store marked [PROVEN] is constructed at `backend/app/cognitive/core.py:91` and passed to the pipeline, but no method of it is called anywhere on the live path; its [PROVEN] status refers to its own tests and benchmarks only. The text below is kept unchanged as history. See `docs/engineering/repo-intel/DISCREPANCY_REPORT.md`.
+
+
 **System Version:** AI Friend Brain Architecture
 **Validated Git Revision:** `156f3b7` / `7a7626f` (branch `main`)
 **Date:** 2026-09-05
@@ -17,7 +20,7 @@
 
 ## 1. Executive Technical Thesis
 
-The system is an embodied, state-first cognitive humanoid brain architecture designed for continuous, low-latency conversational interaction. It decouples enduring cognitive mental state, emotional regulation, autobiographical memory truth, and behavioral governance from the underlying foundation model. 
+The system is an embodied, state-first cognitive humanoid brain architecture designed for continuous, low-latency conversational interaction. It decouples enduring cognitive mental state, emotional regulation, autobiographical memory truth, and behavioral governance from the underlying foundation model.
 
 While commercial chatbots treat the Large Language Model as the entire intelligence, this architecture treats the foundation model strictly as a swappable inference engine for perception processing, deliberative planning, and linguistic surface realization. The agent's identity, emotional trajectory, bi-temporal belief network, and behavioral safety boundaries reside in an authoritative, single-owner state kernel that persists across sessions, model restarts, and provider migrations.
 

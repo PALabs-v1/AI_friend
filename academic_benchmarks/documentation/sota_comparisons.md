@@ -1,5 +1,8 @@
 # 📊 SOTA Comparisons & Empirical Performance Matrix
 
+> **Superseded, 2026-10-28 (repo-intel claim #5; decision D-044).** The 87.5% Recall@5 and the ToM figures in this document are unreconciled: `literature_review.md` in this folder states the same quantities are NOT MEASURED. Do not use any number here as a baseline. The Brain V4 baseline harness (slice 2a) produces the measured values. The text below is kept unchanged as history. See `docs/engineering/repo-intel/DISCREPANCY_REPORT.md`.
+
+
 This document provides a highly rigorous, multi-dimensional empirical comparison matrix contrasting the **AI Friend Multi-Agent Architecture (AI Friend)** against standard humanoid robot platforms and traditional academic architectures. It serves as a drop-in asset for the **Experimental Results and Evaluation** section of an academic manuscript.
 
 > [!NOTE]

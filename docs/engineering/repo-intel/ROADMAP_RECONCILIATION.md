@@ -7,9 +7,9 @@ Written for Aniket, who decides whether and in what order to resume the Brain V4
 | Earlier statement | Source | Audit verdict | Evidence |
 |---|---|---|---|
 | `TemporalMemoryStore` has no writer and no reader in the live path | Phase 03 critic round 2; checkpoint section 7 | Still supported, with one correction: it **is constructed** (`core.py:91`) and passed to the pipeline (`core.py:166`, stored `pipeline.py:109`), but no method is called on the instance anywhere in `backend/app` | claims #3 (verified, runtime grep), #4 (verified) |
-| The output filter blocks "as an AI" | Phase 01 comparison; checkpoint section 7 | Still supported | `action.py:722-727`, claim #42 |
+| The output filter blocks "as an AI", so D4 is not met | Phase 01 comparison; checkpoint section 7 | Reframed: D-018 says the block on stock disclaimer phrases stays. The real gap is that no backend test or eval asks a sincere "are you human?" question | `action.py:722-727`; claim #54 (corrects #42, which blamed the filter) |
 | Brain V3 W1, W2, W3, W11 are unbuilt | PROJECT_STATE | Narrowed: W11 is not on main (`learning.py:24,70`); W1 exists on the unmerged `brain-v3` branch, flag off (commit `9fd49a25`, not an ancestor of main) | claim #39; claim #18 disputed by the independent reader |
-| W4, W9, W10a, P8 landed | PROJECT_STATE | Still supported | `BackgroundScheduler` absent (#19), `backend/tools/scale` present (#29) |
+| W4, W9, W10a, P8 landed | PROJECT_STATE | Still supported; `BackgroundScheduler` was removed by W9, not W4 | #52 (corrects #19), `backend/tools/scale` present (#29) |
 | Local Claude Code client is missing (V4 critic F-10) | Phase 03 round 1 | Superseded: `llm/__init__.py:86-91` builds `ClaudeCodeClient` | #17 verified |
 | Hybrid search skips embedding provenance (Wave A critic F-02) | Wave A critic round 1 | Overstated: the scope assert is called at one site, but the row-level `_check_row_embedding` is called five times on other paths | #41; #28 disputed |
 | No local claude-code `finally` or cancellation handling (Wave A critic F-01) | Wave A critic round 1 | Still supported | #16 |
@@ -24,7 +24,7 @@ Written for Aniket, who decides whether and in what order to resume the Brain V4
 1. **Two benchmark documents contradict each other on measured recall** (#5 verified). Slice 2a builds the baseline harness; its numbers must not be compared against `sota_comparisons.md` until that document is retracted or sourced.
 2. **Bi-temporal memory is constructed but dead on the live path** (#3). Slices 4 and 5 (mood self-feed NF-12, integrity update NF-23) and any belief-revision work assume a working temporal store. Decide first whether slices wire it in or the evidence package stops calling it proven.
 3. **A subscribed subject with no publisher** (`voice.segmentation_feedback`, #32 verified). The brain's voice-feedback handler cannot fire; any slice that relies on segmentation feedback needs the publisher built first.
-4. **Healthchecks that cannot fail or only prove NATS** (#14 verified: Qdrant `|| exit 0`; #38: nine bare `nc -z` probes). Any slice that ships a new service or depends on "healthy" for gating inherits this.
+4. **Healthchecks that cannot fail or only prove NATS** (#14 verified: Qdrant `|| exit 0`; #53: seven bare `nc -z nats_mesh 4222` probes). Any slice that ships a new service or depends on "healthy" for gating inherits this.
 5. **Four disputed claims were author errors** (see `BENCHMARK.md`). Treat any earlier audit statement that has no check and no independent reader as a hypothesis.
 
 ## 3. Recommended order
@@ -45,7 +45,7 @@ Owner decisions this audit surfaces, none taken here: whether to apply the docum
 ## 4. What stays uncertain
 
 - Behaviour at runtime: no services, GPU or LiveKit session were used. Test logs from the Mac and home-gpu are cited, not re-run on GPU.
-- The 4 disputed claims were corrected; the 4 corrected claims (#38 to #41) and the architecture claims added after the review have **not** had an independent reader. They are `supported`, not `verified`.
+- The 4 disputed claims were corrected; the corrected claims #38 to #41 and #52 to #54 have **not** had an independent reader. They are `supported`, not `verified`. A second Claude reviewer later checked 34 more claims and disagreed with 3 (#19, #38, #42), each an overstatement of mine, now superseded by #52, #53 and #54.
 - Dynamic dispatch: 16 dynamic constructs in production code; any "unused" conclusion near them is a lead.
 - `.agents/CONTEXT.md` (17,202 lines) was read in part. The 2026-04 to 2026-09 entries it holds were not individually checked against the code.
 

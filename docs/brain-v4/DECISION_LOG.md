@@ -354,3 +354,33 @@ Aniket chose "Keep code, drop wiring". This narrows D-028's "deleted unless V4 n
 **Status:** RESOLVED (2026-10-28, Aniket) · **Resolve by:** n/a · **Blocking:** no
 
 Aniket approved `phases/04-slice-plan.md` as written (slices 0 to 15, with 2 split into 2a and 2b), chose to start Wave A now (slices 0, 1, 6, 14: no model run, no GPU), and chose "Split by type" for builders: Claude builds judgment slices (1, 4, 5, 9, 11, 12), Codex builds mechanical slices (0, 6, 13, 14). Each slice gets a cold critic from a different tool, max 2 rounds, no third. Codex builds in throwaway git worktrees and does not commit; Claude reviews each diff, runs the covering tests, and commits to `main`.
+
+---
+
+## D-042: Bi-temporal memory: correct the evidence now, wire it in slices 4 and 5
+**Status:** RESOLVED (2026-10-28, Aniket) · **Resolve by:** slice 4 · **Blocking:** no
+
+The repo-intel audit found `TemporalMemoryStore` constructed (`core.py:91`) and injected but never called on the live path, while `evidence/` marks bi-temporal memory [PROVEN] (claims #3, #4). Aniket chose: correct the evidence package now (done: banner in `evidence/TECHNICAL_EVIDENCE_PACKAGE.md`), and wire the store inside slices 4 and 5 where belief revision is already planned, after the baseline harness exists so the effect can be measured. No behaviour change today.
+
+---
+
+## D-043: voice.segmentation_feedback stays recorded, not fixed yet
+**Status:** RESOLVED (2026-10-28, Aniket) · **Resolve by:** the first slice that needs segmentation feedback · **Blocking:** no
+
+The brain subscribes to `voice.segmentation_feedback` and nothing publishes it (claim #32, verified). Aniket chose to record it in the debt registry and decide in the slice that needs it: that slice builds the publisher, or deletes the handler and its durable consumer if no slice needs it.
+
+---
+
+## D-044: sota_comparisons.md is marked superseded
+**Status:** RESOLVED (2026-10-28, Aniket) · **Resolve by:** slice 2a · **Blocking:** no
+
+`academic_benchmarks/documentation/sota_comparisons.md` reports 87.5% Recall@5 while `literature_review.md` says it is not measured (claim #5, verified). Aniket chose to mark it superseded with a pointer (done: banner), keep the history, and take baselines only from the slice 2a harness.
+
+---
+
+## D-045: Cross-family review of the repo-intel tooling and ledger
+**Status:** RESOLVED (2026-10-28, Aniket) · **Resolve by:** this session · **Blocking:** no
+
+The directive asks for independent review; the only second reader so far was a same-family Claude sub-agent. Aniket chose a bounded Codex pass over the claims ledger and `tools/repo_intel`, recorded as reviews with reader and family. Costs Codex usage; no GPU.
+
+**Outcome (2026-10-28).** Codex returned a usage-limit error on the first call, so no cross-family review ran. Per the directive (section 9) the limit is recorded and a second fresh Claude reviewer did the pass instead: 34 claims (31 agreed, 3 disagreed and were superseded) and a code review of the tooling (8 defects, all fixed with tests). Both reviewers are the same model family as the author. Re-run with Codex when its limit resets.

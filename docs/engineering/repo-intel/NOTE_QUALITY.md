@@ -2,9 +2,9 @@
 
 Not the independent second reader. It checks what a script can check about the notes written during the read phase.
 
-- Notes cross-checked: 918
-- `depends_on` paths that resolve exactly: 1743 of 2787; resolve only as a unique path suffix (written short): 682; do not resolve: 362 (13.0%)
-- Code files with 3 or more public top-level definitions: 362; mean share of those definitions the note names: 77.5%
+- Notes cross-checked: 921
+- `depends_on` paths that resolve exactly: 1729 of 2761; resolve only as a unique path suffix (written short): 670; do not resolve: 362 (13.1%)
+- Code files with 3 or more public top-level definitions: 365; mean share of those definitions the note names: 77.4%
 - Files whose note names none of their public definitions: 0
 
 ## Notes citing paths that do not exist
@@ -61,6 +61,7 @@ Not the independent second reader. It checks what a script can check about the n
 | backend/tests/test_learning_governance.py | 3 | 70 | 4% |
 | backend/crates/voice-agent/src/main.rs | 8 | 137 | 6% |
 | backend/tests/test_brainbench_bargein_suite.py | 2 | 22 | 9% |
+| tools/repo_intel/cli.py | 1 | 11 | 9% |
 | backend/tests/test_persona_authoring.py | 3 | 25 | 12% |
 | backend/tests/test_memory_ranking.py | 5 | 39 | 13% |
 | backend/tests/test_lifesim_core.py | 3 | 23 | 13% |
@@ -80,4 +81,3 @@ Not the independent second reader. It checks what a script can check about the n
 | backend/tests/test_anthropic_client.py | 5 | 23 | 22% |
 | backend/tests/test_phasic_adrenaline.py | 5 | 23 | 22% |
 | backend/tests/test_brainbench_proactive_suite.py | 2 | 9 | 22% |
-| backend/crates/contracts/src/lib.rs | 13 | 57 | 23% |

@@ -454,7 +454,7 @@ class _PyVisitor(ast.NodeVisitor):
                 for kw in node.keywords:
                     if kw.arg == "subject":
                         arg = kw.value
-            self._bus(f.attr, arg, node)
+            self._bus(f.attr, arg, node, quiet=(f.attr == "request"))
         elif fname and ("publish" in fname or "subscribe" in fname) and node.args:
             # helper or callback (publish_cb, _publish, subscribe_all): only a readable subject counts
             self._bus(fname, node.args[0], node, quiet=True)
@@ -531,6 +531,18 @@ class _PyVisitor(ast.NodeVisitor):
                 "kind": "CALLS",
             }
         )
+        # a function passed by reference (callback, handler, executor target) is reachable too
+        for a in [*node.args, *(k.value for k in node.keywords)]:
+            if isinstance(a, (ast.Name, ast.Attribute)):
+                self.out.raw_calls.append(
+                    {
+                        "src": self.qual(),
+                        "cls": self.cls(),
+                        "func": a,
+                        "line": node.lineno,
+                        "kind": "REFERENCES",
+                    }
+                )
         self.generic_visit(node)
 
     def _bus(self, verb, arg, node, quiet=False):
@@ -608,6 +620,9 @@ def extract_python(path: str, text: str) -> Extract:
 # ---------------------------------------------------------------- lexical (Rust, JS/TS, SQL)
 
 
+RS_CHAR = re.compile(r"'(?:\\(?:x[0-9a-fA-F]{2}|u\{[0-9a-fA-F_]+\}|.)|[^\\'\n])'")
+
+
 def _blank(text: str, rust: bool) -> str:
     """Blank comments and string bodies, keeping length and newlines, so brace counts hold."""
     out, i, n = [], 0, len(text)
@@ -634,6 +649,23 @@ def _blank(text: str, rust: bool) -> str:
                 + "".join("\n" if ch == "\n" else " " for ch in text[i + 1 : j - 1])
                 + '"'
             )
+            i = j
+        elif c == "'" and rust:
+            lit = RS_CHAR.match(text, i)
+            if (
+                lit
+            ):  # a char literal such as '{' or '"'; a lifetime like 'a falls through
+                out.append("'" + " " * (lit.end() - i - 2) + "'")
+                i = lit.end()
+            else:
+                out.append(c)
+                i += 1
+        elif c == "'" and not rust:
+            j = i + 1
+            while j < n and text[j] not in "'\n":
+                j += 2 if text[j] == "\\" else 1
+            j = min(j + 1, n)
+            out.append("'" + "".join(" " for _ in text[i + 1 : j - 1]) + "'")
             i = j
         elif c == "`" and not rust:
             j = text.find("`", i + 1)
@@ -664,6 +696,7 @@ RS_BUS = re.compile(
 RS_CONST = re.compile(
     r'(?:pub\s+)?const\s+([A-Z][A-Z0-9_]*)\s*:\s*&(?:\'static\s+)?str\s*=\s*"([^"]*)"'
 )
+RS_SELF_CALL = re.compile(r"\bself\.([a-z_]\w*)\s*\(")
 RS_CALL = re.compile(r"(?<![\w.])(?:[\w]+::)*([a-z_]\w*)\s*\(")
 
 
@@ -766,7 +799,23 @@ def extract_rust(path: str, text: str) -> Extract:
                     "local": callee in names_here,
                 }
             )
-    for m in RS_BUS.finditer(text):
+        for m in RS_SELF_CALL.finditer(body):
+            callee = m.group(1)
+            if callee in names_here:
+                out.raw_calls.append(
+                    {
+                        "src": q,
+                        "name": callee,
+                        "line": _line_of(text, s + m.start()),
+                        "local": True,
+                    }
+                )
+    for mb in RS_BUS.finditer(
+        blank
+    ):  # find in code only, then read the argument from the real text
+        m = RS_BUS.match(text, mb.start())
+        if m is None:
+            continue
         verb, arg = m.group(1), m.group(2)
         owner = next((q for s, e, q in fn_spans if s <= m.start() < e), "<module>")
         kind = "SUBSCRIBES" if verb.startswith("subscribe") else "PUBLISHES"
@@ -1511,10 +1560,16 @@ def build_index(conn: sqlite3.Connection, root: Path) -> IndexResult:
             rs.resolve_doc(ex)
     conn.execute("BEGIN IMMEDIATE")
     try:
-        conn.execute("DELETE FROM edges")
-        conn.execute("DELETE FROM symbols")
+        # Only files that parsed this time are replaced. A file that failed to parse or changed after
+        # the inventory keeps its previous rows (its stage stays behind, so the gate reports it); wiping
+        # them would silently turn every caller edge it held into a false "no caller".
+        live = "SELECT id FROM files WHERE in_scope=1 AND present=1"
+        conn.execute(f"DELETE FROM edges WHERE file_id NOT IN ({live})")
+        conn.execute(f"DELETE FROM symbols WHERE file_id NOT IN ({live})")
         for p, ex in extracts.items():
             fid, sha = ids[p], hashes[p]
+            conn.execute("DELETE FROM edges WHERE file_id=?", (fid,))
+            conn.execute("DELETE FROM symbols WHERE file_id=?", (fid,))
             conn.executemany(
                 "INSERT INTO symbols (file_id, sha256, kind, name, qualname, line, end_line, decorators) VALUES (?,?,?,?,?,?,?,?)",
                 [
@@ -1588,9 +1643,9 @@ def refs_to(conn, name: str, limit: int = 60):
     return conn.execute(
         "SELECT f.path AS src_path, e.kind, e.src, e.dst, e.line, e.confidence, t.path AS dst_path "
         "FROM edges e JOIN files f ON f.id=e.file_id LEFT JOIN files t ON t.id=e.dst_file_id "
-        "WHERE e.kind IN ('CALLS','STARTS_TASK','IMPORTS','INHERITS','DECORATED_BY','TEST_VALIDATES') "
-        "AND (e.dst=? OR e.dst=? OR e.dst LIKE ? OR e.evidence LIKE ?) ORDER BY e.confidence, f.path, e.line LIMIT ?",
-        (name, last, f"%.{last}", f"% import {last}%", limit),
+        "WHERE e.kind IN ('CALLS','STARTS_TASK','REFERENCES','IMPORTS','INHERITS','DECORATED_BY','TEST_VALIDATES') "
+        "AND (e.dst=? OR e.dst=? OR e.dst LIKE ? OR e.dst LIKE ? OR e.evidence LIKE ?) ORDER BY e.confidence, f.path, e.line LIMIT ?",
+        (name, last, f"%.{last}", f"%::{last}", f"% import {last}%", limit),
     ).fetchall()
 
 
@@ -1627,7 +1682,7 @@ def unreferenced(conn, kind: str = "function"):
     rows = conn.execute(
         "SELECT f.path, s.qualname, s.line FROM symbols s JOIN files f ON f.id=s.file_id "
         "WHERE s.kind=? AND f.path NOT LIKE '%/tests/%' AND f.path NOT LIKE 'tests/%' AND s.name NOT LIKE '\\_%' ESCAPE '\\' AND s.decorators='' "
-        "AND NOT EXISTS (SELECT 1 FROM edges e WHERE e.kind IN ('CALLS','STARTS_TASK') AND e.dst IN (s.name, s.qualname) AND e.dst_file_id=s.file_id) "
+        "AND NOT EXISTS (SELECT 1 FROM edges e WHERE e.kind IN ('CALLS','STARTS_TASK','REFERENCES') AND e.dst IN (s.name, s.qualname) AND e.dst_file_id=s.file_id) "
         "AND NOT EXISTS (SELECT 1 FROM edges e WHERE e.kind='IMPORTS' AND e.evidence LIKE '% import ' || s.name || '%') "
         "ORDER BY f.path, s.line",
         (kind,),

@@ -17,7 +17,7 @@ Written for engineers resuming the Brain V4 roadmap. Basis: revision `e09ca80059
 | `transport_agent` | Python | LiveKit WebRTC bridge: PCM in and out, playback lifecycle, backlog and progress. | `app/agents/transport_agent.py` |
 | `stt_agent` | Rust | Speech to text (whisper.cpp), acoustic features. | `backend/crates/stt-agent` |
 | `voice_agent` | Rust | Text to speech, prosody, DSP; publishes `audio.stream` and visemes. | `backend/crates/voice-agent` |
-| `vision_agent` | Python | Camera and screen description, facial reflex. Active in the prod compose (#23 contradicts the ledger, which says it is commented out). | `app/vision/agent.py` |
+| `vision_agent` | Python | Camera and screen description, facial reflex. Defined in the prod compose behind `profiles: [ vision ]`, so it starts only on request (#40; the ledger saying it is commented out is wrong). | `app/vision/agent.py` |
 | `frontend` | TypeScript | Web client. | `frontend/` |
 
 Shared Rust crates: `contracts` (subject constants and message types, mirrored by `app/contracts.py`) and `cognitive-rust` (PyO3 hot path, imported by `app/cognitive/expression.py:15` unconditionally and by `appraisal.py:298` lazily; #25).
@@ -89,7 +89,7 @@ These are not the same conclusion (directive section 13). For the subsystems whe
 | `voice.segmentation_feedback` handler | yes | yes | no (no publisher) | durable consumer created | never fires | not applicable |
 | Playback lifecycle COMPLETED records | yes | yes | yes: `transport_agent.py:573-580` publishes after playout | subject in `contracts.py:50` | not run by this audit | ADR-003 says it never fires in production; that is superseded (#1) |
 | Hybrid memory ranking | yes | yes | yes, default (`config.py:333`, #6) | `MEMORY_RANKING_POLICY=hybrid` | ran in the Brain V2 benchmark (`docs/brain-research/`) | held-out hit@3 0.02 to 0.69 reported there; embedding-provenance check covers only one retrieval path (#28) |
-| Vision | yes | yes | yes, service in prod compose | `vision` profile comments in compose | not run by this audit | no live evidence in this audit |
+| Vision | yes | yes | yes when the `vision` profile is enabled (#40) | `profiles: [ vision ]` in compose | not run by this audit | no live evidence in this audit |
 | Learning governor, external action dispatcher, provider negotiator | yes | yes: constructed in `core.py:94-96` | constructed; call sites not traced by this audit | no flags found | tests only | not assessed |
 | Brain V3 W1, W2, W3, W11 | no | flags exist only in `evals/brainbench/switchboard.py`; `learning.py` still uses `LearningReviewQueue` (#18) | no | no | no | not applicable |
 

@@ -45,8 +45,10 @@ Reading every file is not the same as understanding it. The coverage report prin
 | `claims verify [ID\|all] [--runtime]` | Run each claim's deterministic check. `--runtime` also runs allowlisted commands (no shell). |
 | `claims recheck` | After an edit: quotes that moved are re-bound, claims whose evidence vanished or whose checked files changed go `stale`. |
 | `claims packet ID` / `claims review ID --reader R --family F --verdict agree\|disagree\|unsure --note TEXT` | Independent review. The packet carries the claim and the cited source, never the author's reasoning. The author cannot review. |
+| `claims supersede OLD --by NEW` | Keep a wrong claim in the ledger, replaced by a corrected one. |
 | `claims list [--status S]` / `claims show ID` | The ledger and one claim's history. |
 | `repair-notes` | Mark files that were read but failed the symbol check as reviewed by pruning symbols that do not occur in the file; the pruning is recorded in the note. |
+| `preflight T`, `impact PATH`, `changes`, `status`, `gate [--strict]`, `map` | The engineering preflight, change impact, change tracking, one-screen status, completion gate (exit 1 while evidence is stale, disputed or failed) and the architecture map. See `docs/engineering/repo-intel/USAGE.md`. |
 | `bench [--out FILE]` | Run the intelligence-system benchmark on fixtures with known ground truth. |
 | `audit [--out DIR] [--bench]` | Regenerate the architecture map, discrepancy report, debt registry and note-quality report. |
 

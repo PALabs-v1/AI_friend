@@ -117,8 +117,74 @@ GIT_READONLY = {
     "blame",
     "check-ignore",
     "merge-base",
-    "branch",
 }
+
+
+GIT_DENIED_ARGS = (
+    "--output",
+    "-O",
+    "--open-files-in-pager",
+    "--ext-diff",
+    "--textconv",
+    "--exec",
+    "-c",
+    "-C",
+    "--git-dir",
+    "--work-tree",
+)
+REQUIRED_KEYS = {
+    "file_exists": ["path"],
+    "file_missing": ["path"],
+    "contains": ["path", "text"],
+    "not_contains": ["path", "text"],
+    "regex": ["path", "pattern"],
+    "symbol_defined": ["name"],
+    "symbol_missing": ["name"],
+    "no_static_callers": ["name"],
+    "called_from_tests": ["name"],
+    "edge_exists": ["kind"],
+    "edge_count": ["kind"],
+    "subject_wired": ["subject"],
+    "runtime": ["argv"],
+}
+
+
+def validate_runtime_argv(argv) -> None:
+    """Runtime checks may read and run the repo's own tests; they may not run arbitrary code or change the repo."""
+    if (
+        not isinstance(argv, list)
+        or not argv
+        or not all(isinstance(a, str) and "\x00" not in a for a in argv)
+    ):
+        raise ClaimError("runtime argv must be a non-empty list of strings")
+    prog, rest = argv[0], argv[1:]
+    if prog not in RUNTIME_ALLOW:
+        raise ClaimError(f"runtime program must be one of {sorted(RUNTIME_ALLOW)}")
+    if prog in ("python", "python3") and rest[:2] != ["-m", "pytest"]:
+        raise ClaimError(
+            "runtime python is limited to `-m pytest ...`; arbitrary code is not allowed"
+        )
+    if prog == "cargo" and (not rest or rest[0] not in ("test", "check")):
+        raise ClaimError("runtime cargo is limited to test and check")
+    if prog == "ruff" and (
+        not rest
+        or rest[0] != "check"
+        or any(a.startswith("--fix") or a == "--unsafe-fixes" for a in rest)
+    ):
+        raise ClaimError("runtime ruff is limited to `check` without fixes")
+    if prog == "git":
+        if not rest or rest[0] not in GIT_READONLY:
+            raise ClaimError("runtime git is limited to read-only subcommands")
+        if any(
+            a == d
+            or a.startswith(d + "=")
+            or (len(d) == 2 and a.startswith(d) and a != "--")
+            for a in rest[1:]
+            for d in GIT_DENIED_ARGS
+        ):
+            raise ClaimError(
+                "runtime git argument is not allowed (it could write files or run commands)"
+            )
 
 
 class ClaimError(ValueError):
@@ -129,9 +195,47 @@ def now() -> str:
     return datetime.now(UTC).isoformat(timespec="seconds")
 
 
+NEW_CLAIM_COLUMNS = {
+    "subsystem": "TEXT NOT NULL DEFAULT ''",
+    "revision": "TEXT NOT NULL DEFAULT ''",
+    "last_verified_rev": "TEXT NOT NULL DEFAULT ''",
+    "depends_on_claims": "TEXT NOT NULL DEFAULT '[]'",
+    "contradicting": "TEXT NOT NULL DEFAULT ''",
+}
+
+
 def ensure_schema(conn: sqlite3.Connection) -> None:
     conn.executescript(DDL)
+    have = {r[1] for r in conn.execute("PRAGMA table_info(claims)")}
+    for col, decl in NEW_CLAIM_COLUMNS.items():
+        if col not in have:
+            conn.execute(f"ALTER TABLE claims ADD COLUMN {col} {decl}")
     structure.ensure_schema(conn)
+
+
+def _head(root: Path) -> str:
+    try:
+        from . import gitinfo
+
+        return gitinfo.head_commit(root)[:12]
+    except Exception:  # not a git checkout: record that, do not fail the claim
+        return "unknown"
+
+
+def _subsystem(spec: dict) -> str:
+    if spec.get("subsystem"):
+        return str(spec["subsystem"])
+    paths = [e["path"] for e in spec.get("evidence") or []] + [
+        (spec.get("check") or {}).get(k, "") for k in ("path", "src_path")
+    ]
+    for p in paths:
+        if p:
+            parts = p.split("/")
+            if parts[0] == "backend" and len(parts) > 2:
+                deep = parts[1] in ("app", "crates") and len(parts) > 3
+                return "/".join(parts[:3] if deep else parts[:2])
+            return parts[0]
+    return (spec.get("check") or {}).get("subject", "") or "repo"
 
 
 def _history(conn, cid, actor, old, new, reason):
@@ -186,6 +290,18 @@ def check_paths(spec: dict) -> list[str]:
     return [spec[k] for k in ("path", "src_path") if isinstance(spec.get(k), str)]
 
 
+def code_fingerprint(conn) -> str:
+    """Hash of every in-scope code file. Index-wide checks (callers, edges, subjects) depend on code,
+    not on documents, so a documentation edit or a regenerated report must not stale them."""
+    h = hashlib.sha256()
+    for r in conn.execute(
+        "SELECT path, sha256 FROM files WHERE in_scope=1 AND present=1 "
+        "AND language IN ('python','rust','javascript','typescript','sql') ORDER BY path"
+    ):
+        h.update(f"{r[0]}\0{r[1]}\n".encode())
+    return h.hexdigest()
+
+
 def _input_hashes(conn, spec) -> dict[str, str]:
     out = {}
     for p in check_paths(spec):
@@ -202,10 +318,7 @@ def _input_hashes(conn, spec) -> dict[str, str]:
     ) or (
         spec["type"] in ("contains", "not_contains", "regex") and not spec.get("path")
     ):
-        row = conn.execute(
-            "SELECT tree_fingerprint FROM snapshots ORDER BY id DESC LIMIT 1"
-        ).fetchone()
-        out["*index*"] = row[0] if row else "<none>"
+        out["*index*"] = code_fingerprint(conn)
     return out
 
 
@@ -234,7 +347,7 @@ def run_check(
             ok = n > 0 if t == "contains" else n == 0
             detail = f"{spec['text']!r} occurs {n} time(s) in {spec['path']}"
     elif t in ("symbol_defined", "symbol_missing"):
-        rows = structure.find_symbols(conn, spec["name"], 200)
+        rows = structure.find_symbols(conn, spec["name"], 1_000_000)
         if spec.get("path"):
             rows = [r for r in rows if r["path"] == spec["path"]]
         if spec.get("kind"):
@@ -246,8 +359,9 @@ def run_check(
     elif t == "no_static_callers":
         refs = [
             r
-            for r in structure.refs_to(conn, spec["name"], 500)
-            if r["kind"] in ("CALLS", "STARTS_TASK", "INHERITS", "DECORATED_BY")
+            for r in structure.refs_to(conn, spec["name"], 1_000_000)
+            if r["kind"]
+            in ("CALLS", "STARTS_TASK", "REFERENCES", "INHERITS", "DECORATED_BY")
             and not (spec.get("exclude_tests", True) and _in_tests(r["src_path"]))
             and not (spec.get("exclude_path") and r["src_path"] == spec["exclude_path"])
         ]
@@ -263,7 +377,7 @@ def run_check(
     elif t == "called_from_tests":
         refs = [
             r
-            for r in structure.refs_to(conn, spec["name"], 500)
+            for r in structure.refs_to(conn, spec["name"], 1_000_000)
             if r["kind"] in ("CALLS", "STARTS_TASK") and _in_tests(r["src_path"])
         ]
         ok = bool(refs)
@@ -308,16 +422,14 @@ def run_check(
         if not runtime:
             return CheckResult(False, "runtime check skipped (pass --runtime)", inputs)
         argv = spec["argv"]
-        if not isinstance(argv, list) or not argv or argv[0] not in RUNTIME_ALLOW:
-            raise ClaimError(f"runtime program must be one of {sorted(RUNTIME_ALLOW)}")
-        if argv[0] == "git" and (len(argv) < 2 or argv[1] not in GIT_READONLY):
-            raise ClaimError("runtime git is limited to read-only subcommands")
+        validate_runtime_argv(argv)
         try:
             p = subprocess.run(
                 argv,
                 cwd=root,
                 capture_output=True,
                 text=True,
+                errors="replace",
                 timeout=spec.get("timeout", 120),
                 shell=False,
                 check=False,
@@ -325,7 +437,14 @@ def run_check(
         except (OSError, subprocess.TimeoutExpired) as exc:
             return CheckResult(False, f"runtime failed to run: {exc}", inputs)
         want = spec.get("expect_exit", 0)
-        ok = p.returncode == want and spec.get("stdout_contains", "") in p.stdout
+        ok = (
+            p.returncode == want
+            and spec.get("stdout_contains", "") in p.stdout
+            and not (
+                spec.get("stdout_not_contains")
+                and spec["stdout_not_contains"] in p.stdout
+            )
+        )
         detail = f"exit {p.returncode} (want {want})" + (
             "" if ok else f"; stdout tail: {p.stdout[-120:]!r}"
         )
@@ -345,8 +464,19 @@ def add_claim(conn, root: Path, spec: dict, author: str, family: str) -> int:
     if spec.get("classification", "n/a") not in CLASSIFICATIONS:
         raise ClaimError(f"classification must be one of {sorted(CLASSIFICATIONS)}")
     check = spec.get("check")
-    if check and check.get("type") not in _KNOWN:
-        raise ClaimError(f"unknown check type {check.get('type')!r}")
+    if check:
+        if check.get("type") not in _KNOWN:
+            raise ClaimError(f"unknown check type {check.get('type')!r}")
+        missing = [k for k in REQUIRED_KEYS.get(check["type"], []) if k not in check]
+        if missing:
+            raise ClaimError(f"check {check['type']} needs {missing}")
+        if check["type"] == "regex":
+            try:
+                re.compile(check["pattern"])
+            except re.error as exc:
+                raise ClaimError(f"invalid regex: {exc}") from exc
+        if check["type"] == "runtime":
+            validate_runtime_argv(check["argv"])
     evidence = spec.get("evidence") or []
     if not evidence and not check:
         raise ClaimError("a claim needs evidence quotes, a check, or both")
@@ -397,6 +527,15 @@ def add_claim(conn, root: Path, spec: dict, author: str, family: str) -> int:
             ),
         )
         cid = cur.lastrowid
+        conn.execute(
+            "UPDATE claims SET subsystem=?, revision=?, depends_on_claims=? WHERE id=?",
+            (
+                _subsystem(spec),
+                _head(root),
+                json.dumps(spec.get("depends_on_claims") or []),
+                cid,
+            ),
+        )
         conn.executemany(
             "INSERT INTO claim_evidence (claim_id, path, sha256, line_start, line_end, quote) VALUES (?,?,?,?,?,?)",
             [(cid, *e) for e in bound],
@@ -430,17 +569,31 @@ def verify_claim(conn, root: Path, cid: int, actor: str, runtime: bool = False) 
     row = conn.execute("SELECT * FROM claims WHERE id=?", (cid,)).fetchone()
     if row is None:
         raise ClaimError(f"no claim {cid}")
+    if row["status"] == "superseded":
+        return "superseded"  # kept for the audit trail; the corrected claim is the live one
     if row["check_json"]:
         spec = json.loads(row["check_json"])
         try:
             res = run_check(conn, root, spec, runtime)
-        except ClaimError as exc:
-            _set_status(conn, cid, actor, "unverified", f"check error: {exc}")
+        except Exception as exc:  # one malformed claim must not abort a verify run
+            _set_status(
+                conn,
+                cid,
+                actor,
+                "unverified",
+                f"check error: {type(exc).__name__}: {exc}",
+            )
             return "unverified"
         if spec["type"] == "runtime" and not runtime:
             return row["status"]
         conn.execute(
-            "UPDATE claims SET inputs_json=? WHERE id=?", (json.dumps(res.inputs), cid)
+            "UPDATE claims SET inputs_json=?, last_verified_rev=?, contradicting=? WHERE id=?",
+            (
+                json.dumps(res.inputs),
+                _head(root),
+                "" if res.ok else res.detail[:300],
+                cid,
+            ),
         )
         new = "supported" if res.ok else "refuted"
         reviews = conn.execute(
@@ -478,7 +631,9 @@ def _evidence_problems(conn, root, cid) -> str:
 def recheck(conn, root: Path, actor: str) -> dict[str, int]:
     """Invalidate claims whose files changed. A moved quote is re-bound; a vanished quote makes the claim stale."""
     counts = {"unchanged": 0, "rebound": 0, "stale": 0}
-    for c in conn.execute("SELECT id, status, inputs_json FROM claims").fetchall():
+    for c in conn.execute(
+        "SELECT id, status, inputs_json FROM claims WHERE status!='superseded'"
+    ).fetchall():
         cid, changed, lost = c["id"], False, ""
         for ev in conn.execute(
             "SELECT * FROM claim_evidence WHERE claim_id=?", (cid,)
@@ -515,6 +670,10 @@ def recheck(conn, root: Path, actor: str) -> dict[str, int]:
             inputs = json.loads(c["inputs_json"] or "{}")
             for path, sha in inputs.items():
                 if path == "*index*":
+                    if code_fingerprint(conn) != sha:
+                        lost = "the repository changed since this index-wide check ran; re-verify"
+                        changed = True
+                        break
                     continue
                 cur = _file(conn, path)
                 now_sha = cur["sha256"] if cur and cur["present"] else "<missing>"
@@ -529,6 +688,27 @@ def recheck(conn, root: Path, actor: str) -> dict[str, int]:
             counts["rebound"] += 1
         else:
             counts["unchanged"] += 1
+    # propagate: a claim that depends on a stale claim cannot stay current
+    again = True
+    while again:
+        again = False
+        stale_ids = {
+            r[0] for r in conn.execute("SELECT id FROM claims WHERE status='stale'")
+        }
+        for r in conn.execute(
+            "SELECT id, depends_on_claims FROM claims WHERE status NOT IN ('stale','superseded')"
+        ).fetchall():
+            deps = set(json.loads(r["depends_on_claims"] or "[]"))
+            if deps & stale_ids:
+                _set_status(
+                    conn,
+                    r["id"],
+                    actor,
+                    "stale",
+                    f"depends on stale claim(s) {sorted(deps & stale_ids)}",
+                )
+                counts["stale"] += 1
+                again = True
     return counts
 
 
@@ -609,6 +789,16 @@ def _review_only(conn, root, cid, actor) -> str:
         new = conn.execute("SELECT status FROM claims WHERE id=?", (cid,)).fetchone()[0]
     _set_status(conn, cid, actor, new, "reconciled with reviews")
     return new
+
+
+def supersede(conn, old: int, new: int, actor: str) -> None:
+    """Keep a wrong or overstated claim in the ledger, marked as replaced by a corrected one."""
+    for cid in (old, new):
+        if conn.execute("SELECT 1 FROM claims WHERE id=?", (cid,)).fetchone() is None:
+            raise ClaimError(f"no claim {cid}")
+    if old == new:
+        raise ClaimError("a claim cannot supersede itself")
+    _set_status(conn, old, actor, "superseded", f"replaced by corrected claim #{new}")
 
 
 def list_claims(conn, status: str | None = None):

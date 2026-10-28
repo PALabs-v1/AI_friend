@@ -243,35 +243,118 @@ def test_runtime_checks_are_opt_in_allowlisted_and_shell_free(kb):
     conn, root = kb
     cid = add(
         kb,
-        text="the python interpreter runs and prints a marker",
+        text="pytest is installed and reports its version",
         check={
             "type": "runtime",
-            "argv": ["python", "-c", "print('marker-ok')"],
-            "stdout_contains": "marker-ok",
+            "argv": ["python", "-m", "pytest", "--version"],
+            "stdout_contains": "pytest",
         },
     )
     assert (
         knowledge.verify_claim(conn, root, cid, "v") == "unverified"
     )  # not run without --runtime
     assert knowledge.verify_claim(conn, root, cid, "v", runtime=True) == "supported"
-    bad = add(
+
+
+@pytest.mark.parametrize(
+    "argv",
+    [
+        ["rm", "-rf", "x"],
+        ["python3", "-c", "import os; os.system('touch /tmp/pwned')"],
+        ["python", "script.py"],
+        ["git", "reset", "--hard"],
+        ["git", "branch", "-D", "main"],
+        ["git", "diff", "--output=README.md"],
+        ["git", "grep", "-Ovim", "x"],
+        ["git", "-c", "core.pager=sh", "log"],
+        ["cargo", "install", "x"],
+        ["ruff", "check", "--fix", "."],
+        ["python", "-m", "pytest", "a\x00b"],
+    ],
+)
+def test_unsafe_runtime_commands_are_refused_when_the_claim_is_added(kb, argv):
+    with pytest.raises(knowledge.ClaimError):
+        add(
+            kb,
+            text="a claim whose check tries to run something unsafe",
+            check={"type": "runtime", "argv": argv},
+        )
+
+
+def test_malformed_checks_are_refused_at_add_and_never_abort_a_verify_run(kb):
+    conn, root = kb
+    with pytest.raises(knowledge.ClaimError, match="needs"):
+        add(
+            kb,
+            text="contains check with no text field at all",
+            check={"type": "contains", "path": "README.md"},
+        )
+    with pytest.raises(knowledge.ClaimError, match="invalid regex"):
+        add(
+            kb,
+            text="regex check with a broken pattern here",
+            check={"type": "regex", "path": "README.md", "pattern": "("},
+        )
+    # a spec that slips past add (older ledger rows) must degrade to unverified, not raise
+    cid = add(
         kb,
-        text="the shell runs arbitrary programs for us",
-        check={"type": "runtime", "argv": ["rm", "-rf", "x"]},
+        text="function helper is defined in util.py",
+        check={"type": "symbol_defined", "name": "helper"},
     )
-    assert knowledge.verify_claim(conn, root, bad, "v", runtime=True) == "unverified"
+    conn.execute(
+        "UPDATE claims SET check_json=? WHERE id=?",
+        ('{"type": "regex", "path": "README.md", "pattern": "("}', cid),
+    )
+    assert knowledge.verify_claim(conn, root, cid, "v") == "unverified"
+
+
+def test_recheck_never_revives_or_overwrites_a_superseded_claim(kb):
+    conn, root = kb
+    old = add(
+        kb,
+        text="util.py contains the helper function",
+        check={"type": "contains", "path": "backend/app/util.py", "text": "def helper"},
+    )
+    new = add(
+        kb,
+        text="util.py defines helper returning one",
+        check={"type": "contains", "path": "backend/app/util.py", "text": "def helper"},
+    )
+    knowledge.verify_claim(conn, root, old, "v")
+    knowledge.supersede(conn, old, new, "v")
+    (root / "backend/app/util.py").write_text("def helper():\n    return 2\n")
+    git(root, "add", "-A")
+    inventory.scan(root, conn)
+    knowledge.recheck(conn, root, "v")
     assert (
-        "one of"
-        in conn.execute(
-            "SELECT status_detail FROM claims WHERE id=?", (bad,)
-        ).fetchone()[0]
+        conn.execute("SELECT status FROM claims WHERE id=?", (old,)).fetchone()[0]
+        == "superseded"
     )
-    mut = add(
+
+
+def test_symbol_checks_see_a_definition_even_when_the_name_is_very_common(kb):
+    conn, root = kb
+    rows = [
+        (1, "sha", "function", "__init__", f"C{i}.__init__", 1, 1, "")
+        for i in range(250)
+    ]
+    fid = conn.execute(
+        "SELECT id FROM files WHERE path='backend/app/util.py'"
+    ).fetchone()[0]
+    conn.executemany(
+        "INSERT INTO symbols (file_id, sha256, kind, name, qualname, line, end_line, decorators) VALUES (?,?,?,?,?,?,?,?)",
+        [(fid, *r[1:]) for r in rows],
+    )
+    cid = add(
         kb,
-        text="git can rewrite history on our behalf",
-        check={"type": "runtime", "argv": ["git", "reset", "--hard"]},
+        text="util.py defines an __init__ method somewhere",
+        check={
+            "type": "symbol_defined",
+            "name": "__init__",
+            "path": "backend/app/util.py",
+        },
     )
-    assert knowledge.verify_claim(conn, root, mut, "v", runtime=True) == "unverified"
+    assert knowledge.verify_claim(conn, root, cid, "v") == "supported"
 
 
 def test_review_packet_hides_the_authors_reasoning(kb):

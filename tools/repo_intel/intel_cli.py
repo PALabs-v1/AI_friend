@@ -165,7 +165,94 @@ def cmd_renote(a: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_workflow(a: argparse.Namespace) -> int:
+    from . import audit, gitinfo, workflow
+
+    root, conn = _conn(a)
+    from . import knowledge
+
+    knowledge.ensure_schema(conn)
+    if a.cmd == "status":
+        s = workflow.status(conn)
+        print(json.dumps(s, indent=2) if a.json else workflow.render_status(s))
+    elif a.cmd == "gate":
+        ok, why = workflow.gate(conn, a.strict)
+        for w in why:
+            print("BLOCKED:", w)
+        print(
+            "gate: open (nothing stale, disputed or failed)"
+            if ok
+            else "gate: CLOSED, do not report this task complete"
+        )
+        return 0 if ok else 1
+    elif a.cmd == "changes":
+        d = workflow.changes(conn)
+        print(
+            json.dumps(d, indent=2)
+            if a.json
+            else "\n".join(
+                f"{k}: {len(v)}" + "".join(f"\n   {x}" for x in v[:15])
+                for k, v in d.items()
+            )
+        )
+    elif a.cmd == "impact":
+        print(workflow.render(workflow.impact(conn, a.target, a.depth)))
+    elif a.cmd == "preflight":
+        print(workflow.render(workflow.preflight(conn, a.target)))
+    elif a.cmd == "map":
+        rev = gitinfo.head_commit(root)[:12]
+        text = audit.architecture_map(conn, rev)
+        if a.out:
+            from pathlib import Path
+
+            Path(a.out).write_text(text)
+        else:
+            print(text)
+    return 0
+
+
 def register(add) -> None:
+    for name, help_ in [
+        (
+            "status",
+            "revision, dirty state, stage counts, claim states, stale and disputed claims",
+        ),
+        (
+            "gate",
+            "completion gate: exit 1 while evidence is stale, disputed, failed or behind the tree",
+        ),
+        (
+            "changes",
+            "files added or changed since analysis, files never read, stale claims",
+        ),
+    ]:
+        sp = add(name, cmd_workflow, help_)
+        sp.add_argument("--json", action="store_true")
+        if name == "gate":
+            sp.add_argument(
+                "--strict",
+                action="store_true",
+                help="also block on claims that were never verified",
+            )
+    sp = add(
+        "impact",
+        cmd_workflow,
+        "what is affected if a file changes: importers, tests, subjects, claims",
+    )
+    sp.add_argument("target")
+    sp.add_argument("--depth", type=int, default=4)
+    sp = add(
+        "preflight",
+        cmd_workflow,
+        "what exists, who uses it, which claims touch it, before you build",
+    )
+    sp.add_argument("target")
+    sp = add(
+        "map",
+        cmd_workflow,
+        "print the generated architecture map (or write it with --out)",
+    )
+    sp.add_argument("--out")
     sp = add(
         "repair-notes",
         cmd_renote,

@@ -10,12 +10,12 @@ Written for the maintainer deciding whether to run critic round 2. Round 1 (`rou
 | F-04 agent_state query narrowing catch-22 | HIGH | **Not settled** | none | needs a run against a copy with several `agent_state` rows; not reproduced |
 | F-05 mismatch swallowed in archive lookup | MED | Holds | #45 | broad `except Exception` logs and returns `[]`; `last_search_error` not set on that path |
 | F-06 no migration backfill or idempotency test | MED | Partly wrong | #46 | columns are added idempotently; no backfill UPDATE exists, but NULL rows count as the default model by design and a test covers it |
-| F-07 slice 6 omitted touches, non-failing baseline test | MED | **Not settled** | none | needs a revert of `6f036aec` and a test run |
+| F-07 slice 6 omitted touches, non-failing baseline test | MED | Half right | #55 | `git diff --name-only 6f036aec^ 6f036aec` has no `decision.py`, although the slice card lists `decision.py:884-888`; behaviour-neutral. The "non-failing baseline" is a characterization test and is meant to pass before and after, so that part is not a defect |
 | F-08 audit trail destroyed on copy deletion | MED | Contradicted | #47 | `audit_path = dest_parent / AUDIT_FILENAME`: the audit file lives outside the copy root |
 | F-09 scope cache key omits model and dimension | LOW | Holds | #48 | `key = (table, wing, room)` |
 | F-10 pipe deadlock on large prompts | LOW | Plausible, not reproduced | #49 | write plus drain precede any stdout read |
 | F-11 hard-coded 768 in mock embeddings | LOW | Holds | #50 | two `np.random.randn(768)` sites |
 | F-12 explicit base_path bypasses offline check | LOW | Documented design | #51 | the comment in `runtime_paths.py` states the harness route is intentionally allowed |
 
-Result: 2 of 12 contradicted or documented-by-design (F-08, F-12), 2 overstated or partly wrong (F-02, F-06), 6 hold at the stated or lower severity, 2 unsettled (F-04, F-07). Round 2 of the critic cap (max 2) is still available.
+Result: 2 of 12 contradicted or documented-by-design (F-08, F-12), 3 overstated or partly wrong (F-02, F-06, F-07), 6 hold at the stated or lower severity, 1 unsettled (F-04). Round 2 of the critic cap (max 2) is still available.
 Also fixed on `main` while doing this: the two failing Postgres placeholder tests (`2569ae0a`).

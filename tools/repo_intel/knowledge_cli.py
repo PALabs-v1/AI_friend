@@ -73,6 +73,9 @@ def cmd_claims(a: argparse.Namespace) -> int:
                 print(
                     f"#{cid} -> {knowledge.verify_claim(conn, root, cid, a.author, a.runtime)}"
                 )
+        elif act == "supersede":
+            knowledge.supersede(conn, int(a.target), int(a.by), a.author)
+            print(f"claim {a.target} superseded by {a.by}")
         elif act == "recheck":
             print(knowledge.recheck(conn, root, a.author))
         elif act == "packet":
@@ -97,13 +100,23 @@ def register(add) -> None:
     )
     sp.add_argument(
         "action",
-        choices=["add", "list", "show", "verify", "recheck", "packet", "review"],
+        choices=[
+            "add",
+            "list",
+            "show",
+            "verify",
+            "recheck",
+            "packet",
+            "review",
+            "supersede",
+        ],
     )
     sp.add_argument(
         "target", nargs="?", help="claim id, JSONL file for add (- for stdin), or all"
     )
     sp.add_argument("--file", help=argparse.SUPPRESS)
     sp.add_argument("--status")
+    sp.add_argument("--by", default="", help="supersede: the corrected claim id")
     sp.add_argument("--author", default="repo-intel")
     sp.add_argument("--family", default="human")
     sp.add_argument("--reader", default="")

@@ -24,6 +24,23 @@ Do these in order. Each answer names its confidence.
 5. **Record what you decide as a claim** (section 3) so the next session does not redo the work, and so a later edit invalidates it.
 6. After the change, run `inventory`, `index`, `claims recheck`, and the tests that cover the diff.
 
+### The preflight and the completion gate (automated)
+
+```
+python -m tools.repo_intel preflight NAME_OR_PATH   # definitions, references by confidence, tests that call it, related claims, impact for a file
+python -m tools.repo_intel impact PATH [--depth N]  # transitive importers, tests reached, bus subjects, claims citing those files
+python -m tools.repo_intel changes                  # added, changed-since-analysis, never-read, stale claims
+python -m tools.repo_intel status [--json]          # revision, dirty state, stage counts, claim states
+python -m tools.repo_intel gate [--strict]          # exit 1 while evidence is stale, disputed, failed or behind the tree
+python -m tools.repo_intel map [--out FILE]         # the architecture map
+```
+
+Run `gate` before reporting any task DONE. It exits 1 and prints why while: files are not parsed at their current hash, a processing failure is open, files changed since analysis, a claim is stale or disputed (`--strict` also blocks never-verified claims). A wrong claim is not deleted; `claims supersede OLD --by NEW` keeps it in the ledger as `superseded` and takes it out of the gate.
+
+Claim states against the directive's names: `verified` = VERIFIED (deterministic check plus independent reader); `supported` = PARTIALLY_VERIFIED (deterministic check or intact evidence only, never runtime-verified unless the check is `runtime`); `unverified` = UNVERIFIED; `refuted` = CONTRADICTED (the contradicting evidence is stored on the claim); `stale` = STALE; `disputed` and `superseded` are additional.
+
+Invalidation: a quote that moved is re-bound; a vanished quote, a changed checked file, or any change to a code file for a claim whose check searched the whole index (callers, edges, subjects; documentation edits do not count) makes the claim `stale`; a claim that lists `depends_on_claims` goes stale when one of them does. Re-run `claims verify all`, then read what flipped. For a negative claim ("no caller"), the detail records the search scope, which is the whole structural index, and the number of dynamic constructs that scope cannot see.
+
 ## 3. Writing a claim
 
 One JSON object per line:
@@ -33,7 +50,8 @@ One JSON object per line:
  "kind": "debt:integration", "severity": "low", "classification": "n/a",
  "source": "repo-intel subject matrix",
  "evidence": [{"path": "backend/app/agents/subconscious_agent.py", "start": 774, "end": 774, "quote": "Topics.STATE_SUBCONSCIOUS,"}],
- "check": {"type": "subject_wired", "subject": "state.subconscious", "min_publishers": 1, "max_subscribers": 0}}
+ "check": {"type": "subject_wired", "subject": "state.subconscious", "min_publishers": 1, "max_subscribers": 0},
+ "subsystem": "agents", "depends_on_claims": []}
 ```
 
 `python -m tools.repo_intel claims add FILE --author NAME --family claude|codex|human`, then `claims verify all`.

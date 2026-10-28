@@ -216,3 +216,91 @@ def test_repair_notes_prunes_missing_symbols_and_records_it(mini, conn):
         ).fetchone()[0]
         == 1
     )
+
+
+# ---- regressions for defects found by the independent code review
+
+
+def _open_repo(files):
+    from tools.repo_intel import bench, knowledge
+
+    root = bench._repo(files)
+    conn = bench._open(root)
+    knowledge.ensure_schema(conn)
+    return root, conn
+
+
+def _verdict(conn, root, spec):
+    from tools.repo_intel import knowledge
+
+    cid = knowledge.add_claim(conn, root, spec, "a", "claude")
+    return knowledge.verify_claim(conn, root, cid, "v")
+
+
+def test_rust_self_and_path_calls_are_recorded_so_methods_are_not_caller_less():
+    src = "struct A;\nimpl A {\n    fn go(&self) { self.step(); A::other(); }\n    fn step(&self) {}\n    fn other() {}\n}\n"
+    root, conn = _open_repo({"crates/c/src/main.rs": src, "crates/c/src/lib.rs": ""})
+    for name in ("step", "other"):
+        spec = {
+            "text": f"nothing calls {name} in the rust crate at all",
+            "check": {"type": "no_static_callers", "name": name},
+        }
+        assert _verdict(conn, root, spec) == "refuted", name
+
+
+def test_rust_char_literals_and_comments_do_not_corrupt_symbols_or_bus_edges():
+    src = (
+        "fn a() { let c = '\"'; let d = '{'; }\n"
+        'fn b() { nc.publish("p.q", 1); }\n'
+        '// old: client.publish("audio.resume", b)\n'
+        "fn lifetimes<'x>(s: &'x str) -> &'x str { s }\n"
+    )
+    _root, conn = _open_repo({"crates/c/src/main.rs": src, "crates/c/src/lib.rs": ""})
+    names = {r[0] for r in conn.execute("SELECT name FROM symbols WHERE kind='fn'")}
+    assert {"a", "b", "lifetimes"} <= names
+    pubs = [
+        (r["src"], r["dst"])
+        for r in conn.execute("SELECT src, dst FROM edges WHERE kind='PUBLISHES'")
+    ]
+    assert pubs == [("b", "p.q")]
+
+
+def test_http_request_calls_are_not_bus_publishes():
+    _root, conn = _open_repo(
+        {
+            "a.py": "import httpx\n\ndef f():\n    httpx.request('GET', 'http://x')\n    bus.request('svc.rpc', b'')\n"
+        }
+    )
+    dst = [r[0] for r in conn.execute("SELECT dst FROM edges WHERE kind='PUBLISHES'")]
+    assert dst == ["svc.rpc"]
+
+
+def test_functions_passed_by_reference_count_as_references():
+    src = "import asyncio\n\nclass S:\n    async def run(self):\n        await asyncio.to_thread(self.worker)\n        self.bus.subscribe('a.b', self.on_msg)\n\n    def worker(self):\n        return 1\n\n    async def on_msg(self, m):\n        return m\n"
+    root, conn = _open_repo({"s.py": src})
+    for name in ("worker", "on_msg"):
+        spec = {
+            "text": f"nothing calls {name} anywhere in this repo",
+            "check": {"type": "no_static_callers", "name": name},
+        }
+        assert _verdict(conn, root, spec) == "refuted", name
+
+
+def test_a_file_that_stops_parsing_keeps_its_old_edges_and_is_reported(mini, conn):
+    from tools.repo_intel import structure as st
+
+    inventory.scan(mini, conn)
+    st.build_index(conn, mini)
+    before = conn.execute("SELECT COUNT(*) FROM edges WHERE kind='CALLS'").fetchone()[0]
+    (mini / "backend/app/core.py").write_text("def broken(:\n")
+    git(mini, "add", "-A")
+    inventory.scan(mini, conn)
+    res = st.build_index(conn, mini)
+    assert [p for p, _ in res.failed] == ["backend/app/core.py"]
+    after = conn.execute("SELECT COUNT(*) FROM edges WHERE kind='CALLS'").fetchone()[0]
+    assert after == before, (
+        "a parse failure must not erase the previous index for that file"
+    )
+    from tools.repo_intel import workflow
+
+    assert workflow.gate(conn)[0] is False
