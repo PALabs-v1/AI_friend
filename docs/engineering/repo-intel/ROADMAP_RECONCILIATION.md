@@ -34,7 +34,7 @@ The slice plan's waves still hold. Changes proposed from the audit:
 | Step | What | Why |
 |---|---|---|
 | 0 | Run `inventory`, `index`, `claims recheck` and the covering tests at the start of every slice; record each slice's design decisions as claims | Makes staleness visible; this is the Phase 7 acceptance criterion |
-| 1 | Finish Wave A cleanups: the 12 unbound ledger rows, the CI items you chose to leave, the cold critic round (max 2) | Unchanged |
+| 1 | Finish Wave A cleanups: the 12 unbound ledger rows (3 bound, #58; 9 stay unbound with reasons), Wave A critic F-04 (fixed, #57), the CI items you chose to leave, the cold critic round (max 2) | Unchanged |
 | 2 | Add a pre-slice "wiring check" to Wave B: for each store or agent a slice touches, run `refs` and `subjects` and record the result as a claim | Prevents building on a component that is constructed but unused (#3) and handlers with no publisher (#32) |
 | 3 | Slice 2a (baseline harness) before any slice that claims an improvement | Unchanged; add the rule that benchmark documents with unreconciled numbers are not baselines |
 | 4 | Decide the temporal store question (wire or retract) before Wave C slices 4, 5 | See blocking issue 2 |

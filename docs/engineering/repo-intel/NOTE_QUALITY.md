@@ -2,9 +2,9 @@
 
 Not the independent second reader. It checks what a script can check about the notes written during the read phase.
 
-- Notes cross-checked: 921
-- `depends_on` paths that resolve exactly: 1729 of 2761; resolve only as a unique path suffix (written short): 670; do not resolve: 362 (13.1%)
-- Code files with 3 or more public top-level definitions: 365; mean share of those definitions the note names: 77.4%
+- Notes cross-checked: 943
+- `depends_on` paths that resolve exactly: 1719 of 2751; resolve only as a unique path suffix (written short): 673; do not resolve: 359 (13.0%)
+- Code files with 3 or more public top-level definitions: 372; mean share of those definitions the note names: 76.0%
 - Files whose note names none of their public definitions: 0
 
 ## Notes citing paths that do not exist
@@ -62,6 +62,7 @@ Not the independent second reader. It checks what a script can check about the n
 | backend/crates/voice-agent/src/main.rs | 8 | 137 | 6% |
 | backend/tests/test_brainbench_bargein_suite.py | 2 | 22 | 9% |
 | tools/repo_intel/cli.py | 1 | 11 | 9% |
+| backend/tests/test_interventions.py | 2 | 18 | 11% |
 | backend/tests/test_persona_authoring.py | 3 | 25 | 12% |
 | backend/tests/test_memory_ranking.py | 5 | 39 | 13% |
 | backend/tests/test_lifesim_core.py | 3 | 23 | 13% |
@@ -69,7 +70,9 @@ Not the independent second reader. It checks what a script can check about the n
 | backend/tests/test_brainbench_trust_suite.py | 3 | 22 | 14% |
 | backend/tests/test_phasic_dopamine.py | 3 | 22 | 14% |
 | backend/tests/test_playback_progress.py | 5 | 35 | 14% |
+| tools/repo_intel/tests/test_workflow.py | 2 | 14 | 14% |
 | backend/tests/test_brainbench_stats.py | 3 | 20 | 15% |
+| tools/repo_intel/tests/test_knowledge.py | 3 | 20 | 15% |
 | backend/tests/test_barge_in_real_flow.py | 5 | 33 | 15% |
 | backend/tests/test_eval_harness.py | 11 | 70 | 16% |
 | backend/tests/test_pr66_review_fixes.py | 5 | 30 | 17% |
@@ -77,7 +80,4 @@ Not the independent second reader. It checks what a script can check about the n
 | backend/tests/test_phasic_cortisol.py | 4 | 23 | 17% |
 | backend/tests/test_causal_slice.py | 5 | 27 | 19% |
 | backend/tests/test_f1_decomposed_stages.py | 9 | 45 | 20% |
-| backend/tests/test_persona_profile.py | 6 | 28 | 21% |
-| backend/tests/test_anthropic_client.py | 5 | 23 | 22% |
-| backend/tests/test_phasic_adrenaline.py | 5 | 23 | 22% |
-| backend/tests/test_brainbench_proactive_suite.py | 2 | 9 | 22% |
+| tools/repo_intel/tests/test_structure.py | 4 | 20 | 20% |

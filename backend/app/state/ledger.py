@@ -33,6 +33,9 @@ class SqliteBinding:
     column: str
     encoding: Encoding = "real"
     key_columns: tuple[str, ...] = ()  # callers pass `where` for these
+    # Accepted in `where` but not required: a single-row copy needs no filter,
+    # a multi-row copy cannot be addressed without one.
+    optional_key_columns: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -83,7 +86,13 @@ def _state(
         draft_row=draft_row,
         timescale=timescale,
         tier=tier,
-        sqlite=SqliteBinding("state_cache", "agent_state", column, "real"),
+        sqlite=SqliteBinding(
+            "state_cache",
+            "agent_state",
+            column,
+            "real",
+            optional_key_columns=("agent_name",),
+        ),
         attr=AttrBinding(attr or column),
         writers=writers,
         readers=readers,
@@ -435,7 +444,10 @@ REGISTRY: tuple[LedgerRow, ...] = (
         "19",
         "deliberative",
         "runtime",
-        unbound_reason="Workspace store is not mapped to a copy yet; adapter pending (slice 1 follow-up).",
+        sqlite=SqliteBinding(
+            "workspace", "workspace_state", "focus", "text", ("session_id",)
+        ),
+        writers=("backend/app/state/workspace_store.py::SQLiteWorkspaceStore",),
     ),
     LedgerRow(
         "person_models",
@@ -475,7 +487,8 @@ REGISTRY: tuple[LedgerRow, ...] = (
         "27",
         "deliberative",
         "runtime",
-        unbound_reason="Lexicon vocabulary table not yet mapped; graph is Neo4j. Trace is incomplete (draft row 27).",
+        sqlite=SqliteBinding("memories", "vocabulary", "times_seen", "int", ("term",)),
+        writers=("backend/app/state/lexicon_store.py::MentalLexicon",),
     ),
     LedgerRow(
         "conversation_history",
@@ -483,7 +496,8 @@ REGISTRY: tuple[LedgerRow, ...] = (
         "28",
         "reactive",
         "runtime",
-        unbound_reason="Store not yet mapped to a copy; adapter pending.",
+        sqlite=SqliteBinding("memories", "messages", "content", "text", ("id",)),
+        writers=("backend/app/state/sqlite_fallback.py::SQLiteConnection",),
     ),
     LedgerRow(
         "monologue_and_dream",

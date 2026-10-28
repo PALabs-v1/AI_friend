@@ -286,3 +286,68 @@ async def test_create_with_a_missing_source_leaves_nothing_behind(tmp_path):
     with pytest.raises(FileNotFoundError):
         OfflineCopy.create({"state_cache": tmp_path / "absent.db"}, tmp_path / "copies")
     assert not any((tmp_path / "copies").glob("copy-*"))
+
+
+async def test_agent_state_rows_are_addressable_when_a_copy_holds_several(tmp_path):
+    """Wave A critic F-04: two agent_state rows made every intervention fail,
+    because the row demanded a narrower `where` and then refused the one column
+    that narrows it."""
+    sources = await _seed(tmp_path)
+    conn = sqlite3.connect(sources["state_cache"])
+    cols = [r[1] for r in conn.execute("PRAGMA table_info(agent_state)")]
+    row = list(conn.execute("SELECT * FROM agent_state").fetchone())
+    row[0] = "second_friend"
+    conn.execute(f"INSERT INTO agent_state VALUES ({','.join('?' * len(cols))})", row)
+    conn.commit()
+    conn.close()
+    copy = OfflineCopy.create(sources, tmp_path / "copies", label="multi")
+    try:
+        with pytest.raises(InterventionError, match="narrow"):
+            read_value(copy, "mood")
+        rec = clamp(copy, "mood", -0.2, where={"agent_name": AGENT})
+        assert rec.after == -0.2
+        assert read_value(copy, "mood", where={"agent_name": "second_friend"}) == 0.3
+        with pytest.raises(InterventionError, match="not in the key"):
+            read_value(copy, "mood", where={"mood": 0.3})
+    finally:
+        copy.delete(reason="test teardown")
+
+
+async def test_workspace_conversation_and_lexicon_rows_take_interventions(tmp_path):
+    """The three rows bound after the slice 1 follow-up reach real SQLite rows."""
+    from app.state.workspace_store import SQLiteWorkspaceStore
+
+    sources = await _seed(tmp_path)
+    ws = tmp_path / "workspace.db"
+    SQLiteWorkspaceStore(db_path=str(ws))
+    conn = sqlite3.connect(ws)
+    conn.execute(
+        "INSERT INTO workspace_state VALUES (?, 1, 1, 'tea', '[]', NULL, '{}', NULL, 0.0)",
+        ("s1",),
+    )
+    conn.commit()
+    conn.close()
+    conn = sqlite3.connect(sources["memories"])
+    conn.execute("INSERT INTO sessions (id) VALUES ('s1')")
+    conn.execute(
+        "INSERT INTO messages (id, session_id, role, content) "
+        "VALUES ('msg1', 's1', 'user', 'hello')"
+    )
+    conn.execute("INSERT INTO vocabulary (term, times_seen) VALUES ('tea', 3)")
+    conn.commit()
+    conn.close()
+    copy = OfflineCopy.create(
+        {**sources, "workspace": ws}, tmp_path / "copies", label="three"
+    )
+    try:
+        clamp(copy, "cognitive_workspace", "coffee", where={"session_id": "s1"})
+        assert (
+            read_value(copy, "cognitive_workspace", where={"session_id": "s1"})
+            == "coffee"
+        )
+        clamp(copy, "conversation_history", "bye", where={"id": "msg1"})
+        assert read_value(copy, "conversation_history", where={"id": "msg1"}) == "bye"
+        clamp(copy, "lexicon_and_graph", 9, where={"term": "tea"})
+        assert read_value(copy, "lexicon_and_graph", where={"term": "tea"}) == 9
+    finally:
+        copy.delete(reason="test teardown")

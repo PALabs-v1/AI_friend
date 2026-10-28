@@ -30,6 +30,7 @@ def stores(tmp_path):
     from app.state import proactive_queue
     from app.state.identity_core_store import IdentityCoreStore
     from app.state.working_memory_store import WorkingMemoryStore
+    from app.state.workspace_store import SQLiteWorkspaceStore
 
     paths = {
         "state_cache": tmp_path / "state_cache.db",
@@ -37,10 +38,12 @@ def stores(tmp_path):
         "temporal": tmp_path / "temporal.db",
         "memories": tmp_path / "memories.db",
         "working_memory": tmp_path / "working_memory.db",
+        "workspace": tmp_path / "workspace.db",
     }
     with patch.object(Config, "REDIS_URL", ""):
         StateService(graph_store=None, db_path=str(paths["state_cache"]))
         WorkingMemoryStore(db_path=str(paths["working_memory"]))
+    SQLiteWorkspaceStore(db_path=str(paths["workspace"]))
     AdaptiveWeightsStore(db_path=str(paths["state_cache"]))
     proactive_queue.enqueue(str(paths["state_cache"]), "seed")
     IdentityCoreStore(db_path=str(paths["identity_core"]))
@@ -77,7 +80,7 @@ def test_every_sqlite_binding_names_a_real_table_and_column(stores):
             conn.close()
         assert cols, f"{row.id}: table {b.table} not found in store {b.store}"
         assert b.column in cols, f"{row.id}: column {b.column} not in {b.table}"
-        for key in b.key_columns:
+        for key in (*b.key_columns, *b.optional_key_columns):
             assert key in cols, f"{row.id}: key column {key} not in {b.table}"
 
 

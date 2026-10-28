@@ -121,7 +121,8 @@ def _where_clause(binding: SqliteBinding, where: Mapping[str, Any] | None):
             f"row needs `where` for key columns {list(binding.key_columns)}; "
             f"missing {missing}"
         )
-    extra = [c for c in where if c not in binding.key_columns]
+    allowed = (*binding.key_columns, *binding.optional_key_columns)
+    extra = [c for c in where if c not in allowed]
     if extra:
         raise InterventionError(f"`where` has columns not in the key: {extra}")
     for name in (binding.table, binding.column, *where):
