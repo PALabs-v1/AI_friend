@@ -193,6 +193,8 @@ class AppSettings(BaseSettings):
     # is never enabled by default and must be explicitly configured.
     LLM_PROVIDER: str = "ollama"
     ANTHROPIC_API_KEY: str | None = None
+    CLAUDE_CODE_EXECUTABLE: str = "claude"
+    CLAUDE_CODE_TIMEOUT_SECONDS: float = 120.0
 
     LLM_FAST_MODEL: str = "llama3.2:3b"
     LLM_CHAT_MODEL: str | None = None

@@ -82,6 +82,14 @@ def build_llm_client(*, base_url: str, model: str | None = None) -> LLMClient:
             kwargs["model"] = model
         return AnthropicClient(**kwargs)
 
+    if provider == "claude_code":
+        from .claude_code_client import ClaudeCodeClient
+
+        kwargs = {}
+        if model:
+            kwargs["model"] = model
+        return ClaudeCodeClient(**kwargs)
+
     raise ValueError(
-        f"Unknown LLM_PROVIDER {provider!r}; expected 'ollama' or 'anthropic'."
+        f"Unknown LLM_PROVIDER {provider!r}; expected 'ollama', 'anthropic', or 'claude_code'."
     )

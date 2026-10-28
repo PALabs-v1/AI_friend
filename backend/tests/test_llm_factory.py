@@ -11,6 +11,7 @@ a clear message at construction time.
 from app import config as config_module
 from app.llm import LLMClient, build_llm_client
 from app.llm.anthropic_client import _DEFAULT_MODEL, AnthropicClient
+from app.llm.claude_code_client import ClaudeCodeClient
 from app.llm.ollama_client import OllamaClient
 
 
@@ -19,6 +20,21 @@ def test_default_provider_builds_an_ollama_client():
     assert isinstance(client, OllamaClient)
     assert client.base_url == "http://127.0.0.1:11434"
     assert client.model == "llama3.2:3b"
+
+
+def test_claude_code_provider_builds_client_and_satisfies_protocol(monkeypatch):
+    monkeypatch.setattr(config_module.config_instance, "LLM_PROVIDER", "claude_code")
+    client = build_llm_client(base_url="unused", model="claude-sonnet-5")
+    assert isinstance(client, ClaudeCodeClient)
+    assert isinstance(client, LLMClient)
+    assert client.model == "claude-sonnet-5"
+
+
+def test_claude_code_provider_uses_its_default_model_setting(monkeypatch):
+    monkeypatch.setattr(config_module.config_instance, "LLM_PROVIDER", "claude_code")
+    client = build_llm_client(base_url="unused", model=None)
+    assert isinstance(client, ClaudeCodeClient)
+    assert client.model is None
 
 
 def test_ollama_client_satisfies_the_llmclient_protocol():
