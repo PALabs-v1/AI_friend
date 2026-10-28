@@ -100,6 +100,15 @@ Records every point where the work needs Aniket's judgment. Nothing here is reso
 
 ---
 
+## D-017: Shared instructions for every agent
+**Status:** RESOLVED (2026-10-28, Aniket, stated mid-session) · **Resolve by:** Phase 00 · **Blocking:** no
+
+**Decision.** Aniket: "symlink means claude.md, gemini,md, agents.md those types so all of ai agents can work on same mindset"; the Glioma project is not part of this one, so it is not linked.
+
+**Done and checked.** In the repo, `AGENTS.md` and `GEMINI.md` were already committed symlinks to `CLAUDE.md`. Added `CLAUDE.md`, `AGENTS.md`, `GEMINI.md` symlinks in `~/Projects/PALabs/` pointing at `AI_friend/CLAUDE.md`, so a session started in the parent folder loads the same file. Verified with a one-line probe: Antigravity (`agy`) and Codex (`codex exec -m gpt-6-sol`) both quoted the new "Owner override" section; Claude loads it directly. The local checkout `~/Projects/PALabs/AI_friend` was fast-forwarded to `origin/main`.
+
+---
+
 ## D-013: Use of home-gpu in this cycle
 **Status:** RESOLVED (2026-10-28, Aniket) · **Resolve by:** Phase 01 · **Blocking:** no
 
@@ -131,7 +140,7 @@ Records every point where the work needs Aniket's judgment. Nothing here is reso
 
 **The original proposal, kept as the record.** perceive, appraise, remember, feel, decide, act, reflect, back to perceive, with identity as the slow variable. Phase 01 asks the researchers to compare the two framings, not only to fill in the chosen one.
 
-**Still to settle before launch.** Aniket reviews the four briefs (R-05) and picks the Antigravity model. See `research/briefs/`.
+**Launch (2026-10-28).** Aniket approved the briefs as written (`research/briefs/`) and chose `gemini-3.8-flash-high` for Antigravity, so the three passes come from three model families. Codex runs with `-m gpt-6-sol`: `~/.codex/config.toml` names `gpt-6.1-sol`, which the ChatGPT account rejects, and `models_cache.json` lists `gpt-6-sol`. The config file was left unchanged. Reports go to `research/phase01-codex/`, `research/phase01-agy/` and `research/phase01-claude/`.
 
 **Question.** What counts as the "closed loop", and what does Phase 01 research?
 

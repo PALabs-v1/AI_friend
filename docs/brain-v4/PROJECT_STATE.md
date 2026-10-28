@@ -4,9 +4,9 @@
 
 ```yaml
 cycle: brain-v4-design
-current_phase: 00          # see "Phases" below; advanced only when the previous phase's exit criteria are met
+current_phase: 01          # see "Phases" below; advanced only when the previous phase's exit criteria are met
 status: in-progress        # not-started | in-progress | blocked | awaiting-decision | complete
-blocked_on: Aniket's review of the four briefs and the Antigravity model choice (research/briefs/)
+blocked_on: null                   # Phase 01 research running; next step is the written comparison
 branch: main                       # direct pushes, D-016
 base: origin/main @ b0d54e0d       # PR #217 merged
 last_updated: 2026-10-28
@@ -47,3 +47,4 @@ Append one line per agent run. Newest at the bottom.
 | Date | Agent | Phase | What happened |
 |---|---|---|---|
 | 2026-10-28 | claude | 00 | Re-oriented after a gap of about three weeks. Read the Glioma project's record system (PROJECT_STATE, DECISION_LOG, phase files, registries). Aniket decided: architecture-first cycle (D-009), V3 frozen not deleted (D-010), docs tracked in this repo (D-011), helpers Codex, Antigravity and Claude sub-agents, with Codex also allowed to write code (D-012). Created the branch from `origin/main`, copied `~/Projects/PALabs/brain-v4/` here (26 files, raw `*.log` excluded), added this file, `DECISION_LOG.md`, `RISK_REGISTER.md` and a resume prompt. Saved read-only copies of both W3 builds outside the repo. Then resolved D-013 to D-015 (home-gpu: ask each time; Vision Quest: portable identity and continuity after a transfer; framing: reactive, deliberative and reflective layers with identity across them; all four research briefs) and drafted the briefs in `research/briefs/`, not yet sent. Aniket then ordered direct work on `main` with no PRs (D-016); `CLAUDE.md` updated. Checked: home-gpu reachable but changed. Looked for Vision Quest episodes 5 and 6: no recap found, so nothing from them is used yet. |
+| 2026-10-28 | claude | 01 | Pushed straight to `main` (`0dea39ee`; #219 shows merged). Aniket approved the four briefs and chose `gemini-3.8-flash-high` (D-015, D-017). Launched Phase 01: 4 Codex runs (`gpt-6-sol`) and 4 Antigravity runs, detached, plus 4 Claude sub-agent passes, all from the same briefs, none seeing the others' output. Shared-instructions symlinks added and checked with Codex and Antigravity (D-017). Fast-forwarded the local checkout. Codex needed `-m gpt-6-sol`; its default `gpt-6.1-sol` is rejected. Next: collect the 12 reports into `research/phase01-*/`, then write `05-phase01-comparison.md`. |
