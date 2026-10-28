@@ -38,7 +38,7 @@ Each was re-read in the checkout by a comparer unless noted. Line numbers are at
 |---|---|---|
 | Mood is fed its own value as the appraisal bias, so user text does not move it on the sync path | `backend/app/cognitive/pipeline.py:817` | Confirmed (all three) |
 | Persona changes go to a review queue that nothing ever approves, so the adaptive persona never changes by default | `config.py:278`, `learning.py:367-374`; no production caller of `LearningReviewQueue.approve` | Confirmed (all three) |
-| The monologue is published and nobody subscribes; dreams are log-only | `subconscious_agent.py:773-776`, `836-840`; the repo's own `scripts/check_subject_wiring.py:96` says zero subscribers | Confirmed |
+| The monologue is published and nobody subscribes; dreams are log-only | `subconscious_agent.py:773-776`, `836-840`; the repo's own `backend/scripts/check_subject_wiring.py:96` says zero subscribers | Confirmed |
 | `apply_contradiction` has no caller, so stale facts are never invalidated at read | `temporal_store.py:267`; store built at `core.py:98` | Confirmed (M-5, NF-6) |
 | The only path from state to the LLM is a 3-bin directive, so a "state in words" test can pass by prompt echo | `agent_state.py:2743-2772` | Confirmed (Claude) |
 | BrainBench has no arm for a bare model plus persona plus full history, so "architecture beats prompt" cannot be tested | `evals/brainbench/switchboard.py:28-76` | Confirmed (Claude) |
@@ -79,7 +79,7 @@ Weak or dropped: AGY's numeric latency tiers, "2 of 14 Butlin indicators", LoCoM
 
 1. **D4 versus the code** (section 5). The mind must disclose it is an AI; the output filter blocks the natural words for it.
 2. **DR-020 versus `LEARNING_REVIEW_REQUIRED=True`.** The decision says no external approval; the code requires one and nothing grants it.
-3. **DR-033 (no reset by design) versus `scripts/reset_persona.py`.**
+3. **DR-033 (no reset by design) versus `backend/scripts/reset_persona.py`.**
 4. **Stale V3 text.** `docs/brain-research-v3/00-current-architecture.md:88` says audio completion is never published; this tree has `AUDIO_PLAYBACK_LIFECYCLE` with COMPLETED handled (`transport_agent.py:556,573`, `brain_agent.py:1223-1247`). Two reports inherited the claim. Two line numbers there are also stale (`memory_store.py:1408`, `pipeline.py:865`). V3 is frozen (D-010), so these are recorded here and not edited.
 
 ## 8. Limit classes after Phase 01

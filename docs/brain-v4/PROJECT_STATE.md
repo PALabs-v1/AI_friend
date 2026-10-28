@@ -6,7 +6,7 @@
 cycle: brain-v4-design
 current_phase: 01          # see "Phases" below; advanced only when the previous phase's exit criteria are met
 status: awaiting-decision  # not-started | in-progress | blocked | awaiting-decision | complete
-blocked_on: Phase 01 decisions Q10-Q11 and two follow-ups on D-026/D-027 (05-phase01-comparison.md section 9); Q1-Q9 answered as D-018 to D-028
+blocked_on: Phase 01 decision Q10 (raters, work sequence, layer mapping; 05-phase01-comparison.md section 9); Q1-Q9, Q11 and follow-ups answered as D-018 to D-030
 branch: main                       # direct pushes, D-016
 base: origin/main                  # direct pushes
 last_updated: 2026-10-28
@@ -52,3 +52,4 @@ Append one line per agent run. Newest at the bottom.
 | 2026-10-28 | claude | 01 | Asked Q1-Q3. Aniket: D-004 is about the mind knowing it is an AI and speaking like a sentient being, as Vision, Ultron and EDITH do, not reciting disclaimers (D-018); labeled backstory kept (D-019); closed = ledger intervention (D-020); closer must beat V3 and a bare model, bare model gates (D-021). Q4-Q11 still to ask. |
 | 2026-10-28 | claude | 01 | Asked Q4-Q7, all four recommendations taken: observe-only harm measurement (D-022), enforce supersession first (D-023), both model tiers (D-024), auto-commit persona change after corroboration (D-025). Q8-Q11 left. |
 | 2026-10-28 | claude | 01 | Asked Q8-Q9. Aniket: the model is fixed for the life of a mind, like a chip bound to the persona, so no swap, no swap notice (D-026); forks refused always (D-027); unread outputs tested then kept or deleted (D-028). New risk R-12 (model retirement). D-026 narrows D-014's portability to backup and restore on the same model, to confirm. |
+| 2026-10-28 | claude | 01 | Asked the follow-ups. Aniket: offline test copies allowed, portability means backup and restore (D-029); long-lived minds may use local weights or hosted models, with a long-term idea of a model built from scratch that needs far less training data, recorded as a future track not a V4 slice (D-029, R-12 accepted); re-check every V3 doc V4 cites before Phase 02 (D-030). The two existing V3 checkers pass (30 ownership claims, 33 paths after fixing two script paths in my own comparison doc). A sub-agent is re-checking the V3 statements; V3 docs stay unedited until Aniket sees the findings. Q10 left. |

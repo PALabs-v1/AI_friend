@@ -236,3 +236,21 @@ Records every point where the work needs Aniket's judgment. Nothing here is reso
 **Status:** RESOLVED (2026-10-28, Aniket) · **Resolve by:** Phase 02 · **Blocking:** no
 
 **Decision.** "Test, then keep or delete (Recommended)". Monologue and dream output feed initiation as provenance-tagged candidates with a pre-registered ablation and a deadline; delete them if there is no effect. The dead plan verifier, simulator and calibration code is deleted unless V4 names a use for it. Invariant 12 in V3 must be checked before deletion.
+
+---
+
+## D-029: Test copies, portability, and the model policy for long-lived minds
+**Status:** RESOLVED (2026-10-28, Aniket) · **Resolve by:** Phase 02 · **Blocking:** no
+
+**Test copies (closes the open follow-up on D-027).** "Yes, offline only (Recommended)". Test copies of a mind are allowed if they never go live and are deleted after. The live mind stays a single copy. This is what lets the D-020 intervention gate (clamp, swap, replay) run on a real mind. D-025's developer snapshot and restore falls under the same rule.
+
+**Portability (confirms the reading in D-026).** "Backup and restore (Recommended)". Portable means the same mind with the same model moves to another machine or is restored after a failure. No model change and no second running copy.
+
+**Model policy (R-12).** Aniket, quoted (two spellings fixed for the spell-check hook): "it will be local weight and hosted, since the local model or maybe in future if possible when we will create a model from scratch, to behave like a human, since a human does not need whole amount of training data like today's 3b,7b,100b params model has". So both local-weights and hosted models are allowed for a mind, chosen at creation. A hosted mind carries the retirement risk, stated up front. A long-term direction is recorded: a model built from scratch that behaves like a human without today's training-data volume. That is a SCIENCE and RESOURCE question, not a V4 slice, and gets no work in this cycle beyond a note in the open questions; if Aniket wants it researched, it becomes a separate track.
+
+---
+
+## D-030: V3 documents V4 relies on
+**Status:** RESOLVED (2026-10-28, Aniket) · **Resolve by:** Phase 02 · **Blocking:** no
+
+**Decision.** "Re-check all V3 docs V4 cites". Before the architecture draft cites any V3 statement, check it against the code at the current commit. Findings are written to `research/v3-recheck.md`. V3 stays frozen: nothing in `docs/brain-research-v3/` is edited until Aniket sees the findings and says so.
