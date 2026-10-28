@@ -171,16 +171,20 @@ class TestPgPlaceholderGeneration:
     async def test_timed_placeholders_sequential_and_aligned(self):
         sql, params = await self._capture(datetime(2026, 1, 1))
         nums = [int(n) for n in re.findall(r"\$(\d+)", sql)]
-        # 12 base + 5 provenance + 6 eriksonian + 2 time = 25 bound params.
-        assert nums == list(range(1, 26))
-        assert len(params) == 25
+        # 12 base + 5 provenance + 6 eriksonian + 2 time + 2 embedding identity
+        # (embedding_model, embedding_dim: V4 slice 14) = 27 bound params.
+        assert nums == list(range(1, 28))
+        assert len(params) == 27
+        assert "embedding_model" in sql and "embedding_dim" in sql
         assert " 1," in sql or ", 1," in sql  # recall_count literal present
 
     @pytest.mark.asyncio
     async def test_untimed_uses_current_timestamp_literal(self):
         sql, params = await self._capture(None)
         nums = [int(n) for n in re.findall(r"\$(\d+)", sql)]
-        # 12 base + 5 provenance + 6 eriksonian = 23 bound params; time is a literal.
-        assert nums == list(range(1, 24))
-        assert len(params) == 23
+        # 12 base + 5 provenance + 6 eriksonian + 2 embedding identity (V4 slice 14)
+        # = 25 bound params; time is a literal.
+        assert nums == list(range(1, 26))
+        assert len(params) == 25
+        assert "embedding_model" in sql and "embedding_dim" in sql
         assert "CURRENT_TIMESTAMP" in sql
