@@ -177,3 +177,6 @@ scripts/remote/
 # streaming-tts-pipeline, pyo3-extension-modules) and skills-lock.json.
 .claude/settings.json
 .claude/settings.local.json
+
+# Repository intelligence index (tools/repo_intel)
+.repo-intel/

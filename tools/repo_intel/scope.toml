@@ -1,0 +1,168 @@
+# Scope rules for repo-intel. Ordered, first match wins.
+#
+# Every file is inventoried and hashed whatever its scope. `in_scope = false`
+# only removes a file from the "must be read" count N, and the reason is
+# printed in the coverage report. Change a rule here and re-run
+# `repo-intel inventory`; files whose scope flips are reported.
+#
+# Glob syntax: `**` crosses directories, `*` and `?` do not. A pattern with no
+# `/` matches the file name at any depth (like .gitignore).
+#
+# Kind-based rules (symlink, submodule, binary content, missing from the
+# working tree) are applied in scope.py before these rules.
+
+version = 1
+
+# --- Agent instructions: read these, they steer every coding agent ------------
+[[rule]]
+name = "skill-entry"
+glob = "**/skills/*/SKILL.md"
+category = "AGENT_INSTRUCTION"
+in_scope = true
+
+[[rule]]
+name = "agent-ledger"
+glob = ".agents/CONTEXT.md"
+category = "AGENT_INSTRUCTION"
+in_scope = true
+
+# --- Vendored or generated: inventoried, hashed, not read ----------------------
+[[rule]]
+name = "skill-payload"
+glob = "{.claude,.agents}/skills/**"
+category = "VENDORED_SKILL_PAYLOAD"
+in_scope = false
+reason = "Skill pack reference material, helper scripts and schemas for coding agents. Not product code and never executed by the product. SKILL.md of each pack stays in scope."
+
+[[rule]]
+name = "lockfile"
+glob = "package-lock.json"
+category = "LOCKFILE"
+in_scope = false
+reason = "Generated lockfile. Hash recorded; dependency intent lives in the manifest."
+
+[[rule]]
+name = "lockfile-cargo"
+glob = "Cargo.lock"
+category = "LOCKFILE"
+in_scope = false
+reason = "Generated lockfile. Hash recorded; dependency intent lives in the manifest."
+
+[[rule]]
+name = "v3-result-data"
+glob = "docs/brain-research-v3/results/**/*.{json,jsonl,csv}"
+category = "GENERATED_RESULT"
+in_scope = false
+reason = "Machine-generated experiment output (per-cell records). The reports that interpret it are .md files and stay in scope."
+
+[[rule]]
+name = "script-result-data"
+glob = "scripts/results/**/*.{json,jsonl,csv}"
+category = "GENERATED_RESULT"
+in_scope = false
+reason = "Machine-generated benchmark output. The scripts that produce it stay in scope."
+
+[[rule]]
+name = "quality-baseline"
+glob = "backend/tools/quality/baseline/**"
+category = "GENERATED_RESULT"
+in_scope = false
+reason = "Generated complexity baseline snapshot."
+
+# --- In scope, by role --------------------------------------------------------
+[[rule]]
+name = "ci"
+glob = ".github/**"
+category = "CI_BUILD"
+in_scope = true
+
+[[rule]]
+name = "tests"
+glob = "**/tests/**"
+category = "TEST"
+in_scope = true
+
+[[rule]]
+name = "test-files"
+glob = "test_*.py"
+category = "TEST"
+in_scope = true
+
+[[rule]]
+name = "test-files-suffix"
+glob = "*_test.py"
+category = "TEST"
+in_scope = true
+
+[[rule]]
+name = "schema-sql"
+glob = "*.sql"
+category = "SCHEMA"
+in_scope = true
+
+[[rule]]
+name = "contracts"
+glob = "backend/crates/contracts/**"
+category = "SCHEMA"
+in_scope = true
+
+[[rule]]
+name = "scripts-dirs"
+glob = "**/scripts/**"
+category = "SCRIPT"
+in_scope = true
+
+[[rule]]
+name = "shell"
+glob = "*.{sh,ps1,bat}"
+category = "SCRIPT"
+in_scope = true
+
+[[rule]]
+name = "notebook"
+glob = "*.ipynb"
+category = "NOTEBOOK"
+in_scope = true
+
+[[rule]]
+name = "source"
+glob = "*.{py,rs,js,jsx,mjs,cjs,ts,tsx,swift}"
+category = "SOURCE"
+in_scope = true
+
+[[rule]]
+name = "docs"
+glob = "*.{md,txt,rst,cff}"
+category = "DOC"
+in_scope = true
+
+[[rule]]
+name = "config"
+glob = "*.{yml,yaml,toml,ini,cfg,conf,service,xml,example}"
+category = "CONFIG"
+in_scope = true
+
+[[rule]]
+name = "data"
+glob = "*.{json,jsonl,csv,svg,html}"
+category = "DATA"
+in_scope = true
+
+[[rule]]
+name = "build-files"
+glob = "{Makefile,Dockerfile,Dockerfile.*,docker-compose*.yml}"
+category = "CI_BUILD"
+in_scope = true
+
+[[rule]]
+name = "dotfiles"
+glob = ".*"
+category = "CONFIG"
+in_scope = true
+
+# --- Fallback: nothing silently dropped ----------------------------------------
+[[rule]]
+name = "fallback"
+glob = "**"
+category = "OTHER"
+in_scope = true
