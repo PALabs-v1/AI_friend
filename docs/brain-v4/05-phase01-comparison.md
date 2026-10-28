@@ -109,7 +109,26 @@ Each is asked of Aniket one at a time and recorded in `DECISION_LOG.md` as D-018
 | Q8 | Swap tolerance, swap disclosure, forks | T3 D-c, D-d, D-e |
 | Q9 | Fate of unconsumed outputs (monologue, dream, plan, calibration) | T1 decision 3 |
 | Q10 | Raters under D2, sequence of work, mapping of paths to layers | T4 decisions 5, 6, 7 |
-| Q11 | Whether to correct the stale V3 doc lines despite the freeze | T1 decision 6 |
+| Q11 | Whether to correct the stale V3 doc lines despite the freeze (answered D-030: re-check; findings in `research/v3-recheck.md`; the V3 edits themselves still need Aniket's yes) | T1 decision 6 |
+| Q12 | First goal, rented compute, meaning of "from scratch", training data, where state lives, model interface now | T5 decisions 1 to 6 |
+
+## 9a. Track T5: a model built from scratch (added 2026-10-28, D-033)
+
+Three more reports (`research/phase01-*/T5-from-scratch.md`), compared in `research/phase01-compare/T5.md`. The comparer reran the training arithmetic with a script (`6 x parameters x tokens` FLOPs, 16 bytes per parameter for mixed AdamW) and spot-checked 10 repo claims and 13 sources.
+
+**On Aniket's claim that a from-scratch model is "much easier".** All three reports say it is not supported for the whole project. Codex: contradicted overall, with a narrower claim worth testing (a from-scratch model may make state transitions easier to inspect and win one pre-registered metric). Claude: contradicted for general competence, silent for the narrow persona case. AGY: "decisively contradicts", but its reasoning rests on thin evidence. The other half of the claim (no frontier model has what Aniket proposes) is not tested by any report. Only Claude's cheap size sweep (a 135M to 7B comparison on a narrow persona role) tests it.
+
+**What the evidence says.**
+- Models that hold open conversation train on about 10^11 to 10^13 tokens; children get 4 to 5 orders of magnitude less (Frank 2023, a short TiCS forum piece, not a meta-analysis). BabyLM-scale models (10M to 100M words) get grammar and linguistic-probe skill, not conversation, memory or character.
+- No published from-scratch model with persistent self-state or drives in the training objective was found, so affect in the objective is `SCIENCE` (empty cell).
+- Best pro-small evidence is narrow: Oh and Schuler 2023 found human reading-time fit peaks near 2B tokens (reading times only). Luo 2024 found a from-scratch 124M model and a fine-tuned GPT-2 both reach expert level. BloombergGPT lost to GPT-4 on several tasks.
+- On the Mac plus the 8 GB GPU, the practical ceiling is a GPT-2-small class model: 124M to 200M parameters on 2.5B to 10B tokens, about 1.4 to 29 days under assumed throughput (nobody measured either machine; Apple publishes no M5 training figure). 1B is excluded by throughput, not memory. At about 2 bits of fact per parameter (empirical, synthetic facts), a 124M model holds about 31 MB, so knowledge stays in the memory store. Class: `RESOURCE`.
+
+**Reliability.** Claude best supported and most precise; its arithmetic matched the script on every row. Codex sound but its 10M to 30M pilot is too small to test conversation, and its throughput assumption is probably 10x too pessimistic. AGY has good line numbers but several wrong source claims (Frank 2023 as a meta-analysis, Shapira and "no theory of mind below 3B", the BabyLM curriculum result, "Loubser" for SmolLM, Gilkerson figures not found). Codex's "six orders" for Kaplan should be seven. Laitenberger and Sasidhar figures were not found because arXiv and ACL fetches failed on certificate errors (unchecked, not wrong).
+
+**Code facts the comparer confirmed.** `llm/__init__.py` has five methods and `build_llm_client` accepts only "ollama" or "anthropic"; the embedder is hard-coded (`memory_store.py:41` 768 dims, `:621` `nomic-embed-text`); `_compute_endocrine_options` is a hand-set map from cortisol, dopamine and fatigue to sampler knobs (`action.py:940`); `ModelRole` (`model_roles.py`, six roles) is only imported in `core.py:24`, which builds a `ProviderCapabilityNegotiator` (`core.py:116`) that nothing calls. So the model seam exists on paper and is unused.
+
+**Ranked V4 moves to make a future model a plug-in** (all `ENGINEERING`, from Claude's report, confirmed): (1) a backend contract with a capability descriptor and structured state channels plus a conformance suite; (2) a versioned per-turn mind-trace log, after the V3 fixes NF-12, NF-23, NF-39, NF-17 and NF-16 so traces are not poisoned; (3) route every LLM call through `ModelRole`; (4) per-row embedding model id and dimension; (5) the size sweep; (6) an affect-conditioning abstraction; (7) a 30M to 60M pilot; (8) a 124M to 200M run only if the pilot shows a controllability gain.
 
 ## 10. Verification status of this document
 
