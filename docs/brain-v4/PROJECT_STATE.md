@@ -6,7 +6,7 @@
 cycle: brain-v4-design
 current_phase: 01          # see "Phases" below; advanced only when the previous phase's exit criteria are met
 status: awaiting-decision  # not-started | in-progress | blocked | awaiting-decision | complete
-blocked_on: Phase 01 decisions Q4-Q11 (05-phase01-comparison.md section 9); Q1-Q3 answered as D-018 to D-021
+blocked_on: Phase 01 decisions Q8-Q11 (05-phase01-comparison.md section 9); Q1-Q7 answered as D-018 to D-025
 branch: main                       # direct pushes, D-016
 base: origin/main                  # direct pushes
 last_updated: 2026-10-28
@@ -50,3 +50,4 @@ Append one line per agent run. Newest at the bottom.
 | 2026-10-28 | claude | 01 | Pushed straight to `main` (`0dea39ee`; #219 shows merged). Aniket approved the four briefs and chose `gemini-3.8-flash-high` (D-015, D-017). Launched Phase 01: 4 Codex runs (`gpt-6-luna`, Aniket's choice) and 4 Antigravity runs, detached, plus 4 Claude sub-agent passes, all from the same briefs, none seeing the others' output. Shared-instructions symlinks added and checked with Codex and Antigravity (D-017). Fast-forwarded the local checkout. Codex needs an explicit `-m`; its default `gpt-6.1-sol` is rejected. Next: collect the 12 reports into `research/phase01-*/`, then write `05-phase01-comparison.md`. |
 | 2026-10-28 | claude | 01 | All 12 reports in (Codex 4, Antigravity 4, Claude 4); Antigravity T2 needed one relaunch after a TLS error. Four comparer sub-agents read each track's three reports, spot-checked repo lines and opened cited sources (`research/phase01-compare/T1-T4.md`). Wrote `05-phase01-comparison.md`: all three agree on a state-first structure with identity as slow state, found the same open loops in the code, and Claude's pass held up best, AGY's numbers failed checks. Biggest finding: the repo does not meet D4 (the output filter blocks "as an AI"). 11 decisions queued; V3 docs have stale lines, left alone (D-010). |
 | 2026-10-28 | claude | 01 | Asked Q1-Q3. Aniket: D-004 is about the mind knowing it is an AI and speaking like a sentient being, as Vision, Ultron and EDITH do, not reciting disclaimers (D-018); labeled backstory kept (D-019); closed = ledger intervention (D-020); closer must beat V3 and a bare model, bare model gates (D-021). Q4-Q11 still to ask. |
+| 2026-10-28 | claude | 01 | Asked Q4-Q7, all four recommendations taken: observe-only harm measurement (D-022), enforce supersession first (D-023), both model tiers (D-024), auto-commit persona change after corroboration (D-025). Q8-Q11 left. |

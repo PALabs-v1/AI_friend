@@ -181,3 +181,31 @@ Records every point where the work needs Aniket's judgment. Nothing here is reso
 **Status:** RESOLVED (2026-10-28, Aniket) · **Resolve by:** Phase 04 · **Blocking:** no
 
 **Decision.** "Both, bare model gates (Recommended)". A V4 change counts as closer only if it beats V3 and also beats a bare model with the persona and full history. The bare-model comparison gates, because only it can return "the architecture adds nothing". BrainBench needs a new arm for that in `backend/evals/brainbench/switchboard.py`; it goes into the slice plan as an early slice, not built now.
+
+---
+
+## D-022: Measuring harm under D-001 (pure goal)
+**Status:** RESOLVED (2026-10-28, Aniket) · **Resolve by:** Phase 04 · **Blocking:** no
+
+**Decision.** "Observe only (Recommended)". The eval records exit-manipulation, sycophancy at high trust and dependence markers. Nothing blocks a release. D-001 is reopened only if a metric moves. Basis: randomized trials show no average harm, harm is concentrated, no trial tested a persistent-state companion (`research/phase01-compare/T2.md`).
+
+---
+
+## D-023: Which memory change leads V4
+**Status:** RESOLVED (2026-10-28, Aniket) · **Resolve by:** Phase 04 · **Blocking:** no
+
+**Decision.** "Enforce supersession (Recommended)". Wire `TemporalMemoryStore` (built at `core.py:98`, `apply_contradiction` has no caller) so superseded facts are filtered at read, with a full-history baseline as the comparison arm. Graph (PageRank) retrieval was not chosen.
+
+---
+
+## D-024: Acceptance model tiers
+**Status:** RESOLVED (2026-10-28, Aniket) · **Resolve by:** Phase 04 · **Blocking:** no
+
+**Decision.** "Both tiers (Recommended)". One frozen architecture, a 4B to 9B local model on the GPU box and a frontier model through local Claude Code, reported as a table (D-003). Any GPU run still needs Aniket's go-ahead (D-013).
+
+---
+
+## D-025: How persona self-change works
+**Status:** RESOLVED (2026-10-28, Aniket) · **Resolve by:** Phase 02 · **Blocking:** no
+
+**Decision.** "Auto-commit after corroboration (Recommended)". A persona change commits after N corroborating reflections on separate days, only on the adaptive fields, as DR-020 and DR-038 intend. N and thresholds come from a lifesim sweep, not a guess. This removes the dead review queue as the default path (`config.py:278`). A developer-only snapshot and restore is allowed for transplant tests; users get no reset (DR-033 stands for users).
