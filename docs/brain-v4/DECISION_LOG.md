@@ -347,3 +347,10 @@ Aniket chose "Offline copies". The carryover problem is handled by running study
 **Status:** RESOLVED (2026-10-28, Aniket) · **Resolve by:** V3 close-out · **Blocking:** no
 
 Aniket chose "Keep code, drop wiring". This narrows D-028's "deleted unless V4 names a use" in time: now the live wiring is dropped (pipeline injection and the decision and candidate consumers that default to `PROCEED`), and the modules, the `AgentState.capability_model` field, the V3 benchmark scripts and their tests stay so V3 results can still be reproduced while V3 is frozen (D-010). The code is deleted for real when Aniket closes V3 out. Tests that assert the wiring are updated in the same slice.
+
+---
+
+## D-041: Phase 04 slice plan approved; Wave A starts
+**Status:** RESOLVED (2026-10-28, Aniket) · **Resolve by:** n/a · **Blocking:** no
+
+Aniket approved `phases/04-slice-plan.md` as written (slices 0 to 15, with 2 split into 2a and 2b), chose to start Wave A now (slices 0, 1, 6, 14: no model run, no GPU), and chose "Split by type" for builders: Claude builds judgment slices (1, 4, 5, 9, 11, 12), Codex builds mechanical slices (0, 6, 13, 14). Each slice gets a cold critic from a different tool, max 2 rounds, no third. Codex builds in throwaway git worktrees and does not commit; Claude reviews each diff, runs the covering tests, and commits to `main`.
