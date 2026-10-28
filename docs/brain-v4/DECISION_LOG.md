@@ -209,3 +209,30 @@ Records every point where the work needs Aniket's judgment. Nothing here is reso
 **Status:** RESOLVED (2026-10-28, Aniket) · **Resolve by:** Phase 02 · **Blocking:** no
 
 **Decision.** "Auto-commit after corroboration (Recommended)". A persona change commits after N corroborating reflections on separate days, only on the adaptive fields, as DR-020 and DR-038 intend. N and thresholds come from a lifesim sweep, not a guess. This removes the dead review queue as the default path (`config.py:278`). A developer-only snapshot and restore is allowed for transplant tests; users get no reset (DR-033 stands for users).
+
+---
+
+## D-026: One model for the life of one mind (no model swap)
+**Status:** RESOLVED (2026-10-28, Aniket; scope of the fork and backup rules awaiting a follow-up) · **Resolve by:** Phase 02 · **Blocking:** no
+
+**Question asked.** What counts as "still the same one" after the model under the mind is swapped (Q8), and should the mind tell the user (Q8b)?
+
+**Decision (Aniket, quoted; two spellings fixed for the spell-check hook).** "model cannot be changed, think like a chip, where model is unique, to the persona authored, and it will continue forever, like humans, brain cannot be changed, like that"; on telling the user: "no model change".
+
+**What changes.** The model is chosen once, when a mind is created, and is bound to that persona for its whole life, like a brain that cannot be replaced. There is no mid-life swap, so no swap test, no swap-tolerance threshold and no swap notice. Phase 01 track T3's swap material (A/A versus A/B tolerance, provenance-driven swap disclosure) is not needed for the product. D-003 still holds in this form: the model is pluggable per mind, chosen at creation, and D-024 still holds: different minds on different tiers are compared. What does not hold: moving one existing mind to a new model. The "portable identity" idea from D-014 is now read as backup and restore onto the same model, not a model change; Aniket to confirm.
+
+**New consequences.** (1) The model needs a pinned identity (name, version, weights hash for a local model) stored with the mind, so "same chip" is checkable. (2) A hosted model that is retired ends that mind or forces an exception; recorded as R-12. (3) Provenance stamping stays useful for that pin and for checking that restore used the same model. (4) State-swap interventions in the D-020 gate must be done on test copies of a mind that never go live; see the open follow-up.
+
+---
+
+## D-027: Forks
+**Status:** RESOLVED (2026-10-28, Aniket) · **Resolve by:** Phase 02 · **Blocking:** no
+
+**Decision.** "Refuse always": one live copy per lineage everywhere. Open follow-up: whether offline test copies (for D-020 transplant and replay tests, which never talk to a user) count as a fork. If they do, those tests cannot run; D-025's developer snapshot and restore also needs this answered.
+
+---
+
+## D-028: Fate of unread outputs
+**Status:** RESOLVED (2026-10-28, Aniket) · **Resolve by:** Phase 02 · **Blocking:** no
+
+**Decision.** "Test, then keep or delete (Recommended)". Monologue and dream output feed initiation as provenance-tagged candidates with a pre-registered ablation and a deadline; delete them if there is no effect. The dead plan verifier, simulator and calibration code is deleted unless V4 names a use for it. Invariant 12 in V3 must be checked before deletion.
