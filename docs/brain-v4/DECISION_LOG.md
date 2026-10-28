@@ -278,3 +278,10 @@ Records every point where the work needs Aniket's judgment. Nothing here is reso
 **How I read it.** Every current model, small local or frontier, is a test vehicle. None is the final home of a mind. The goal beyond this cycle is a model built from scratch to behave like a human, which Aniket expects to be easier than bending a general model. So D-024 stands as an acceptance table, but the frontier row is a test ceiling, not a deployable tier. D-026 (one model per mind) and D-029 (self-hosted local weights) describe how a mind lives once it has a model; until the from-scratch model exists, minds are test instances and may be discarded. The architecture is designed to be model-agnostic where it costs nothing, and the model-specific parts (prompt directive, parsing, sampling) are kept in one place.
 
 **Recorded honestly.** "Much easier" is Aniket's belief. Nothing in Phase 01 supports or contradicts it: no report covered training a human-like model from scratch, and all three passes found that small models are the hardest limit on realism today. It is a SCIENCE and RESOURCE question (a from-scratch model needs data and compute that this setup does not have). Risk R-13: architecture tuned to today's models may not transfer to the future one. Mitigation: the ledger and interventions (D-020) are model-agnostic, and model-specific code stays isolated. Whether to open a research track on it is a separate question to Aniket.
+
+---
+
+## D-033: Open a research track on a from-scratch model
+**Status:** RESOLVED (2026-10-28, Aniket) · **Resolve by:** Phase 01b · **Blocking:** no
+
+**Decision.** "Open a research track now". Track T5 (`research/briefs/tracks.md`) goes to Codex (`gpt-6-luna`), Antigravity (`gemini-3.8-flash-high`) and a Claude sub-agent, same rules and report structure, reports to `T5-from-scratch.md` in each `phase01-*` folder. Phase 02 continues in parallel (the tests and ledger are model-agnostic, D-032). The brief treats "much easier" as a claim to test, and plans for a Mac (M5, 16 GB) and one 8 GB GPU box, with no cluster. It reads only design text (R-05). No GPU is used for the research itself (D-013).

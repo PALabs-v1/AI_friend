@@ -1,6 +1,6 @@
 # Track-specific briefs (each is appended to common.md)
 
-Four tracks, each sent to Codex and to Antigravity, plus a Claude pass written
+Four tracks (T5 added later, see its section), each sent to Codex and to Antigravity, plus a Claude pass written
 before any report is read. Report file names: `T1-structure.md`,
 `T2-field-2026.md`, `T3-identity.md`, `T4-measure.md`, one set per tool.
 
@@ -107,3 +107,56 @@ Write your report to `T4-measure.md` in your working directory.
    a result that says the architecture does not help?
 5. What cannot be measured at all, and how should a report say so without
    overclaiming?
+
+---
+
+## Track T5 (added 2026-10-28, Phase 01b): a model built from scratch for a human-like mind
+
+Added after the first four tracks, at the owner's request (D-032). Same three
+passes (Codex, Antigravity, Claude), same rules, same report structure. Write
+your report to `T5-from-scratch.md` in your working directory. Replace the
+shared context's line about the model being a per-deployment choice with this:
+for now every model used is a test vehicle; the owner's stated end goal is to
+build a model from scratch to behave like a human.
+
+The owner's words (2026-10-28): "my future direction is to ultimately create a
+model from scratch to make it behave like human, which is much easier but no
+frontier model is equipped with which i propose, so at the end the current
+models are all for testing". Treat "much easier" as a claim to test, not a
+fact. Say plainly whether the evidence supports it, contradicts it, or is
+silent.
+
+Hardware and budget for planning: a Mac (M5, 16 GB) and one GPU box with 8 GB
+VRAM. No cluster. Say what is possible at that scale and what is not.
+
+1. What does the research say about how much data and compute a model needs to
+   reach human-like language and behavior? Cover scaling laws and their
+   critiques, data-efficiency work (the BabyLM challenge and similar small-data
+   pretraining efforts, curriculum and developmental-style training, synthetic
+   data), and what children actually receive compared with what models are
+   trained on. Give numbers with their conditions.
+2. What would "behaves like a human" have to mean for a from-scratch model, as
+   distinct from a general language model plus an architecture around it?
+   Survey work on models trained with different objectives or structures
+   (persistent or recurrent state, memory built into the model, affect or
+   drive signals in the training objective, interactive or embodied-in-text
+   training, continual learning). Which of these have been built, at what
+   size, and what did they show?
+3. What is the strongest evidence that a small model (under 10 billion
+   parameters, and especially under 1 billion) trained from scratch can match
+   or beat a general model fine-tuned or prompted for a narrow human-like
+   role? What is the strongest evidence against?
+4. What is the smallest realistic from-scratch project on the stated hardware
+   (data collection, tokenizer, pretraining, evaluation)? State sizes, token
+   counts, wall-clock estimates and what the result could and could not show.
+   Name the cheaper alternatives (continued pretraining, distillation, adapter
+   or state-space or recurrent designs, mixture approaches) and say what each
+   gives up.
+5. What can the V4 architecture decide now so that a future from-scratch model
+   plugs in without a rewrite? Look at the current system (the files named in
+   the shared context) and list the interfaces where the model is assumed
+   (prompt directive, parsing, sampling, embedding, memory format) and what
+   would need to change.
+6. Classify every limit with the four classes. Rank the candidate moves,
+   each with the measurable outcome that would show it worked and what it
+   depends on.
