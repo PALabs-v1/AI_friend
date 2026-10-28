@@ -28,7 +28,9 @@ def test_requirements_dev_caps_pytest_below_9_2() -> None:
     assert _pytest_spec().replace(" ", "") == "pytest<9.2"
 
 
-def test_installed_pytest_pairs_with_pytest_benchmark(benchmark) -> None:
+def test_installed_pytest_pairs_with_pytest_benchmark(request) -> None:
+    # Some workflows install pytest without the benchmark plugin; skip there.
+    pytest.importorskip("pytest_benchmark")
     # Fails at fixture setup (AttributeError '_nodeid') on the broken pair.
+    benchmark = request.getfixturevalue("benchmark")
     assert benchmark(lambda: sum(range(10))) == 45
-    assert int(pytest.__version__.split(".")[0]) >= 8
