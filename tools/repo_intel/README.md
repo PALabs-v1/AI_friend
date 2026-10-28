@@ -24,7 +24,7 @@ Reading every file is not the same as understanding it. The coverage report prin
 | `inventory` | Scan the working tree and update the index. Prints added, removed, modified, scope-flipped files. | 0 ok, 1 unreadable files |
 | `reconcile` | Same scan, changes nothing. | 0 matches, 2 drift |
 | `coverage [--json] [--md PATH] [--strict]` | The progress report. `--strict` also checks drift. | 0 ok, 1 unread or failed files, 2 drift |
-| `claim --reader N --family F [--prefix P]` | Reserve and print the next batch of unread files. | 0 |
+| `claim --reader N --family F [--prefix P] [--out FILE]` | Reserve the next batch of unread files and print it, or write it to FILE and print a manifest. | 0 |
 | `ack BATCH --reader N --notes FILE.jsonl` | Validate notes, record reads. Rejected files return to the pool. | 0 all accepted, 1 some rejected |
 | `release-expired` | Expire claims older than the TTL (default 120 min). | 0 |
 | `files {unread,stale,unreviewed,failed,excluded,all}` | List files by state. | 0 |

@@ -132,7 +132,17 @@ def cmd_claim(a: argparse.Namespace) -> int:
             file=sys.stderr,
         )
         return EXIT_OK if not warnings else EXIT_DRIFT
-    print(text, end="")
+    if a.out:
+        out = Path(a.out)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(text, encoding="utf-8")
+        print(f"batch {bid} written to {out} ({len(text.splitlines())} lines). Files:")
+        for line in text.splitlines():
+            if line.startswith(">>> FILE"):
+                where = line.split(" chunk=")[1].split(" category")[0]
+                print(f"  {line[4:].split(' sha256=')[0]}  chunk {where}")
+    else:
+        print(text, end="")
     print(
         f"claimed {bid}; acknowledge with: ack {bid} --reader {a.reader} --notes <file.jsonl>",
         file=sys.stderr,
@@ -297,6 +307,10 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         default=batch.DEFAULT_TTL_MIN,
         help="minutes before an unacked claim expires",
+    )
+    sp.add_argument(
+        "--out",
+        help="write the batch to this file and print a manifest (for readers whose shell truncates long output)",
     )
     sp = add("ack", cmd_ack, "acknowledge a batch with per-file notes (JSONL)")
     sp.add_argument("batch")
