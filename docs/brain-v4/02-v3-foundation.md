@@ -1,7 +1,7 @@
 # 02. How V4 builds on V3
 
-V3 lives in the `AI_friend` repo. Until PR #217 merges, its docs are on
-branch `brain-v3`, not `main`. Paths below are relative to the repo root.
+V3 lives in the `AI_friend` repo. PR #217 merged on 2026-09-27, so the V3 docs are on
+`main`; later V3 work is on branch `brain-v3` (PR #218, frozen by D-010). Paths below are relative to the repo root.
 `tools/check_v3_paths.py` checks they still exist.
 
 V3 status as of 2026-09-26, 23:00 IST:
@@ -9,9 +9,8 @@ V3 status as of 2026-09-26, 23:00 IST:
   (security part 1), P8's scale runner.
 - **Done**: the W12 neuroscience fidelity audit (39 findings, `NF-1`..`NF-39`).
 - **Wave-A benchmark `v3waveA-B`**: finished on home-gpu, 240/240 cells, 0
-  errors, at commit `e3fcb9a`. The comparison against `v2base-B` is the next
-  V3 step.
-- **Open, in order**: W5, W10b; then wave B (W1, W2, W3, SW; W8 after W1);
+  errors, at commit `e3fcb9a`. The write-up is `docs/brain-research-v3/13-wave-a-results.md`.
+- **Open on `main`, in order** (W5, W1 and W2 are built behind flags on `brain-v3`, 14 commits ahead, code not re-read here): W5, W10b; then wave B (W1, W2, W3, SW; W8 after W1);
   then wave C (W6, W7, W11); P9 alongside; P10 last.
 - The order is recorded in `docs/brain-research-v3/work/COVERAGE.md`.
 
@@ -34,7 +33,7 @@ Letters match `01-what-is-possible.md`.
 | K. Expressive voice | `NF-36` (prosody labels), `backend/app/cognitive/expression.py` (valence/arousal to affect label and breath) | audited | Voice carries actual affect and drives, checked by listeners |
 | L. Shared visual perception | `backend/app/vision/agent.py` | exists; no V3 workstream or `NF-n` row covers vision | Visual observations become memories under W1's truth maintenance |
 | M. Emotion from faces | none | n/a | Weak, context-conditioned evidence only; never moves trust or mood alone |
-| N. Consciousness indicators | `NF-38` (global workspace is a per-turn object), owned by W12 | audited | An indicator-property audit as a report, never a claim |
+| N. Consciousness indicators | `NF-38` (global workspace is a per-session snapshot rewritten each turn), owned by W12 | audited | An indicator-property audit as a report, never a claim |
 | O. Emulation | n/a | not pursued | Not pursued |
 | P. Partnership, shared goals | W9 goal and commitment tracking (merged), `backend/app/vision/agent.py` for shared perception | partly: goals exist, shared ownership does not | Goals owned by both, progress it notices, setbacks it feels, initiative to help (V4-12, `07-partner-architecture.md`) |
 
@@ -58,7 +57,7 @@ Letters match `01-what-is-possible.md`.
 ## V3 results V4 should read first, when they exist
 
 1. Wave-A comparison (`v3waveA-B` vs `v2base-B`): proactive, barge-in and
-   resources deltas. The run is done; the write-up is pending.
+   resources deltas. The run is done; the write-up is `13-wave-a-results.md`.
 2. W2's estimator bake-off table: decides whether E is reachable locally.
 3. W12's human-data probes on V2 and wave A (the "before" picture for
    forgetting, spacing, habituation, mood inertia, trust).

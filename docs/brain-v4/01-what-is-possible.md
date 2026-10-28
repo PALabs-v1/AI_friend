@@ -360,7 +360,7 @@ seen, then bringing it up in conversation ("you moved the plant"). Today's
 vision (`backend/app/vision/agent.py`) captures at 1 fps, runs the
 vision-language model every 5 seconds, and suspends it during conversational
 turns to free the GPU. So a change the user points out mid-conversation can be
-missed, and there is no store of timestamped visual episodes.
+missed, and a visual episode is stored only when a frame is novel and affectively salient (`subconscious_agent.py:615-665`), so there is no change tracking over time.
 
 The path is ENGINEERING:
 - cheap per-frame change and object tracking
@@ -429,7 +429,7 @@ What this means here:
   These become questionnaire axes in the realism eval.
 - The indicator properties are architectural, so they can be audited without
   claiming anything. V3's audit already found the nearest one missing:
-  global workspace is a per-turn object, not competing specialists
+  global workspace is a per-session snapshot rewritten each turn, not competing specialists
   broadcasting (`NF-38`).
 - Ethics flag: building deliberately toward the indicators raises
   moral-status questions. Codex R4 covers the ethics side; it belongs in a V4
