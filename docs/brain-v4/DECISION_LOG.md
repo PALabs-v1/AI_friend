@@ -303,3 +303,10 @@ Records every point where the work needs Aniket's judgment. Nothing here is reso
 
 - **State home.** "External, optional cache (Recommended)". The state ledger outside the model is authoritative. A future model may keep an in-model cache of it. Intervention tests (D-020), backup and restore (D-029) and rollback stay possible.
 - **Model interface now.** "Yes, both (Recommended)". The slice plan includes the model interface (a capability descriptor and structured state channels, every LLM call routed through `ModelRole`, a per-row embedding model id and dimension) and an early size sweep, 135M to 7B on a narrow persona role, as the cheapest test of "much easier". Running the sweep needs a GPU, so it waits for Aniket's go-ahead for that run (D-013). Nothing is built until the slices are approved in Phase 04.
+
+---
+
+## D-036: home-gpu handed to another project
+**Status:** RESOLVED (2026-10-28, Aniket) · **Resolve by:** n/a · **Blocking:** no
+
+Aniket: another project is now working on home-gpu, and since this cycle has no GPU work, he gave it to that project. Effects here: nothing in this cycle runs on home-gpu until he hands it back. That blocks the early size sweep (D-035) and the owed W1 `llm_augmented` run (D-010). Neither is needed to finish Phases 02 to 04: the architecture, the critique and the slice plan do not use a GPU. D-013 still holds (ask before any use); when a slice needs the GPU, the plan asks Aniket for it back and does not assume it. Mac-only work (code, unit tests, no-LLM simulation, seconds-long Ollama smoke checks) is unchanged.
