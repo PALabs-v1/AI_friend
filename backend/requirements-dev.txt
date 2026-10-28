@@ -1,5 +1,8 @@
 -r requirements-base.txt
-pytest
+# pytest 9.2.0 breaks pytest-benchmark 5.3.0 (AttributeError '_nodeid' in
+# fixture.py:88; every benchmark test errors at setup). 9.1.1 works.
+# Lift the cap once pytest-benchmark ships a fix.
+pytest<9.2
 pytest-asyncio
 pytest-cov
 pytest-benchmark
