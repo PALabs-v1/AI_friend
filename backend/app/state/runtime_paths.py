@@ -24,6 +24,13 @@ logger = logging.getLogger(__name__)
 _DEFAULT_HOST = "127.0.0.1"
 _DEFAULT_PORT = 6379
 
+# Written into every offline intervention copy (see `offline_copy.py`).
+OFFLINE_MARKER = "OFFLINE_COPY.json"
+
+
+class OfflineCopyError(RuntimeError):
+    """A live process was pointed at an offline intervention copy (D-029)."""
+
 
 def redis_endpoint() -> tuple[str, int] | None:
     """(host, port) from `Config.REDIS_URL`, or None when Redis is disabled.
@@ -73,6 +80,14 @@ def runtime_state_db(
     base = base_path or getattr(Config, "IDENTITY_BASE_PATH", None)
     if not base:
         return filename
+    # An offline copy never goes live (D-029). Harness code passes an explicit
+    # `base_path`; a deployment resolves through `IDENTITY_BASE_PATH`, so only
+    # that route is refused.
+    if from_deployment and (Path(base) / OFFLINE_MARKER).exists():
+        raise OfflineCopyError(
+            f"IDENTITY_BASE_PATH {base} is an offline intervention copy "
+            f"({OFFLINE_MARKER} present); refusing to run a live process on it."
+        )
     target = Path(base) / filename
     # SQLite can create a file but not its directory; a fresh volume may be empty.
     target.parent.mkdir(parents=True, exist_ok=True)
