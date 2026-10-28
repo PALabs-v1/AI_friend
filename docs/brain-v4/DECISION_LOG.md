@@ -265,3 +265,16 @@ Records every point where the work needs Aniket's judgment. Nothing here is reso
 **Work order.** "Measure, then fix (Recommended)". The intervention harness runs first and records the known defects as baselines (mood fed its own value `pipeline.py:817`, dead persona review queue `config.py:278`, stale facts winning retrieval M-5). Fixes follow, and the numbers must move.
 
 **Layer map.** "Reflex+interactive, deliberative, background (Recommended)". Reactive layer = the reflex and interactive paths. Deliberative layer = the deliberative path. Reflective layer = the background path (reflection, consolidation, dreams). The layer-lesion experiment pre-registers its predictions from this map: a reactive lesion degrades timing and barge-in and not memory truth; a deliberative lesion degrades planning and decision quality; a reflective lesion degrades cross-session identity and consolidation and not within-turn timing. No double dissociation means the layers are labels (null N5).
+
+---
+
+## D-032: Today's models are test vehicles; the end goal is a model built from scratch
+**Status:** RESOLVED (2026-10-28, Aniket; wording is my reading) · **Resolve by:** Phase 02 · **Blocking:** no
+
+**Question asked.** With minds living on self-hosted local models (D-029), what is the frontier tier in D-024 for?
+
+**Decision (Aniket, quoted; one spelling fixed for the spell-check hook).** "see my future direction is to ultimately create a model from scratch to make it behave like human, which is much easier but no frontier model is equipped with which i propse, so at the end the current models are all for testing".
+
+**How I read it.** Every current model, small local or frontier, is a test vehicle. None is the final home of a mind. The goal beyond this cycle is a model built from scratch to behave like a human, which Aniket expects to be easier than bending a general model. So D-024 stands as an acceptance table, but the frontier row is a test ceiling, not a deployable tier. D-026 (one model per mind) and D-029 (self-hosted local weights) describe how a mind lives once it has a model; until the from-scratch model exists, minds are test instances and may be discarded. The architecture is designed to be model-agnostic where it costs nothing, and the model-specific parts (prompt directive, parsing, sampling) are kept in one place.
+
+**Recorded honestly.** "Much easier" is Aniket's belief. Nothing in Phase 01 supports or contradicts it: no report covered training a human-like model from scratch, and all three passes found that small models are the hardest limit on realism today. It is a SCIENCE and RESOURCE question (a from-scratch model needs data and compute that this setup does not have). Risk R-13: architecture tuned to today's models may not transfer to the future one. Mitigation: the ledger and interventions (D-020) are model-agnostic, and model-specific code stays isolated. Whether to open a research track on it is a separate question to Aniket.
