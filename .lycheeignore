@@ -111,6 +111,13 @@ users.cs.northwestern.edu
 ppw.kuleuven.be
 www.ppw.kuleuven.be
 
+# Dead or flaky citation targets in frozen or raw research records (V3 docs are
+# frozen, D-010; the Antigravity report is kept unedited). The V4 verification
+# notes already mark these as unverified.
+https://people\.sissa\.it/~ale/EvolNeurComp/2022/II_Doya_2002\.pdf
+https://jmlr\.org/papers/v25/23-0447\.html
+https://ndlsearch\.ndl\.go\.jp/en/books/R100000136-I1574231874421598720
+
 # Dynamically generated runtime datasets
 benchmark_results.json
 raw_research_data.json
