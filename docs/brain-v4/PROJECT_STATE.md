@@ -4,9 +4,9 @@
 
 ```yaml
 cycle: brain-v4-design
-current_phase: 01          # see "Phases" below; advanced only when the previous phase's exit criteria are met
-status: awaiting-decision  # not-started | in-progress | blocked | awaiting-decision | complete
-blocked_on: V3 re-check findings (D-030), then Phase 01 exit; all 11 Phase 01 questions answered as D-018 to D-031
+current_phase: 02          # see "Phases" below; advanced only when the previous phase's exit criteria are met
+status: in-progress        # not-started | in-progress | blocked | awaiting-decision | complete
+blocked_on: null                   # Phase 01 and 01b exit criteria met; Phase 02 is the architecture draft
 branch: main                       # direct pushes, D-016
 base: origin/main                  # direct pushes
 last_updated: 2026-10-28
@@ -57,3 +57,5 @@ Append one line per agent run. Newest at the bottom.
 | 2026-10-28 | claude | 01 | Aniket corrected D-029: "local models will be hosted not both". A mind runs on a self-hosted local-weights model; I had read it as local or provider-hosted. Decision log and R-12 corrected. Open: whether D-024's frontier tier (local Claude Code) is a test-only tier. |
 | 2026-10-28 | claude | 01 | Aniket on the frontier tier: his future direction is a model built from scratch to behave like a human, so all current models are for testing (D-032). Frontier row in D-024 is a test ceiling. Added R-13. Whether to open a from-scratch-model research track is the next question. |
 | 2026-10-28 | claude | 01b | Aniket: open a research track on the from-scratch model now (D-033). Wrote track T5, launched Codex, Antigravity and a Claude pass. Phase 02 can proceed in parallel. The V3 re-check (D-030) is still running. |
+| 2026-10-28 | claude | 01b | T5 compared (`research/phase01-compare/T5.md`; synthesis in `05-phase01-comparison.md` section 9a). Aniket: narrow role model gated by a pilot, no rented compute until the pilot gains, random weights as the claim, training data may include his logs and frontier outputs (D-034, provider-terms gate and R-14 mine). Two T5 questions left: where state lives, and the model interface now. |
+| 2026-10-28 | claude | 01b | Aniket: state stays external with an optional in-model cache; build the model interface and run the size sweep early (D-035; the sweep waits for a GPU go-ahead). Phase 01 and 01b exit criteria met: 15 reports compared, 35 decisions recorded (D-001 to D-035). Advancing to Phase 02, the architecture draft. |
