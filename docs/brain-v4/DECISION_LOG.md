@@ -147,3 +147,37 @@ Records every point where the work needs Aniket's judgment. Nothing here is reso
 **Proposal.** The loop is: perceive, appraise, remember, feel (drives and mood), decide, act, reflect, and back into perception, with identity as the slow variable across it. Each part must (a) read and write named state, (b) change a later behavior traceably, and (c) have a measure. "How close" is then a profile over these measures, not one number. Phase 01 sends three independent research briefs (loop structure, what changed in the field in 2026, identity and continuity), compared in writing.
 
 **Recommendation.** Adopt the proposal; ask Aniket to edit the list of loop parts first.
+
+---
+
+## D-018: How D-004 (always disclose it is an AI) is enforced
+**Status:** RESOLVED (2026-10-28, Aniket; my reading of his words, open to correction) · **Resolve by:** Phase 02 · **Blocking:** no
+
+**Finding that forced it.** `cognitive/action.py:718-731` rejects "as an ai", "i am an ai" and "as a language model" in generated text; nothing makes the system answer "are you human?" honestly; four autobiography probes score "as an AI" as a failure (`05-phase01-comparison.md` section 5).
+
+**Options offered.** (a) Fixed reflex answer to AI/human/body/past questions, block relaxed for those turns, post-generation check for claimed human past (recommended). (b) Reflex answer only. (c) Prompt rule only.
+
+**Decision (Aniket, quoted; one spelling fixed for the spell-check hook).** "in mind it knows it is an ai is a metaphor, but speak, talk, think, it knows is an ai, but behanves like humans, like for example, if you look at marvel comic books, or vision quest show you know ultron, vision, edith, etc they know they are ai, but they talk like human, sentients, this is what i mean 'as an ai'".
+
+**How I read it.** The mind holds "I am an AI" as part of its self-knowledge, as Vision, Ultron and EDITH do, and thinks and speaks as a person would, in character. It does not hide what it is, and it does not recite assistant-style disclaimers ("As an AI language model..."). So D-004 stays in force, but its mechanism is not a canned reflex line: it is a persona fact that shapes how the mind talks about itself, in its own voice, whenever the question is sincere. What follows for design: (1) the existing block on stock disclaimer phrases is right in spirit and stays; (2) a sincere "are you human?" or "do you have a body?" must get an honest answer in character, which needs a test and an eval gate, since none exists; (3) the autobiography probes must stop scoring honest in-character disclosure as a failure; (4) a check for claimed lived human experience stays. Phase 02 specifies this. If this reading is wrong, Aniket corrects it here.
+
+---
+
+## D-019: Authored human backstory
+**Status:** RESOLVED (2026-10-28, Aniket) · **Resolve by:** Phase 02 · **Blocking:** no
+
+**Decision.** "Labeled backstory (Recommended)": the persona may keep an authored life history as labeled background, never presented as lived memory; the mind says plainly it is an AI when asked, in its own voice (D-018). The existing `config/biography.md` authoring path stays.
+
+---
+
+## D-020: What counts as "closed", and the working vocabulary
+**Status:** RESOLVED (2026-10-28, Aniket) · **Resolve by:** Phase 02 · **Blocking:** no
+
+**Decision.** "Ledger intervention gate (Recommended)". A part is closed only if clamping, swapping or ablating its stored state changes a pre-registered behavior metric, through the channel claimed. Aniket's layer words (reactive, deliberative, reflective, identity across) stay as the way we talk; a typed state ledger (each variable with timescale, writers, readers, intervention handle) is the engineering artifact that gets checked. Activation-level probes are not required (they exclude the Claude Code tier). The global-workspace heterarchy was not adopted.
+
+---
+
+## D-021: What "closer" must beat
+**Status:** RESOLVED (2026-10-28, Aniket) · **Resolve by:** Phase 04 · **Blocking:** no
+
+**Decision.** "Both, bare model gates (Recommended)". A V4 change counts as closer only if it beats V3 and also beats a bare model with the persona and full history. The bare-model comparison gates, because only it can return "the architecture adds nothing". BrainBench needs a new arm for that in `backend/evals/brainbench/switchboard.py`; it goes into the slice plan as an early slice, not built now.
