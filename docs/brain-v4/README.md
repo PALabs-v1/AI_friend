@@ -64,6 +64,7 @@ Now:
 | `03-realism-eval.md` | The perceived-realism acceptance test (Tiers 0-4) | draft; freezes after D1-D4 |
 | `04-candidate-workstreams.md` | Ranked V4 work items with measurable outcomes and V3 dependencies | draft |
 | `05-comparison.md` | Claude pass vs Codex pass: agreements, disagreements, resolutions, Codex citation errors, decisions D1-D4 as asked | done |
+| `05-phase01-comparison.md` | Phase 01 (2026-10-28): three research passes on four tracks compared, our code defects, contradictions, the 11 queued decisions. Per-track comparisons in `research/phase01-compare/` | done |
 | `06-decisions.md` | Aniket's answers to D1-D8 (2026-09-27) and what each changed | done |
 | `07-partner-architecture.md` | Our brain plus partner voice and vision; the contracts between them; the PRAGMATA Diana reference; capability P | direction set, not built |
 | `PROJECT_STATE.md` | Live status, phases, progress log | live |
