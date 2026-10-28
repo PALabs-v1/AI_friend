@@ -1,0 +1,16 @@
+# RISK REGISTER: Brain V4
+
+One row per risk. Update the status when it changes; never delete a row. Severity is H, M or L.
+
+| ID | Risk | Sev | Mitigation | Owner | Status |
+|---|---|---|---|---|---|
+| R-01 | Context lost: a session compaction, a Mac restart or a cleared temp folder wipes drafts. Happened on 2026-09-26 (restart) and again before 2026-10-05 (scratchpad emptied, including a lost critic round). | H | Write every record into this folder the moment it exists, never batch in `/tmp`. Commit and push at each phase end. Keep `PROJECT_STATE.md` current so a new session can resume from it alone. | claude | open |
+| R-02 | Overclaiming: calling the system conscious, feeling, or "real" without a test. | H | Keep the working definition from `00-origin.md`: perceived coherence, shown by a pre-registered blind test. Experience is recorded as unknowable. D-004 stays: it says it is an AI when asked. | claude | open |
+| R-03 | Design drift: a design cycle produces documents and no testable slices. | M | Every part of the loop names a measure (D-015). Phase 04 turns the design into slices with outcomes before any code. | claude | open |
+| R-04 | home-gpu contention with the Glioma capstone, which has priority. Storage and services changed while we were away. | M | D-013: no use without Aniket's go-ahead. Never kill its processes. Check free space before any run. | claude | open |
+| R-05 | Data leaving the machine: briefs to Codex and Antigravity reach their providers. | M | Briefs carry design text only. Review each brief before launch. Never include `.env`, keys, memory contents or user data. | claude | open |
+| R-06 | Frozen V3 work rots: the W3 builds are uncommitted in two worktrees, and the base branch moves. | M | Copies saved outside the repo (D-010). Resume steps written there. A merge needs `git apply --3way`. | claude | open |
+| R-07 | Fiction treated as evidence: Vision Quest and PRAGMATA's Diana give ideas, not results. | M | Label fiction-inspired ideas as such in every document. Test each against the realism eval, never against the show. | claude | open |
+| R-08 | Perceived realism turns into manipulation or unhealthy dependence, with D-001 making feeling a pure goal. | M | D-004 disclosure holds. Study participants consent and can stop. The independent ethics review for any external study (D-002) may add stopping rules. Revisit D-001 if evidence of harm appears. | Aniket | open |
+| R-09 | Helper disagreement is hidden: research from several tools is merged without recording who said what. | L | Keep each helper's report unedited. Compare in writing, as `05-comparison.md` did. Log disagreements and how each was settled. | claude | open |
+| R-10 | Absolute local paths in the copied V4 records (a username path in a few files). | L | Historical records, left as written. No secrets found by search. New files use repo-relative paths. | claude | accepted |

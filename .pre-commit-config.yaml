@@ -22,7 +22,11 @@ repos:
     hooks:
       - id: codespell
         # --ignore-words-list: real words codespell does not know (lifesim vocab).
-        args: [--ignore-words=.lycheeignore, "--ignore-words-list=brunch,arre,unparseable"]
+        # "ist" is IST (Indian Standard Time) in the V4 records.
+        args: [--ignore-words=.lycheeignore, "--ignore-words-list=brunch,arre,unparseable,ist"]
         # research/neuro/*.md: copied research artifacts full of citation URLs,
         # author surnames and ACT-R parameter names that trip false positives.
-        exclude: (?x)^(.*package-lock\.json|.*pnpm-lock\.yaml|.*yarn\.lock|.*schema\.prisma|\.agents/.*|.*test_identity\.py|.*test_performance\.py|backend/app/state/memory_store\.py|docs/brain-research-v3/research/neuro/.*\.md)$
+        # docs/brain-v4: 00-origin and 07-partner-architecture quote Aniket
+        # verbatim, typos included, on purpose; research/ holds unedited
+        # reports and prompts from Codex and the critics.
+        exclude: (?x)^(.*package-lock\.json|.*pnpm-lock\.yaml|.*yarn\.lock|.*schema\.prisma|\.agents/.*|.*test_identity\.py|.*test_performance\.py|backend/app/state/memory_store\.py|docs/brain-research-v3/research/neuro/.*\.md|docs/brain-v4/(00-origin|07-partner-architecture)\.md|docs/brain-v4/research/.*)$
