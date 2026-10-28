@@ -196,6 +196,10 @@ class AppSettings(BaseSettings):
     CLAUDE_CODE_EXECUTABLE: str = "claude"
     CLAUDE_CODE_TIMEOUT_SECONDS: float = 120.0
 
+    # Embedder pin: stored with every vector row; a different value is rejected on read.
+    EMBEDDING_MODEL: str = "nomic-embed-text"
+    EMBEDDING_DIMENSION: int = 768
+
     LLM_FAST_MODEL: str = "llama3.2:3b"
     LLM_CHAT_MODEL: str | None = None
     LLM_REFLECTION_MODEL: str | None = None

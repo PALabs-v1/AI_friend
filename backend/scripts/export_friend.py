@@ -46,6 +46,29 @@ logging.basicConfig(level=logging.INFO, format="%(message)s")
 logger = logging.getLogger("export_friend")
 
 SCHEMA_VERSION = 1
+DEFAULT_EMBEDDING_MODEL = "nomic-embed-text"
+DEFAULT_EMBEDDING_DIM = 768
+
+
+def _embedding_config() -> tuple[str, int]:
+    return (
+        getattr(Config, "EMBEDDING_MODEL", DEFAULT_EMBEDDING_MODEL),
+        int(getattr(Config, "EMBEDDING_DIMENSION", DEFAULT_EMBEDDING_DIM)),
+    )
+
+
+def _build_manifest(pg_counts, neo4j_counts, state_present) -> dict:
+    embedding_model, embedding_dim = _embedding_config()
+    return {
+        "schema_version": SCHEMA_VERSION,
+        "embedding_model": embedding_model,
+        "embedding_dim": embedding_dim,
+        "exported_at": time.time(),
+        "postgres_row_counts": pg_counts,
+        "neo4j_counts": neo4j_counts,
+        "state_files_present": state_present,
+    }
+
 
 POSTGRES_TABLES = (
     "sessions",
@@ -237,13 +260,7 @@ async def export_friend(out_path: Path, *, skip_neo4j: bool = False) -> None:
         logger.info("Exporting identity state and durable affect state...")
         state_present = _export_identity_and_state(staging)
 
-        manifest = {
-            "schema_version": SCHEMA_VERSION,
-            "exported_at": time.time(),
-            "postgres_row_counts": pg_counts,
-            "neo4j_counts": neo4j_counts,
-            "state_files_present": state_present,
-        }
+        manifest = _build_manifest(pg_counts, neo4j_counts, state_present)
         (staging / "manifest.json").write_text(json.dumps(manifest, indent=2))
 
         out_path.parent.mkdir(parents=True, exist_ok=True)

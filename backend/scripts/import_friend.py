@@ -40,6 +40,29 @@ logging.basicConfig(level=logging.INFO, format="%(message)s")
 logger = logging.getLogger("import_friend")
 
 SCHEMA_VERSION = 1
+DEFAULT_EMBEDDING_MODEL = "nomic-embed-text"
+DEFAULT_EMBEDDING_DIM = 768
+
+
+def _embedding_config() -> tuple[str, int]:
+    return (
+        getattr(Config, "EMBEDDING_MODEL", DEFAULT_EMBEDDING_MODEL),
+        int(getattr(Config, "EMBEDDING_DIMENSION", DEFAULT_EMBEDDING_DIM)),
+    )
+
+
+def _verify_embedding_manifest(manifest: dict) -> None:
+    model, dimension = _embedding_config()
+    # Archives made before the manifest carried the pin used the default embedder.
+    exported_model = manifest.get("embedding_model", DEFAULT_EMBEDDING_MODEL)
+    exported_dimension = manifest.get("embedding_dim", DEFAULT_EMBEDDING_DIM)
+    if exported_model != model or exported_dimension != dimension:
+        raise ValueError(
+            "Archive embedding configuration "
+            f"{exported_model!r}/{exported_dimension!r} does not match this "
+            f"embedder {model!r}/{dimension}."
+        )
+
 
 # Dependency order for reload: `messages` FK-references `sessions`, so
 # sessions must exist first. Every other table is independent.
@@ -350,6 +373,7 @@ async def import_friend(
                 f"Archive schema_version {manifest.get('schema_version')!r} "
                 f"!= this script's {SCHEMA_VERSION!r}."
             )
+        _verify_embedding_manifest(manifest)
 
         logger.info("Importing Postgres...")
         pg_counts = await _import_postgres(dsn, staging)

@@ -39,6 +39,11 @@ _MAX_METADATA_DEPTH = 8
 _MAX_METADATA_ITEMS = 1_000
 _MAX_METADATA_SERIALIZED_CHARS = 1_000_000
 _EMBEDDING_DIMENSION = 768
+_DEFAULT_EMBEDDING_MODEL = "nomic-embed-text"
+
+
+class EmbeddingMismatchError(ValueError):
+    """A stored or generated vector does not match the configured embedder."""
 
 
 def _validate_metadata_tree(
@@ -136,10 +141,15 @@ def _validate_memory_write(
     return metadata
 
 
-def _validated_embedding(vector: Any) -> list[float]:
-    """The schema's vector(768), as finite floats, or a ValueError."""
-    if not isinstance(vector, (list, tuple)) or len(vector) != _EMBEDDING_DIMENSION:
-        raise ValueError(f"memory embedding must contain {_EMBEDDING_DIMENSION} values")
+def _validated_embedding(
+    vector: Any, dimension: int = _EMBEDDING_DIMENSION
+) -> list[float]:
+    """A configured-size vector, as finite floats, or a typed mismatch error."""
+    if not isinstance(vector, (list, tuple)) or len(vector) != dimension:
+        actual = len(vector) if isinstance(vector, (list, tuple)) else "unknown"
+        raise EmbeddingMismatchError(
+            f"memory embedding dimension {actual} does not match configured dimension {dimension}"
+        )
     values = [float(value) for value in vector]
     if not all(math.isfinite(value) for value in values):
         raise ValueError("memory embedding values must be finite")
@@ -560,8 +570,9 @@ _PROMOTE_INSERT_SQLITE = """INSERT INTO memories (
         id, content, raw_content, wing, room, embedding, importance_score, emotional_weight,
         valence, certainty, source, recall_count, last_recalled_at, created_at,
         metadata, speaker, record_type, valid_from, valid_until, contradicts_id,
-        lifespan_stage, crisis, virtue, relations, relation_circles, modality
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        lifespan_stage, crisis, virtue, relations, relation_circles, modality,
+        embedding_model, embedding_dim
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(id) DO UPDATE SET
         recall_count = excluded.recall_count,
         last_recalled_at = excluded.last_recalled_at,
@@ -572,8 +583,9 @@ _PROMOTE_INSERT_PG = """INSERT INTO memories (
         id, content, raw_content, wing, room, embedding, importance_score, emotional_weight,
         valence, certainty, source, recall_count, last_recalled_at, created_at,
         metadata, speaker, record_type, valid_from, valid_until, contradicts_id,
-        lifespan_stage, crisis, virtue, relations, relation_circles, modality
-    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26)
+        lifespan_stage, crisis, virtue, relations, relation_circles, modality,
+        embedding_model, embedding_dim
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28)
     ON CONFLICT(id) DO UPDATE SET
         recall_count = EXCLUDED.recall_count,
         last_recalled_at = EXCLUDED.last_recalled_at,
@@ -618,8 +630,14 @@ class MemoryStore:
         self.ollama_base_url = (
             ollama_base_url or getattr(Config, "OLLAMA_URL", "http://127.0.0.1:11434")
         ).rstrip("/")
-        self.embedding_model = "nomic-embed-text"
+        self.embedding_model = getattr(
+            Config, "EMBEDDING_MODEL", _DEFAULT_EMBEDDING_MODEL
+        )
+        self.embedding_dimension = int(
+            getattr(Config, "EMBEDDING_DIMENSION", _EMBEDDING_DIMENSION)
+        )
         self._http_client = httpx.AsyncClient(timeout=30.0)
+        self._embedding_scopes_verified: set[tuple[str, str, str | None]] = set()
         # P4-8: strong-reference holder for the background refresh task below.
         self._background_tasks: set[asyncio.Task] = set()
 
@@ -690,6 +708,81 @@ class MemoryStore:
         share) is a structural fact instead of a name-matching guess.
         """
         return pool_is_sqlite(self.pool)
+
+    @staticmethod
+    def _row_value(row: Any, key: str) -> Any:
+        if isinstance(row, Mapping):
+            return row.get(key)
+        try:
+            return row[key]
+        except (KeyError, IndexError, TypeError):
+            return None
+
+    def _check_row_embedding(self, row: Any) -> None:
+        """Raise if this row's vector came from another embedder.
+
+        Pure: no query and no write, so it rides on rows a search already
+        fetched. A row without the columns (legacy, or from a store that
+        predates them) counts as the default embedder.
+        """
+        model = self._row_value(row, "embedding_model")
+        dimension = self._row_value(row, "embedding_dim")
+        # Only a real string and a real integer count as a recorded pin; anything
+        # else (NULL, a missing column, a row shape we cannot read) is legacy.
+        if not isinstance(model, str) or not model:
+            model = _DEFAULT_EMBEDDING_MODEL
+        if (
+            isinstance(dimension, bool)
+            or not isinstance(dimension, int)
+            or not dimension
+        ):
+            dimension = _EMBEDDING_DIMENSION
+        if (model, dimension) != (self.embedding_model, self.embedding_dimension):
+            raise EmbeddingMismatchError(
+                f"stored vector uses {model!r}/{dimension}, a different embedder than "
+                f"the configured {self.embedding_model!r}/{self.embedding_dimension}; "
+                "refusing to rank it (re-embed, or pin the old embedder)"
+            )
+
+    async def _assert_scope_embedding_provenance(
+        self, conn, table: str, wing: str, room: str | None = None
+    ) -> None:
+        """Raise if any vector row in this scope came from another embedder.
+
+        One narrow query that reads no vectors, and it runs once per scope per
+        process: writes always use the configured embedder, so they cannot
+        introduce a mismatch. Rows with no recorded model or dimension are
+        legacy rows from before provenance existed and count as the default
+        embedder; nothing is written on the read path.
+        """
+        if table not in {"memories", "archived_memories"}:
+            raise ValueError("unsupported vector table")
+        key = (table, wing, room)
+        if key in self._embedding_scopes_verified:
+            return
+        sqlite = self.is_sqlite
+        p = (lambda n: "?") if sqlite else (lambda n: f"${n}")
+        args: list[Any] = [wing]
+        sql = f"SELECT count(*) FROM (SELECT 1 FROM {table} WHERE wing = {p(1)}"  # nosec B608 - table is whitelisted above
+        if room is not None:
+            args.append(room)
+            sql += f" AND room = {p(len(args))}"
+        args += [self.embedding_model, self.embedding_dimension]
+        sql += (
+            " AND embedding IS NOT NULL"
+            f" AND (COALESCE(embedding_model, '{_DEFAULT_EMBEDDING_MODEL}') <> {p(len(args) - 1)}"
+            f" OR COALESCE(embedding_dim, {_EMBEDDING_DIMENSION}) <> {p(len(args))})"
+            " LIMIT 1) AS foreign_vectors"
+        )
+        foreign = await conn.fetchval(sql, *args)
+        # Only a real count above zero is a finding; any other shape is "none".
+        if isinstance(foreign, int) and not isinstance(foreign, bool) and foreign > 0:
+            raise EmbeddingMismatchError(
+                f"{table} holds vectors from a different embedder than the configured "
+                f"{self.embedding_model!r}/{self.embedding_dimension}; refusing to rank them "
+                "(a restore or model change must re-embed or pin the old embedder)"
+            )
+        self._embedding_scopes_verified.add(key)
 
     def _in_predicate(
         self, column: str, values: Sequence[Any], param_index: int = 1
@@ -1058,6 +1151,7 @@ class MemoryStore:
         "valid_until",
         "contradicts_id",
     )
+    _MEMORY_EMBEDDING_COLUMNS = ("embedding_model", "embedding_dim")
 
     async def _insert_memory_row(
         self,
@@ -1087,6 +1181,8 @@ class MemoryStore:
         valid_from=None,
         valid_until=None,
         contradicts_id=None,
+        embedding_model=None,
+        embedding_dim=None,
     ):
         """Insert a memory row from a single column/placeholder builder.
 
@@ -1127,7 +1223,11 @@ class MemoryStore:
             modality,
         ]
 
-        async def _insert(include_eriksonian: bool, include_provenance: bool):
+        async def _insert(
+            include_eriksonian: bool,
+            include_provenance: bool,
+            include_embedding_provenance: bool,
+        ):
             cols = list(self._MEMORY_BASE_COLUMNS)
             vals = list(base_vals)
             if include_provenance:
@@ -1136,6 +1236,9 @@ class MemoryStore:
             if include_eriksonian:
                 cols += list(self._MEMORY_ERIKSONIAN_COLUMNS)
                 vals += erik_vals
+            if include_embedding_provenance:
+                cols += list(self._MEMORY_EMBEDDING_COLUMNS)
+                vals += [embedding_model, embedding_dim]
 
             if self.is_sqlite:
                 placeholders = ["?"] * len(vals)
@@ -1164,12 +1267,18 @@ class MemoryStore:
             )
             await conn.execute(sql, *params)
 
-        variants = [(True, True)]
+        variants = [(True, True, True)]
         compatibility_index = 0
         while variants:
-            include_eriksonian, include_provenance = variants.pop(0)
+            include_eriksonian, include_provenance, include_embedding_provenance = (
+                variants.pop(0)
+            )
             try:
-                await _insert(include_eriksonian, include_provenance)
+                await _insert(
+                    include_eriksonian,
+                    include_provenance,
+                    include_embedding_provenance,
+                )
                 if compatibility_index:
                     logger.warning(
                         "Memory insert used compatibility schema variant %d",
@@ -1190,13 +1299,26 @@ class MemoryStore:
                     eriksonian_missing = any(
                         column in message for column in self._MEMORY_ERIKSONIAN_COLUMNS
                     )
-                    if provenance_missing and not eriksonian_missing:
-                        variants = [(True, False), (False, False)]
+                    embedding_provenance_missing = any(
+                        column in message for column in self._MEMORY_EMBEDDING_COLUMNS
+                    )
+                    if embedding_provenance_missing:
+                        variants = [
+                            (True, True, False),
+                            (True, False, False),
+                            (False, False, False),
+                        ]
+                    elif provenance_missing and not eriksonian_missing:
+                        variants = [(True, False, True), (False, False, True)]
                     elif eriksonian_missing and not provenance_missing:
-                        variants = [(False, True), (False, False)]
+                        variants = [(False, True, True), (False, False, True)]
                     else:
                         # PostgreSQL's SQLSTATE may omit the column name.
-                        variants = [(False, True), (True, False), (False, False)]
+                        variants = [
+                            (False, True, True),
+                            (True, False, True),
+                            (False, False, True),
+                        ]
                 compatibility_index += 1
 
     async def get_embedding(self, text: str):
@@ -1669,7 +1791,8 @@ class MemoryStore:
             vector = _validated_embedding(
                 embedding
                 if embedding is not None
-                else await self.get_embedding(content)
+                else await self.get_embedding(content),
+                self.embedding_dimension,
             )
 
             vector_str = str(vector)
@@ -1699,6 +1822,8 @@ class MemoryStore:
                     relations=relations,
                     relation_circles=relation_circles,
                     modality=modality,
+                    embedding_model=self.embedding_model,
+                    embedding_dim=len(vector),
                     current_time=current_time,
                 )
             # Upsert into Qdrant if online using the same memory_id
@@ -2220,6 +2345,9 @@ class MemoryStore:
                 candidate_limit,
             )
 
+        for row in rows:
+            self._check_row_embedding(row)
+
         # Manual cosine similarity and ACT-R scoring (delegated to Rust PyO3).
         # Imported lazily: the compiled extension is optional in some envs and
         # a module-level import would break importing MemoryStore entirely.
@@ -2438,6 +2566,7 @@ class MemoryStore:
         current_time,
     ) -> list:
         """PostgreSQL fast path via the surface_actr_memories() vector procedure."""
+        await self._assert_scope_embedding_provenance(conn, "memories", wing, room)
         rows = await self._fetch_surface_actr_rows(
             conn,
             vector_str=vector_str,
@@ -2974,7 +3103,10 @@ class MemoryStore:
                         LIMIT ?
                         """
                     )
-                    return await conn.fetch(query, wing, *patterns, archive_limit)
+                    rows = await conn.fetch(query, wing, *patterns, archive_limit)
+                    for row in rows:
+                        self._check_row_embedding(row)
+                    return rows
                 # Postgres pgvector: hybrid semantic + lexical synonym search
                 # using the HNSW index over halfvec.
                 query = """
@@ -2984,9 +3116,12 @@ class MemoryStore:
                     ORDER BY coalesce((1 - (embedding <=> $2::halfvec)), 0.0) DESC, importance_score DESC, last_recalled_at DESC
                     LIMIT $4
                 """
-                return await conn.fetch(
+                rows = await conn.fetch(
                     query, wing, vector_str, patterns, archive_limit
                 )
+                for row in rows:
+                    self._check_row_embedding(row)
+                return rows
         except Exception as arch_err:
             logger.error(f"Archived memories hybrid lookup failed: {arch_err}")
             return []
@@ -3172,6 +3307,8 @@ class MemoryStore:
             row.get("relations"),
             row.get("relation_circles"),
             row.get("modality"),
+            self.embedding_model,
+            len(emb),
         )
 
         async def _move(conn):
@@ -3797,6 +3934,7 @@ class MemoryStore:
                 candidates = []
                 for row in rows:
                     row = dict(row)
+                    self._check_row_embedding(row)
                     if row.get("content") in excluded:
                         continue
                     row["similarity"] = similarity_by_id.get(str(row.get("id")), 0.0)
@@ -3825,6 +3963,7 @@ class MemoryStore:
             candidates = []
             for row in rows:
                 row = dict(row)
+                self._check_row_embedding(row)
                 if row.get("content") in excluded:
                     continue
                 try:
@@ -4896,13 +5035,15 @@ class MemoryStore:
                     id, content, raw_content, wing, room, importance_score, emotional_weight,
                     valence, certainty, source, recall_count, last_recalled_at, created_at,
                     metadata, speaker, record_type, valid_from, valid_until, contradicts_id,
-                    lifespan_stage, crisis, virtue, relations, relation_circles, modality, embedding
+                    lifespan_stage, crisis, virtue, relations, relation_circles, modality,
+                    embedding, embedding_model, embedding_dim
                 )
                 SELECT
                     id, content, raw_content, wing, room, importance_score, emotional_weight,
                     valence, certainty, source, recall_count, last_recalled_at, created_at,
                     metadata, speaker, record_type, valid_from, valid_until, contradicts_id,
-                    lifespan_stage, crisis, virtue, relations, relation_circles, modality, embedding
+                    lifespan_stage, crisis, virtue, relations, relation_circles, modality,
+                    embedding, embedding_model, embedding_dim
                 FROM memories
                 WHERE id IN ({placeholders})
                 ON CONFLICT(id) DO UPDATE SET
@@ -4949,13 +5090,15 @@ class MemoryStore:
                     id, content, raw_content, wing, room, importance_score, emotional_weight,
                     valence, certainty, source, recall_count, last_recalled_at, created_at,
                     metadata, speaker, record_type, valid_from, valid_until, contradicts_id,
-                    lifespan_stage, crisis, virtue, relations, relation_circles, modality, embedding
+                    lifespan_stage, crisis, virtue, relations, relation_circles, modality,
+                    embedding, embedding_model, embedding_dim
                 )
                 SELECT
                     id, content, raw_content, wing, room, importance_score, emotional_weight,
                     valence, certainty, source, recall_count, last_recalled_at, created_at,
                     metadata, speaker, record_type, valid_from, valid_until, contradicts_id,
-                    lifespan_stage, crisis, virtue, relations, relation_circles, modality, embedding::halfvec
+                    lifespan_stage, crisis, virtue, relations, relation_circles, modality,
+                    embedding::halfvec, embedding_model, embedding_dim
                 FROM memories
                 WHERE id = ANY($1)
                 ON CONFLICT(id) DO UPDATE SET

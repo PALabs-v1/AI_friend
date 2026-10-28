@@ -9,7 +9,9 @@ create table if not exists memories (
   raw_content text, -- Verbatim Truth
   wing text not null default 'personal',
   room text,
-  embedding vector(768), -- Gemini 1.5 Flash/Pro embedding dimension
+  embedding vector(768), -- Default local embedder dimension
+  embedding_model text,
+  embedding_dim integer,
   importance_score double precision not null default 0.5,
   emotional_weight double precision not null default 0.0,
   valence double precision not null default 0.0,
@@ -59,7 +61,9 @@ create table if not exists archived_memories (
   relations varchar(255),
   relation_circles varchar(255),
   modality varchar(255),
-  embedding halfvec(768)
+  embedding halfvec(768),
+  embedding_model text,
+  embedding_dim integer
 );
 
 -- Schema migrations for existing tables
@@ -79,6 +83,10 @@ alter table archived_memories add column if not exists record_type text not null
 alter table archived_memories add column if not exists valid_from timestamptz;
 alter table archived_memories add column if not exists valid_until timestamptz;
 alter table archived_memories add column if not exists contradicts_id uuid;
+alter table memories add column if not exists embedding_model text;
+alter table memories add column if not exists embedding_dim integer;
+alter table archived_memories add column if not exists embedding_model text;
+alter table archived_memories add column if not exists embedding_dim integer;
 
 alter table memories drop constraint if exists memories_contradicts_id_fkey;
 alter table memories
@@ -290,11 +298,15 @@ create table if not exists vocabulary (
   term text primary key,
   surface_forms text default '[]',
   embedding vector(768),
+  embedding_model text,
+  embedding_dim integer,
   times_seen integer default 1,
   source text default 'acquired',
   first_seen timestamptz default now(),
   last_seen timestamptz default now()
 );
+alter table vocabulary add column if not exists embedding_model text;
+alter table vocabulary add column if not exists embedding_dim integer;
 
 -- Learned word associations (distributional co-occurrence). Pairs are stored
 -- once in canonical order (term_a < term_b); weight is reinforced each time the

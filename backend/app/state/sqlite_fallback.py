@@ -118,6 +118,8 @@ class SQLiteConnection:
                 wing TEXT DEFAULT 'personal',
                 room TEXT,
                 embedding TEXT,
+                embedding_model TEXT,
+                embedding_dim INTEGER,
                 importance_score REAL DEFAULT 0.5,
                 emotional_weight REAL DEFAULT 0.0,
                 valence REAL DEFAULT 0.0,
@@ -154,6 +156,8 @@ class SQLiteConnection:
                 wing TEXT DEFAULT 'personal',
                 room TEXT,
                 embedding TEXT,
+                embedding_model TEXT,
+                embedding_dim INTEGER,
                 importance_score REAL DEFAULT 0.5,
                 emotional_weight REAL DEFAULT 0.0,
                 valence REAL DEFAULT 0.0,
@@ -184,12 +188,22 @@ class SQLiteConnection:
                 term TEXT PRIMARY KEY,
                 surface_forms TEXT DEFAULT '[]',
                 embedding TEXT,
+                embedding_model TEXT,
+                embedding_dim INTEGER,
                 times_seen INTEGER DEFAULT 1,
                 source TEXT DEFAULT 'acquired',
                 first_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 last_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
+        cursor.execute("PRAGMA table_info(vocabulary)")
+        vocabulary_columns = {row[1] for row in cursor.fetchall()}
+        for col, sql_type in (
+            ("embedding_model", "TEXT"),
+            ("embedding_dim", "INTEGER"),
+        ):
+            if col not in vocabulary_columns:
+                cursor.execute(f"ALTER TABLE vocabulary ADD COLUMN {col} {sql_type}")
 
         # Learned word associations (distributional co-occurrence). Canonical
         # ordering term_a < term_b; weight reinforced on each co-occurrence.
@@ -247,6 +261,12 @@ class SQLiteConnection:
         # Migration for existing memories table to add developmental stage columns
         cursor.execute("PRAGMA table_info(memories)")
         existing_mem_cols = {row[1] for row in cursor.fetchall()}
+        for col, sql_type in (
+            ("embedding_model", "TEXT"),
+            ("embedding_dim", "INTEGER"),
+        ):
+            if col not in existing_mem_cols:
+                cursor.execute(f"ALTER TABLE memories ADD COLUMN {col} {sql_type}")
         for col in [
             "speaker",
             "record_type",
@@ -269,6 +289,14 @@ class SQLiteConnection:
         # Migration for existing archived_memories table to add developmental stage columns
         cursor.execute("PRAGMA table_info(archived_memories)")
         existing_arch_cols = {row[1] for row in cursor.fetchall()}
+        for col, sql_type in (
+            ("embedding_model", "TEXT"),
+            ("embedding_dim", "INTEGER"),
+        ):
+            if col not in existing_arch_cols:
+                cursor.execute(
+                    f"ALTER TABLE archived_memories ADD COLUMN {col} {sql_type}"
+                )
         for col in [
             "speaker",
             "record_type",
@@ -305,6 +333,8 @@ class SQLiteConnection:
                     wing TEXT DEFAULT 'personal',
                     room TEXT,
                     embedding TEXT,
+                    embedding_model TEXT,
+                    embedding_dim INTEGER,
                     importance_score REAL DEFAULT 0.5,
                     emotional_weight REAL DEFAULT 0.0,
                     valence REAL DEFAULT 0.0,
@@ -339,6 +369,8 @@ class SQLiteConnection:
                 "wing": "'personal'",
                 "room": "NULL",
                 "embedding": "NULL",
+                "embedding_model": "NULL",
+                "embedding_dim": "NULL",
                 "importance_score": "0.5",
                 "emotional_weight": "0.0",
                 "valence": "0.0",
