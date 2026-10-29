@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from app.contracts import FacialReflexEvent, Topics, VisionDescription
+from app.llm.model_roles import ModelRole
 from app.vision.agent import VisionAgent
 from app.vision.appraisal import VisualAppraisalService
 
@@ -62,6 +63,7 @@ class TestVisualAppraisalService:
             image_b64="fake_base64_string",
             prompt="Describe what you see.",
             model="moondream",
+            role=ModelRole.INTERPRETATION,
         )
 
     @pytest.mark.asyncio
@@ -637,7 +639,10 @@ class _FakeFaceLandmarkerResult:
             self.face_blendshapes = []
         else:
             self.face_blendshapes = [
-                [_FakeBlendshapeCategory(name, score) for name, score in blendshapes.items()]
+                [
+                    _FakeBlendshapeCategory(name, score)
+                    for name, score in blendshapes.items()
+                ]
             ]
 
 

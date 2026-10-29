@@ -51,7 +51,7 @@ class _ScriptedLLM:
         self.calls = 0
 
     def generate_stream(
-        self, prompt=None, system=None, model=None, options_override=None
+        self, prompt=None, system=None, model=None, options_override=None, role=None
     ):
         script = self.scripts[min(self.calls, len(self.scripts) - 1)]
         self.calls += 1

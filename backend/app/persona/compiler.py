@@ -47,6 +47,7 @@ from typing import Any
 from ..config import Config
 from ..errors import AgentError
 from ..llm import LLMClient, build_llm_client
+from ..llm.model_roles import ModelRole
 from .profile import PersonaProfile
 
 logger = logging.getLogger(__name__)
@@ -443,6 +444,7 @@ async def compile_persona(
         # budget doesn't fail loudly -- it truncates the JSON object mid-field,
         # which _extract_json_object then reports as "never closed".
         options_override={"num_predict": 1024, "num_ctx": 4096},
+        role=ModelRole.INTERPRETATION,
     )
     data = _extract_json_object(response)
 

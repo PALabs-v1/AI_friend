@@ -5,6 +5,8 @@ from typing import Any
 import anthropic
 
 from ..config import Config
+from .model_roles import ModelRole
+from .role_trace import trace_role
 
 logger = logging.getLogger("anthropic_client")
 
@@ -57,7 +59,9 @@ class AnthropicClient:
         system: str | None = None,
         model: str | None = None,
         options_override: dict[str, Any] | None = None,
+        role: ModelRole | None = None,
     ) -> AsyncGenerator[str, None]:
+        trace_role("anthropic", role, model or self.model)
         if getattr(Config, "MOCK_LLM_TEXT", False):
             # MOCK_LLM_TEXT must block every real network call regardless of
             # provider -- see OllamaClient's own guard, which this mirrors at
@@ -91,7 +95,9 @@ class AnthropicClient:
         system: str | None = None,
         model: str | None = None,
         options_override: dict[str, Any] | None = None,
+        role: ModelRole | None = None,
     ) -> str:
+        trace_role("anthropic", role, model or self.model)
         if getattr(Config, "MOCK_LLM_TEXT", False):
             return "I am glad we are chatting, my friend. What should we work on next?"
 
@@ -119,11 +125,13 @@ class AnthropicClient:
         image_b64: str,
         prompt: str = "What do you see?",
         model: str | None = None,
+        role: ModelRole | None = None,
     ) -> str | None:
         """Mirrors OllamaClient.describe_image's H8 contract: `None` means the
         call itself failed, `""` means the model looked and saw nothing worth
         describing -- callers (VisualAppraisalService) tell these apart.
         """
+        trace_role("anthropic", role, model or self.model)
         if getattr(Config, "MOCK_LLM_TEXT", False):
             ai_name = getattr(Config, "AI_NAME", "AI Friend")
             return f"A user sitting at a desk pair-programming with their AI friend {ai_name}."

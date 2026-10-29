@@ -14,7 +14,10 @@ harness as probing "the LLM boundary" with a real `OllamaClient` on purpose.
 """
 
 from collections.abc import AsyncGenerator
-from typing import Any, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
+
+if TYPE_CHECKING:
+    from .model_roles import ModelRole
 
 
 @runtime_checkable
@@ -28,6 +31,7 @@ class LLMClient(Protocol):
         system: str | None = None,
         model: str | None = None,
         options_override: dict[str, Any] | None = None,
+        role: "ModelRole | None" = None,
     ) -> AsyncGenerator[str, None]: ...
 
     async def generate(
@@ -36,6 +40,7 @@ class LLMClient(Protocol):
         system: str | None = None,
         model: str | None = None,
         options_override: dict[str, Any] | None = None,
+        role: "ModelRole | None" = None,
     ) -> str: ...
 
     async def describe_image(
@@ -43,6 +48,7 @@ class LLMClient(Protocol):
         image_b64: str,
         prompt: str = "What do you see?",
         model: str | None = None,
+        role: "ModelRole | None" = None,
     ) -> str | None: ...
 
     async def check_health(self) -> bool: ...

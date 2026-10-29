@@ -2,10 +2,10 @@
 
 Not the independent second reader. It checks what a script can check about the notes written during the read phase.
 
-- Notes cross-checked: 943
-- `depends_on` paths that resolve exactly: 1719 of 2751; resolve only as a unique path suffix (written short): 673; do not resolve: 359 (13.0%)
-- Code files with 3 or more public top-level definitions: 372; mean share of those definitions the note names: 76.0%
-- Files whose note names none of their public definitions: 0
+- Notes cross-checked: 945
+- `depends_on` paths that resolve exactly: 1636 of 2650; resolve only as a unique path suffix (written short): 665; do not resolve: 349 (13.2%)
+- Code files with 3 or more public top-level definitions: 373; mean share of those definitions the note names: 73.7%
+- Files whose note names none of their public definitions: 7
 
 ## Notes citing paths that do not exist
 
@@ -17,7 +17,6 @@ Not the independent second reader. It checks what a script can check about the n
 | backend/app/cognitive/action_candidate.py | FINAL_HUMANOID_BRAIN_ARCHITECTURE.md |
 | backend/app/cognitive/action_intent.py | FINAL_HUMANOID_BRAIN_ARCHITECTURE.md |
 | backend/app/cognitive/action_intent.py | ACCEPTANCE_CRITERIA.md |
-| backend/app/cognitive/appraisal.py | psychological_layer.md |
 | backend/app/cognitive/behavior_contracts.py | app.contracts |
 | backend/app/cognitive/identity.py | docs/FUTURE_FINETUNED_ADAPTER.md |
 | backend/app/cognitive/learning_review.py | FINAL_HUMANOID_BRAIN_ARCHITECTURE.md |
@@ -30,19 +29,12 @@ Not the independent second reader. It checks what a script can check about the n
 | backend/app/config.py | backend/app/main.py |
 | backend/app/config.py | backend/runtime_bootstrap.py |
 | backend/app/llm/model_roles.py | app.llm.model_manifest |
-| backend/app/llm/ollama_client.py | app.config |
-| backend/app/llm/ollama_client.py | app.measure_trace |
 | backend/app/nats_streams.py | .errors |
 | backend/app/nats_streams.py | subconscious_agent |
 | backend/app/persona/authoring.py | .profile |
 | backend/app/persona/biography.py | ..config |
 | backend/app/persona/biography.py | memory_store |
 | backend/app/persona/biography.py | qdrant_client.http.models |
-| backend/app/persona/compiler.py | ..config |
-| backend/app/persona/compiler.py | ..errors |
-| backend/app/persona/compiler.py | ..llm |
-| backend/app/persona/compiler.py | .profile |
-| backend/app/persona/compiler.py | evals/ |
 | backend/app/persona/history_migration.py | MemoryStore |
 | backend/app/persona/profile.py | ..config |
 | backend/app/persona/profile.py | Config |
@@ -51,12 +43,28 @@ Not the independent second reader. It checks what a script can check about the n
 | backend/app/persona/profile.py | AgentState |
 | backend/app/persona/reset.py | .biography |
 | backend/app/persona/reset.py | .history_migration |
+| backend/app/persona/reset.py | ConversationHistoryStore |
+| backend/app/persona/reset.py | agent_configs |
+| backend/app/persona/reset.py | memories |
+| backend/app/persona/reset.py | archived_memories |
+| backend/app/persona/wizard.py | .authoring |
+| backend/app/persona/wizard.py | .compiler |
+| backend/app/persona/wizard.py | .profile |
+| backend/app/persona/wizard.py | validate_persona_file.validate |
 
 ## Lowest definition recall (largest gaps first)
 
 | File | Named | Public definitions | Recall |
 |---|---|---|---|
+| backend/app/api/persona.py | 0 | 7 | 0% |
+| backend/app/cognitive/action.py | 0 | 4 | 0% |
+| backend/app/cognitive/appraisal.py | 0 | 4 | 0% |
+| backend/app/cognitive/subconscious.py | 0 | 4 | 0% |
+| backend/tests/test_model_role_routing.py | 0 | 12 | 0% |
+| backend/tests/test_pr66_review_fixes.py | 0 | 30 | 0% |
+| backend/tests/test_vision.py | 0 | 5 | 0% |
 | backend/tests/test_model_roles_vision.py | 1 | 78 | 1% |
+| backend/tests/test_eval_harness.py | 1 | 70 | 1% |
 | backend/tests/test_persona_compiler.py | 1 | 26 | 4% |
 | backend/tests/test_learning_governance.py | 3 | 70 | 4% |
 | backend/crates/voice-agent/src/main.rs | 8 | 137 | 6% |
@@ -73,11 +81,3 @@ Not the independent second reader. It checks what a script can check about the n
 | tools/repo_intel/tests/test_workflow.py | 2 | 14 | 14% |
 | backend/tests/test_brainbench_stats.py | 3 | 20 | 15% |
 | tools/repo_intel/tests/test_knowledge.py | 3 | 20 | 15% |
-| backend/tests/test_barge_in_real_flow.py | 5 | 33 | 15% |
-| backend/tests/test_eval_harness.py | 11 | 70 | 16% |
-| backend/tests/test_pr66_review_fixes.py | 5 | 30 | 17% |
-| backend/tests/test_persona_storage.py | 4 | 23 | 17% |
-| backend/tests/test_phasic_cortisol.py | 4 | 23 | 17% |
-| backend/tests/test_causal_slice.py | 5 | 27 | 19% |
-| backend/tests/test_f1_decomposed_stages.py | 9 | 45 | 20% |
-| tools/repo_intel/tests/test_structure.py | 4 | 20 | 20% |

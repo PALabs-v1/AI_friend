@@ -16,6 +16,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from ..config import Config
+from ..llm.model_roles import ModelRole
 from ..state.adaptive_weights_store import AdaptiveWeightsStore
 from .action_candidate import ActionCandidate, CandidateSelector
 from .behavior_contracts import BehaviorDecision, CommunicativeIntent
@@ -716,6 +717,7 @@ class DecisionService:
                 prompt,
                 model=Config.LLM_FAST_MODEL,
                 options_override={"num_predict": 256},
+                role=ModelRole.INTERPRETATION,
             )
 
             json_str = response

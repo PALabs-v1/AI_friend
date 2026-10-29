@@ -9,6 +9,8 @@ from collections.abc import AsyncGenerator, Callable
 from typing import Any
 
 from ..config import Config
+from .model_roles import ModelRole
+from .role_trace import trace_role
 
 logger = logging.getLogger("claude_code_client")
 
@@ -117,8 +119,10 @@ class ClaudeCodeClient:
         system: str | None = None,
         model: str | None = None,
         options_override: dict[str, Any] | None = None,
+        role: ModelRole | None = None,
     ) -> str:
         self._log_ignored_options(options_override)
+        trace_role("claude_code", role, model or self.model)
         process = None
         deadline = self._deadline()
         try:
@@ -154,8 +158,10 @@ class ClaudeCodeClient:
         system: str | None = None,
         model: str | None = None,
         options_override: dict[str, Any] | None = None,
+        role: ModelRole | None = None,
     ) -> AsyncGenerator[str, None]:
         self._log_ignored_options(options_override)
+        trace_role("claude_code", role, model or self.model)
         process = None
         deadline = self._deadline()
         try:
@@ -213,6 +219,7 @@ class ClaudeCodeClient:
         image_b64: str,
         prompt: str = "What do you see?",
         model: str | None = None,
+        role: ModelRole | None = None,
     ) -> str | None:
         """Return None because this text-only CLI adapter has no image input path."""
         return None

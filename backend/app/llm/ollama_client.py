@@ -9,6 +9,8 @@ from typing import Any
 import httpx
 
 from app.config import Config
+from app.llm.model_roles import ModelRole
+from app.llm.role_trace import trace_role
 from app.measure_trace import fingerprint as _fingerprint
 from app.measure_trace import trace as _measure_trace
 
@@ -62,12 +64,18 @@ class OllamaClient:
         self.request_context: str | None = None
 
     def _record_request(
-        self, endpoint: str, payload: dict[str, Any], *, successful: bool = False
+        self,
+        endpoint: str,
+        payload: dict[str, Any],
+        *,
+        successful: bool = False,
+        role: ModelRole | None = None,
     ) -> None:
         messages = payload.get("messages") or []
-        prompt_text = str(payload.get("prompt") or "\n".join(
-            str(message.get("content", "")) for message in messages
-        ))
+        prompt_text = str(
+            payload.get("prompt")
+            or "\n".join(str(message.get("content", "")) for message in messages)
+        )
         system_text = next(
             (
                 str(message.get("content", ""))
@@ -87,6 +95,7 @@ class OllamaClient:
                 "prompt_sha256": _fingerprint(prompt_text),
                 "system_prompt_sha256": _fingerprint(system_text),
                 "request_context": self.request_context,
+                "role": role.value if role is not None else None,
                 "successful": successful,
             }
         )
@@ -281,7 +290,9 @@ class OllamaClient:
         system: str | None = None,
         model: str | None = None,
         options_override: dict[str, Any] | None = None,
+        role: ModelRole | None = None,
     ) -> AsyncGenerator[str, None]:
+        trace_role("ollama", role, model or self.model)
         if getattr(Config, "MOCK_LLM_TEXT", False):
             # Corpus-agnostic deterministic mock: reflect back whatever memory
             # content retrieval actually surfaced into the prompt. This exercises
@@ -309,7 +320,7 @@ class OllamaClient:
         for attempt in range(self.max_retries):
             for endpoint, payload, model_variant in payload_attempts:
                 try:
-                    self._record_request(endpoint, payload)
+                    self._record_request(endpoint, payload, role=role)
                     async with client.stream(
                         "POST", endpoint, json=payload
                     ) as response:
@@ -404,7 +415,9 @@ class OllamaClient:
         system: str | None = None,
         model: str | None = None,
         options_override: dict[str, Any] | None = None,
+        role: ModelRole | None = None,
     ) -> str:
+        trace_role("ollama", role, model or self.model)
         if getattr(Config, "MOCK_LLM_TEXT", False):
             return self._mock_generate_response(prompt)
 
@@ -424,7 +437,7 @@ class OllamaClient:
         for attempt in range(self.max_retries):
             for endpoint, payload, model_variant in payload_attempts:
                 try:
-                    self._record_request(endpoint, payload)
+                    self._record_request(endpoint, payload, role=role)
                     response = await client.post(endpoint, json=payload)
                     if response.status_code >= 400:
                         errors.append(f"{endpoint}: HTTP {response.status_code}")
@@ -450,6 +463,7 @@ class OllamaClient:
         image_b64: str,
         prompt: str = "What do you see?",
         model: str | None = None,
+        role: ModelRole | None = None,
     ) -> str | None:
         """Returns the VLM's description, `""` for a genuinely quiet scene,
         or `None` if the call itself failed (H8). The two empty-ish outcomes
@@ -458,6 +472,7 @@ class OllamaClient:
         falls back to its cached description either way, so this only
         changes what a caller *can* tell, not what it currently does with it.
         """
+        trace_role("ollama", role, model or self.model)
         if getattr(Config, "MOCK_LLM_TEXT", False):
             ai_name = getattr(Config, "AI_NAME", "AI Friend")
             return f"A user sitting at a desk pair-programming with their AI friend {ai_name}."

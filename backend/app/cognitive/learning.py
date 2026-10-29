@@ -7,6 +7,7 @@ from typing import Any
 
 from .. import clock
 from ..config import Config
+from ..llm.model_roles import ModelRole
 from ..measure_trace import trace as _measure_trace
 from ..state.graph_db import GraphDB
 from .identity import IdentityManager
@@ -213,6 +214,7 @@ class ReflectionService:
                 fact_prompt,
                 model=Config.LLM_REFLECTION_MODEL,
                 options_override={"num_predict": 256},
+                role=ModelRole.INTERPRETATION,
             )
             _measure_trace(
                 "reflection", "llm_call_facts", duration_s=time.monotonic() - _t0
@@ -343,6 +345,7 @@ class ReflectionService:
                 identity_prompt,
                 model=Config.LLM_REFLECTION_MODEL,
                 options_override={"num_predict": 256},
+                role=ModelRole.EVALUATION,
             )
             _measure_trace(
                 "reflection", "llm_call_identity", duration_s=time.monotonic() - _t0
@@ -489,6 +492,7 @@ class ReflectionService:
                 consolidation_prompt,
                 model=Config.LLM_REFLECTION_MODEL,
                 options_override={"num_predict": 256},
+                role=ModelRole.COMPRESSION,
             )
             _measure_trace(
                 "reflection",

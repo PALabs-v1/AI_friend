@@ -6,6 +6,8 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
+from ..llm.model_roles import ModelRole
+
 logger = logging.getLogger(__name__)
 
 
@@ -215,6 +217,7 @@ class SubconsciousEngine:
             thought = await self.llm.generate(
                 prompt,
                 system="You are an internal thought generator. Output only valid JSON.",
+                role=ModelRole.CANDIDATE_GENERATION,
             )
             return _parse_candidate(thought, estimate_importance(state_snapshot))
 

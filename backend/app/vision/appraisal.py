@@ -8,6 +8,8 @@ Rate-limited and cached to prevent excessive VLM calls on a laptop GPU.
 import logging
 import time
 
+from ..llm.model_roles import ModelRole
+
 logger = logging.getLogger(__name__)
 
 
@@ -207,6 +209,7 @@ class VisualAppraisalService:
                 image_b64=frame_b64,
                 prompt=self.prompt,
                 model=self.model,
+                role=ModelRole.INTERPRETATION,
             )
 
             if description:

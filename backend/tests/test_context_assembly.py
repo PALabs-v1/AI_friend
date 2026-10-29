@@ -96,7 +96,7 @@ class TestActionPromptAssembly:
         captured = {}
 
         async def capturing_stream(
-            prompt, system=None, model=None, options_override=None
+            prompt, system=None, model=None, options_override=None, role=None
         ):
             captured["prompt"] = prompt
             captured["system"] = system
@@ -257,7 +257,9 @@ class TestResponseGroundingGate:
         action_service = ActionService(llm_service=MagicMock())
         calls = {"n": 0}
 
-        def stream_factory(prompt, system=None, model=None, options_override=None):
+        def stream_factory(
+            prompt, system=None, model=None, options_override=None, role=None
+        ):
             calls["n"] += 1
 
             async def first():
@@ -299,7 +301,9 @@ class TestResponseGroundingGate:
         action_service = ActionService(llm_service=MagicMock())
         calls = {"n": 0}
 
-        def stream_factory(prompt, system=None, model=None, options_override=None):
+        def stream_factory(
+            prompt, system=None, model=None, options_override=None, role=None
+        ):
             calls["n"] += 1
 
             async def first():
@@ -480,7 +484,10 @@ class TestRetrievedContentIsDelimited:
             [{"content": injected, "source": "user"}]
         )
         assert injected not in block
-        assert "[RETRIEVED-CONTENT][UNTRUSTED_CONTENT_FILTERED][/RETRIEVED-CONTENT]" in block
+        assert (
+            "[RETRIEVED-CONTENT][UNTRUSTED_CONTENT_FILTERED][/RETRIEVED-CONTENT]"
+            in block
+        )
 
     def test_a_memory_containing_the_marker_cannot_forge_an_early_close(self):
         """Without escaping, a memory containing the literal close marker

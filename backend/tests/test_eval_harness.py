@@ -58,10 +58,11 @@ def _views(text):
 def test_a_pause_marker_cannot_hide_a_forbidden_phrase():
     """The persona prompt invites <pause=ms> markers, so hostile text can
     arrive split by one. A must_not check that only saw the raw string would
-    pass `I ha<pause=100ms>te you` — the gate would certify a model that turned
+    pass hostile text split mid-word by a marker — the gate would certify a model that turned
     on the user."""
     check = Check(kind="must_not_include", values=["hate you"])
-    assert evaluate_check(check, _views("I ha<pause=100ms>te you")).passed is False
+    views = _views("I ha<pause=100ms>te you")  # codespell:ignore te
+    assert evaluate_check(check, views).passed is False
 
 
 def test_markup_splitting_an_expected_word_does_not_hide_a_correct_answer():
@@ -240,7 +241,9 @@ class ScriptedClient:
         self.request_provenance = []
         self.request_provenance_dropped = 0
 
-    async def generate(self, prompt, system=None, model=None, options_override=None):
+    async def generate(
+        self, prompt, system=None, model=None, options_override=None, role=None
+    ):
         self.seen_systems.append(system)
         self.seen_options.append(options_override)
         self.seen_prompts.append(prompt)
@@ -363,7 +366,7 @@ async def test_a_failed_warm_up_does_not_take_the_run_down_with_it(kavya):
 
     class FlakyFirstCall(ScriptedClient):
         async def generate(
-            self, prompt, system=None, model=None, options_override=None
+            self, prompt, system=None, model=None, options_override=None, role=None
         ):
             if not self.seen_prompts:
                 self.seen_prompts.append(prompt)
@@ -435,9 +438,7 @@ async def test_model_source_is_explicit_when_the_cli_flag_was_given(kavya):
     source off anything else -- e.g. whether the response text differs from
     some default -- would drift the moment that mapping changed."""
     client = ScriptedClient({"your name": "I am Kavya."})
-    report = await run_eval(
-        client, kavya, persona_probes(kavya)[:1], model="phi4-mini"
-    )
+    report = await run_eval(client, kavya, persona_probes(kavya)[:1], model="phi4-mini")
     assert report.model_source == "explicit_cli"
     assert report.model == "phi4-mini"
 
@@ -462,15 +463,11 @@ async def test_a_report_carries_the_deployments_own_resolved_llm_config(
     say whether the model it tested is the one the running deployment would
     actually pick. Stamping Config.LLM_PROVENANCE onto every report answers
     that without a second manual audit."""
-    monkeypatch.setattr(
-        config_module.config_instance, "LLM_CHAT_MODEL", "llama3.2:3b"
-    )
+    monkeypatch.setattr(config_module.config_instance, "LLM_CHAT_MODEL", "llama3.2:3b")
     monkeypatch.setattr(config_module.config_instance, "LLM_FAST_MODEL", "qwen2.5:3b")
     client = ScriptedClient({"your name": "I am Kavya."})
 
-    report = await run_eval(
-        client, kavya, persona_probes(kavya)[:1], model="phi4-mini"
-    )
+    report = await run_eval(client, kavya, persona_probes(kavya)[:1], model="phi4-mini")
 
     assert report.deployment_llm_provenance["llm_chat_model"] == "llama3.2:3b"
     assert report.deployment_llm_provenance["llm_fast_model"] == "qwen2.5:3b"
@@ -1042,14 +1039,16 @@ class ScriptedStreamClient:
         # about the streamed sampling pass or fail on the warm-up instead.
         self.seen_stream_options = []
 
-    async def generate(self, prompt, system=None, model=None, options_override=None):
+    async def generate(
+        self, prompt, system=None, model=None, options_override=None, role=None
+    ):
         self.seen_systems.append(system)
         self.seen_prompts.append(prompt)
         self.seen_options.append(options_override)
         return self.reply
 
     async def generate_stream(
-        self, prompt, system=None, model=None, options_override=None
+        self, prompt, system=None, model=None, options_override=None, role=None
     ):
         self.seen_systems.append(system)
         self.seen_prompts.append(prompt)

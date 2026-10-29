@@ -116,7 +116,7 @@ class TestEndocrineLLMModulation:
         captured_options = {}
 
         async def capturing_stream(
-            prompt, system=None, model=None, options_override=None
+            prompt, system=None, model=None, options_override=None, role=None
         ):
             captured_options.update(options_override or {})
             yield "Test response."
@@ -149,7 +149,7 @@ class TestEndocrineLLMModulation:
         captured_options = {}
 
         async def capturing_stream(
-            prompt, system=None, model=None, options_override=None
+            prompt, system=None, model=None, options_override=None, role=None
         ):
             captured_options.update(options_override or {})
             yield "Awesome response!"
@@ -180,7 +180,7 @@ class TestEndocrineLLMModulation:
         captured_options = {"_sentinel": True}
 
         async def capturing_stream(
-            prompt, system=None, model=None, options_override=None
+            prompt, system=None, model=None, options_override=None, role=None
         ):
             if options_override is not None:
                 captured_options.update(options_override)

@@ -22,8 +22,10 @@ repos:
     hooks:
       - id: codespell
         # --ignore-words-list: real words codespell does not know (lifesim vocab).
-        # "ist" is IST (Indian Standard Time) in the V4 records.
-        args: [--ignore-words=.lycheeignore, "--ignore-words-list=brunch,arre,unparseable,ist"]
+        # "ist" is IST (Indian Standard Time) in the V4 records; "sting" is the
+        # English noun in a persona-compiler prompt, "ines" is a persona name in
+        # a test fixture, "retuned" is a real word.
+        args: [--ignore-words=.lycheeignore, "--ignore-words-list=brunch,arre,unparseable,ist,sting,ines,retuned"]
         # research/neuro/*.md: copied research artifacts full of citation URLs,
         # author surnames and ACT-R parameter names that trip false positives.
         # docs/brain-v4: 00-origin and 07-partner-architecture quote Aniket

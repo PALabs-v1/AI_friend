@@ -13,6 +13,7 @@ from app.cognitive.trace import enabled as trace_enabled
 from app.config import Config
 from app.contracts import ChatInput, ChatInputMetadata, Topics
 from app.llm import build_llm_client
+from app.llm.model_roles import ModelRole
 from app.measure_trace import trace as _measure_trace
 from app.state import proactive_queue
 from app.state.agent_state import StateService, in_hour_window, user_hour
@@ -766,6 +767,7 @@ class SubconsciousAgent(BaseAgent):
             thought = await self._llm.generate(
                 prompt,
                 system="You are an internal monologue generator. Output ONLY the thought string.",
+                role=ModelRole.CANDIDATE_GENERATION,
             )
             thought = thought.strip().strip("\"'")
             if thought:
@@ -822,6 +824,7 @@ class SubconsciousAgent(BaseAgent):
             dream_text = await self._llm.generate(
                 prompt,
                 system="You are in a subconscious dream state. Synthesize a creative link between the concepts.",
+                role=ModelRole.CANDIDATE_GENERATION,
             )
             dream_text = dream_text.strip().strip("\"'")
             if dream_text:

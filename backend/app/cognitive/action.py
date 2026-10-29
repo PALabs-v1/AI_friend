@@ -9,6 +9,7 @@ from typing import Any
 
 from ..config import Config
 from ..errors import AgentError
+from ..llm.model_roles import ModelRole
 from ..persona.biography import BIOGRAPHY_SOURCE
 from .decision import ActionPlan
 from .external_action import ExternalActionIntent
@@ -1158,6 +1159,7 @@ class ActionService:
             system=system_instruction,
             model=model,
             options_override=endocrine_options,
+            role=ModelRole.REALIZATION,
         ).__aiter__()
         deadline = time.monotonic() + stream_budget
         typed_mode = bool(getattr(Config, "LLM_TYPED_REALIZATION_ENABLED", False))
@@ -1363,6 +1365,7 @@ class ActionService:
             system=system_instruction,
             model=model,
             options_override=endocrine_options,
+            role=ModelRole.REALIZATION,
         ).__aiter__()
         deadline = time.monotonic() + stream_budget
         accumulated_retry_response = ""
@@ -1635,6 +1638,7 @@ class ActionService:
                 prompt=user_prompt,
                 system=system_instruction,
                 model=plan.payload.get("model"),
+                role=ModelRole.REALIZATION,
             ):
                 text += chunk
             # A model that ignored the "ask, don't answer" instruction and
@@ -1696,7 +1700,10 @@ class ActionService:
         text = ""
         try:
             stream_iter = self.llm.generate_stream(
-                prompt=user_prompt, system=system_instruction, model=model
+                prompt=user_prompt,
+                system=system_instruction,
+                model=model,
+                role=ModelRole.REALIZATION,
             ).__aiter__()
             deadline = time.monotonic() + stream_budget
             while True:

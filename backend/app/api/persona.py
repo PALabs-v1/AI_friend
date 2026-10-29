@@ -24,6 +24,7 @@ from pydantic import BaseModel, Field
 
 from ..config import Config
 from ..llm import build_llm_client
+from ..llm.model_roles import ModelRole
 from ..persona.authoring import IMMUTABLE_CORE
 from ..persona.compiler import PersonaCompilationError, compile_persona
 from ..persona.profile import PersonaProfile
@@ -166,7 +167,11 @@ async def dry_run_chat_endpoint(body: DryRunChatRequest):
     )
     client = build_llm_client(base_url=Config.OLLAMA_URL, model=Config.LLM_CHAT_MODEL)
     try:
-        reply = await client.generate(prompt=body.message, system=system_prompt)
+        reply = await client.generate(
+            prompt=body.message,
+            system=system_prompt,
+            role=ModelRole.REALIZATION,
+        )
     finally:
         await client.close()
     return {"reply": reply}

@@ -21,6 +21,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from ..llm.model_roles import ModelRole
 from .json_extract import extract_json_blocks
 
 logger = logging.getLogger(__name__)
@@ -48,7 +49,9 @@ class AppraisalRecord(BaseModel):
 
     def model_post_init(self, __context: Any, /) -> None:
         """Freeze the nested affect mapping as well as the record itself."""
-        object.__setattr__(self, "affect_delta", MappingProxyType(dict(self.affect_delta)))
+        object.__setattr__(
+            self, "affect_delta", MappingProxyType(dict(self.affect_delta))
+        )
 
 
 def _clamp(value: float, lower: float, upper: float) -> float:
@@ -78,7 +81,9 @@ def _event_goal_ids(event_metadata: dict) -> set[str]:
 def _goal_congruence(event_metadata: dict, active_goals: list[str]) -> float:
     """Resolve explicit congruence first, then infer it from goal overlap."""
     raw_congruence = event_metadata.get("goal_congruence")
-    if isinstance(raw_congruence, (int, float)) and not isinstance(raw_congruence, bool):
+    if isinstance(raw_congruence, (int, float)) and not isinstance(
+        raw_congruence, bool
+    ):
         return _clamp(raw_congruence, -1.0, 1.0)
     if event_metadata.get("goal_congruent") is True:
         return 1.0
@@ -122,9 +127,7 @@ def appraise_event(
     affect_delta = {
         "pleasure": _clamp(0.40 * goal_congruence, -1.0, 1.0),
         "arousal": _clamp(0.30 * novelty + 0.30 * unexpectedness, -1.0, 1.0),
-        "dominance": _clamp(
-            0.40 * (controllability - 0.50) + 0.10 * agency, -1.0, 1.0
-        ),
+        "dominance": _clamp(0.40 * (controllability - 0.50) + 0.10 * agency, -1.0, 1.0),
     }
     event_id = str(event_metadata.get("event_id", event_metadata.get("id", "event")))
     return AppraisalRecord(
@@ -471,6 +474,7 @@ class AppraisalEngine:
                 prompt,
                 model=Config.LLM_FAST_MODEL,
                 options_override={"num_predict": 128},
+                role=ModelRole.INTERPRETATION,
             )
 
             # Extract only the block that looks like our appraisal JSON.
