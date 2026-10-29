@@ -2,10 +2,10 @@
 
 Not the independent second reader. It checks what a script can check about the notes written during the read phase.
 
-- Notes cross-checked: 954
-- `depends_on` paths that resolve exactly: 1633 of 2637; resolve only as a unique path suffix (written short): 659; do not resolve: 345 (13.1%)
-- Code files with 3 or more public top-level definitions: 375; mean share of those definitions the note names: 73.0%
-- Files whose note names none of their public definitions: 8
+- Notes cross-checked: 957
+- `depends_on` paths that resolve exactly: 1615 of 2617; resolve only as a unique path suffix (written short): 659; do not resolve: 343 (13.1%)
+- Code files with 3 or more public top-level definitions: 376; mean share of those definitions the note names: 72.6%
+- Files whose note names none of their public definitions: 9
 
 ## Notes citing paths that do not exist
 
@@ -26,8 +26,6 @@ Not the independent second reader. It checks what a script can check about the n
 | backend/app/cognitive/percept.py | FINAL_HUMANOID_BRAIN_ARCHITECTURE.md |
 | backend/app/cognitive/somatic.py | backend/app/state/state_service.py |
 | backend/app/cognitive/somatic.py | docs/FUTURE_FINETUNED_ADAPTER.md |
-| backend/app/config.py | backend/app/main.py |
-| backend/app/config.py | backend/runtime_bootstrap.py |
 | backend/app/llm/model_roles.py | app.llm.model_manifest |
 | backend/app/nats_streams.py | .errors |
 | backend/app/nats_streams.py | subconscious_agent |
@@ -51,6 +49,8 @@ Not the independent second reader. It checks what a script can check about the n
 | backend/app/persona/wizard.py | .compiler |
 | backend/app/persona/wizard.py | .profile |
 | backend/app/persona/wizard.py | validate_persona_file.validate |
+| backend/app/rate_limit.py | backend/app/main.py |
+| backend/app/runtime_bootstrap.py | .config |
 
 ## Lowest definition recall (largest gaps first)
 
@@ -60,6 +60,7 @@ Not the independent second reader. It checks what a script can check about the n
 | backend/app/cognitive/action.py | 0 | 4 | 0% |
 | backend/app/cognitive/appraisal.py | 0 | 4 | 0% |
 | backend/app/cognitive/subconscious.py | 0 | 4 | 0% |
+| backend/app/config.py | 0 | 3 | 0% |
 | backend/app/state/agent_state.py | 0 | 4 | 0% |
 | backend/tests/test_pr66_review_fixes.py | 0 | 30 | 0% |
 | backend/tests/test_vision.py | 0 | 5 | 0% |
@@ -80,4 +81,3 @@ Not the independent second reader. It checks what a script can check about the n
 | backend/tests/test_memory_truth.py | 2 | 15 | 13% |
 | backend/tests/test_brainbench_trust_suite.py | 3 | 22 | 14% |
 | backend/tests/test_phasic_dopamine.py | 3 | 22 | 14% |
-| backend/tests/test_model_role_routing.py | 2 | 14 | 14% |

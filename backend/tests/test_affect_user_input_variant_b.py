@@ -73,19 +73,13 @@ LIVE_SECTIONS = ("mood_self_feed", "integrity_on_hostile_text")
 
 
 def test_flag_off_matches_recorded_slice_02a_baseline():
+    """Runs everywhere: the baseline pins the persona and the embedding endpoint,
+    so it no longer depends on this machine's private files."""
     recorded = json.loads(RECORDED.read_text("utf-8"))
     assert Config.AFFECT_USER_INPUT_ENABLED is False
     data = asyncio.run(defects.collect())
     for name in STATIC_SECTIONS:
         assert defects.digest(data[name]) == defects.digest(recorded["data"][name])
-    # The live sections start from persona and config values of the machine that
-    # recorded them. If the untouched starting trust differs, this machine cannot
-    # reproduce the recording, with or without this change (same on HEAD).
-    start = defects.digest(data["integrity_on_hostile_text"]["hostile"][0])
-    if start != defects.digest(
-        recorded["data"]["integrity_on_hostile_text"]["hostile"][0]
-    ):
-        pytest.skip("live baseline sections not reproducible on this machine")
     for name in LIVE_SECTIONS:
         assert defects.digest(data[name]) == defects.digest(recorded["data"][name])
     assert (
@@ -223,3 +217,50 @@ def test_scorer_ignores_agent_mood(flag_on):
         assert event_valence(MOOD_TEXTS[3]) == high
     finally:
         rig.close()
+
+
+# 3. Scope of the flag ------------------------------------------------------------
+
+
+async def _appraisal_for(event: dict, flag: bool, start_mood: float = 0.5):
+    Config.AFFECT_USER_INPUT_ENABLED = flag
+    rig = _LiveRig(start_mood=start_mood)
+    try:
+        outs = [o async for o in rig.service.cognitive.process_event(event)]
+        appraisal = next(o["data"] for o in outs if o.get("type") == "appraisal")
+        return appraisal, rig.state.mood
+    finally:
+        rig.close()
+        Config.AFFECT_USER_INPUT_ENABLED = False
+
+
+def test_non_user_events_keep_the_mood_bias(monkeypatch):
+    monkeypatch.setattr(Config, "AFFECT_USER_INPUT_ENABLED", False)
+    tick = {"id": "t1", "type": "SYSTEM_TICK", "content": "I hate this", "metadata": {}}
+    off, mood_off = asyncio.run(_appraisal_for(tick, False))
+    on, mood_on = asyncio.run(_appraisal_for(tick, True))
+    assert on == off and mood_on == mood_off
+    assert on.goal_congruence == pytest.approx(0.5)
+
+
+def test_stored_user_valence_does_not_move_the_bias(flag_on):
+    """The previous turn's inferred valence is written after the appraisal runs,
+    so it would lag by a turn; this variant must not read it."""
+
+    async def mood_after(stored: float) -> float:
+        rig = _LiveRig(start_mood=0.0)
+        try:
+            rig.state.user_mental_model.inferred_valence = stored
+            await rig.turn(NEGATIVE[0])
+            return rig.state.mood
+        finally:
+            rig.close()
+
+    assert asyncio.run(mood_after(0.9)) == asyncio.run(mood_after(-0.9))
+    assert asyncio.run(mood_after(0.9)) < 0
+
+
+def test_sick_is_not_scored_as_slang_praise_or_blame_alone():
+    assert event_valence("lol that's sick bro") == 0.0
+    assert event_valence("I feel sick") < 0
+    assert event_valence("I am sick of this") < 0

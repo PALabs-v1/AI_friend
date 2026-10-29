@@ -39,7 +39,7 @@ _NEGATIVE = _lexicon(
     "cry:-0.5 crying:-0.5 lonely:-0.6 alone:-0.3 tired:-0.4 exhausted:-0.5 "
     "worried:-0.5 anxious:-0.5 afraid:-0.5 scared:-0.5 stressed:-0.5 "
     "miserable:-0.8 depressed:-0.7 disappointed:-0.6 disappointing:-0.6 "
-    "sorry:-0.2 ugly:-0.6 disgusting:-0.8 died:-0.7 dead:-0.5 sick:-0.4 "
+    "sorry:-0.2 ugly:-0.6 disgusting:-0.8 died:-0.7 dead:-0.5 "
     "pain:-0.5 ignored:-0.5 unfair:-0.5 cost:-0.2"
 )
 # Phrases are matched before single words; they carry a meaning the words do not.
@@ -49,6 +49,9 @@ _PHRASES: tuple[tuple[tuple[str, ...], float], ...] = (
     (("shut", "up"), -0.6),
     (("fed", "up"), -0.6),
     (("sick", "of"), -0.6),
+    (("feel", "sick"), -0.5),
+    (("feeling", "sick"), -0.5),
+    (("felt", "sick"), -0.5),
     (("tired", "of"), -0.6),
 )
 _NEGATORS = frozenset(

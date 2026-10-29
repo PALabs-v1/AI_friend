@@ -733,8 +733,8 @@ class CognitivePipeline:
 
         `memory_activations` (Phase 02 Package B, Sections 8/11/22/39) is
         likewise optional and additive. When `Config.MEMORY_TRUTH_ENABLED`
-        is False (the default) it is accepted but not acted on, preserving
-        exact Phase 1 behavior for every existing caller. When True and any
+        is False it is accepted but not acted on, preserving exact Phase 1
+        behavior for every existing caller. It defaults to True (config.py). When True and any
         activation carries `outage_flag=True`, this marks the turn's
         decision metadata `retrieval_degraded=True` rather than letting a
         retrieval failure look identical to a real absence of memories, and
@@ -747,8 +747,8 @@ class CognitivePipeline:
         left `None` until Package A's global_controls.py populates it) and
         threads it into `DecisionService.decide` so global controls can
         modulate candidate scoring and acute distress can raise emotion-
-        regulation candidates. False (the default) preserves exact prior
-        behavior -- `global_controls` is never read or passed.
+        regulation candidates. It defaults to True (config.py); False preserves
+        exact prior behavior -- `global_controls` is never read or passed.
         """
         import time
 
@@ -808,15 +808,12 @@ class CognitivePipeline:
         t_start = time.perf_counter()
         state_snapshot = self.state.get_context_snapshot()
         emotional_bias = state_snapshot.get("mood", 0.0)
-        if Config.AFFECT_USER_INPUT_ENABLED:
+        if Config.AFFECT_USER_INPUT_ENABLED and event.event_type == "USER_MESSAGE":
             # Event valence of this message, never the stored mood (NF-12).
             # Acoustic emotion_bias is left out: apply_sensory_perception
-            # already blends it into mood.
-            emotional_bias = (
-                event_valence(event.raw_content)
-                if event.event_type == "USER_MESSAGE"
-                else 0.0
-            )
+            # already blends it into mood. Other event types (ticks) keep the
+            # mood bias, so idle decay is unchanged.
+            emotional_bias = event_valence(event.raw_content)
         user_voice_properties = raw_event.get("user_voice_properties")
         appraisal_vector = self.appraisal.appraise(
             event_content=event.raw_content,
