@@ -231,6 +231,11 @@ class AppSettings(BaseSettings):
         ),
     )
 
+    # NF-12: appraisal goal congruence comes from the signed valence of the
+    # current user message (cognitive/event_valence.py) instead of the stored
+    # mood. False keeps the mood-as-bias path byte-identical.
+    AFFECT_USER_INPUT_ENABLED: bool = False
+
     # Authoritative workspace instance: production turns supply an authoritative workspace instance
     # to ActionIntent rather than falling back to (0, 0) -- see
     # state/session_state.py's `workspace_authoritative_enabled()`.

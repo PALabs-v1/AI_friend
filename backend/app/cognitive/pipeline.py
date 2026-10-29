@@ -11,6 +11,7 @@ from ..persona.policy import PersonaPolicy
 from ..state.session_state import SessionState, persist_session_state
 from .action_intent import ActionIntent, ActionKind, build_action_intent
 from .behavior_contracts import BehaviorDecision
+from .event_valence import event_valence
 from .memory_activation import MemoryActivation, memories_to_activations
 from .percept import PerceptEnvelope
 
@@ -807,6 +808,15 @@ class CognitivePipeline:
         t_start = time.perf_counter()
         state_snapshot = self.state.get_context_snapshot()
         emotional_bias = state_snapshot.get("mood", 0.0)
+        if Config.AFFECT_USER_INPUT_ENABLED:
+            # Event valence of this message, never the stored mood (NF-12).
+            # Acoustic emotion_bias is left out: apply_sensory_perception
+            # already blends it into mood.
+            emotional_bias = (
+                event_valence(event.raw_content)
+                if event.event_type == "USER_MESSAGE"
+                else 0.0
+            )
         user_voice_properties = raw_event.get("user_voice_properties")
         appraisal_vector = self.appraisal.appraise(
             event_content=event.raw_content,
