@@ -256,6 +256,47 @@ def test_runtime_checks_are_opt_in_allowlisted_and_shell_free(kb):
     assert knowledge.verify_claim(conn, root, cid, "v", runtime=True) == "supported"
 
 
+def test_a_reviewer_disagreement_disputes_a_runtime_claim_without_rerunning_it(kb):
+    conn, root = kb
+    cid = add(
+        kb,
+        text="pytest is installed and reports its version",
+        check={
+            "type": "runtime",
+            "argv": ["python", "-m", "pytest", "--version"],
+            "stdout_contains": "pytest",
+        },
+    )
+    assert knowledge.verify_claim(conn, root, cid, "v", runtime=True) == "supported"
+    knowledge.review(
+        conn,
+        root,
+        cid,
+        "codex-1",
+        "codex",
+        "disagree",
+        "opened the venv and the claim wording is stronger than the check proves",
+    )
+    assert (
+        conn.execute("SELECT status FROM claims WHERE id=?", (cid,)).fetchone()[0]
+        == "disputed"
+    )
+    # an agreeing second reader later does not erase the dispute without a fresh run
+    knowledge.review(
+        conn,
+        root,
+        cid,
+        "reader-2",
+        "claude",
+        "agree",
+        "ran the same command and read the claim; the output matches the claim",
+    )
+    assert (
+        conn.execute("SELECT status FROM claims WHERE id=?", (cid,)).fetchone()[0]
+        == "disputed"
+    )
+
+
 @pytest.mark.parametrize(
     "argv",
     [

@@ -35,6 +35,7 @@ EXPECTED_PAD_WRITERS = {
         "app/agents/subconscious_agent.py::_on_state_broadcast",
         "app/state/agent_state.py::_write_state_row",
     ],
+    "dynamic_write_sites": [],
 }
 
 
@@ -171,8 +172,11 @@ def test_baselines_are_deterministic_across_processes_and_working_directories(
             check=False,
         )
         assert proc.returncode == 0, proc.stderr[-400:]
-        outputs.append((out / "defect_baselines.json").read_bytes())
+        outputs.append(
+            ((out / "defect_baselines.json").read_bytes(), proc.stdout.strip())
+        )
     assert outputs[0] == outputs[1]
+    assert "raw_result_sha256" in outputs[0][1]
 
 
 def test_output_holds_no_absolute_path_or_checkout_location(baseline):
@@ -238,7 +242,11 @@ def test_the_behavioral_term_argument_is_a_constant(baseline):
 
 
 def test_baseline_pad_writers_are_exactly_the_known_set(baseline):
-    assert baseline["baseline_pad_writers"] == EXPECTED_PAD_WRITERS
+    found = {
+        k: v for k, v in baseline["baseline_pad_writers"].items() if k != "scan_limits"
+    }
+    assert found == EXPECTED_PAD_WRITERS
+    assert "computed name" in baseline["baseline_pad_writers"]["scan_limits"]
 
 
 @pytest.mark.parametrize(
@@ -306,3 +314,55 @@ def test_unread_subjects_have_publishers_and_no_subscribers(baseline):
         assert row["python_publishers"], subject
         assert row["python_subscribers"] == [], subject
         assert "not frontend or scripts" in row["scan_scope"]
+
+
+def test_raw_digest_sees_differences_the_rounded_digest_hides():
+    a = {"x": 1.0000000001}
+    b = {"x": 1.0000000002}
+    assert defects.digest(a) == defects.digest(b)
+    assert defects.raw_digest(a) != defects.raw_digest(b)
+
+
+def test_the_raw_digest_is_stable_between_two_collections(baseline):
+    assert defects.raw_digest(baseline) == defects.raw_digest(_run_collect())
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "def f(o, k):\n    setattr(o, k, 1)\nx = o.baseline_valence",
+        "def f(o, d):\n    o.__dict__.update(d)\nx = o.baseline_valence",
+        "def f(o, k):\n    o.__dict__[k] = 1\nx = o.baseline_valence",
+    ],
+)
+def test_pad_scan_lists_computed_setattr_and_dict_writes_as_dynamic(source):
+    found = defects.pad_write_sites(ast.parse(source), "x.py")
+    assert found["dynamic"] == {"x.py::f"}
+
+
+def test_pad_scan_ignores_computed_setattr_in_files_that_never_mention_the_pad():
+    found = defects.pad_write_sites(
+        ast.parse("def f(o, k):\n    setattr(o, k, 1)\n"), "x.py"
+    )
+    assert found["dynamic"] == set()
+
+
+def test_the_rig_ignores_the_checkouts_private_persona_file():
+    """`personal/persona.toml` is gitignored and differs per checkout; a baseline
+    that read it could not be reproduced from a clean clone (the first 2a
+    collection had mood factor 0.944 and start trust 0.38 from the owner's file;
+    a clean checkout gives 0.94)."""
+    rig = defects._LiveRig()
+    try:
+        assert rig.service.cognitive.identity.persona_file is None
+    finally:
+        rig.close()
+
+
+def test_mood_decay_factor_comes_from_the_default_drift_rate(baseline):
+    from app.config import Config
+
+    ratios = baseline["mood_self_feed"]["runs"]["start_mood_0.5"]["orders"]["real"][
+        "mood_ratio_per_turn"
+    ]
+    assert ratios[0] == pytest.approx(1 - 0.2 * Config.PSYCH_ALPHA, abs=1e-6)

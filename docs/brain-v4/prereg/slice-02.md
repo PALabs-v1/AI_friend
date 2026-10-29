@@ -27,7 +27,8 @@ Conditions that make a digest comparison valid:
 - same `appraisal_backend` (the harness records whether `cognitive_rust` or the Python mirror ran; a digest from one backend is never compared with the other);
 - same `scenario_sha256` (the frozen scenario texts, orders and seeds; editing a text changes it and starts a new baseline);
 - same Python minor version, recorded in the output;
-- the same checkout layout (the output names `file::function` sites).
+- the same checkout layout (the output names `file::function` sites);
+- no dependence on gitignored local files: the harness pins the persona and the embedding endpoint, and the result must match a run from a clean export.
 
 The harness points the embedding call that memory writes make at a closed local port, so a running Ollama server on the measuring machine cannot change a result.
 
@@ -46,3 +47,4 @@ Baselines are collected at a recorded git revision and stored under `docs/brain-
 ## Revisions after the first run (none changes a threshold)
 
 - 2026-10-29, after cold critic round 1: the mood and integrity baselines were moved from a reduced rig (`StateService` plus `AppraisalEngine`) to the real `CognitiveService` through the `architecture_only` adapter, because the critic showed the rig's numbers (mood factor 0.94, integrity start 0.5) differed from the production persona (0.944, 0.38). All results were recollected; the first-draft digest `fec9167a...` is discarded. The noise band stayed zero, the instrument check stayed exact equality, and no reading was chosen after seeing it: the readings in the result README follow from the recollected data and are scoped to System 1, text-only input. Also added: the closed-port embedding note, the checkout-layout validity condition, and the statement that these baselines carry no pass or fail target.
+- 2026-10-29, after the independent Codex review and a slice 4 builder's report: (a) the live-service baseline had read the checkout's gitignored `personal/persona.toml` and so did not reproduce in a clean clone; the harness now pins "no persona file" and all results were recollected (first-draft digests `fec9167a...` and `3fd24f76...` are discarded; current `result_sha256` `627dcce6...`, `raw_result_sha256` `cb62dc20...`); (b) the instrument check now also compares an unrounded digest; (c) the validity conditions gain "no dependence on gitignored local files", checked by a run from a clean export. The noise band stayed zero and no reading was chosen after seeing it.

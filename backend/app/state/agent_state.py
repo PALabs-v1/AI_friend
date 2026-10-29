@@ -227,14 +227,15 @@ class AgentState:
     # keeps the reading correct even if system.tick stalls, and makes decay
     # testable without a clock stub.
     #
-    # Deliberately NOT persisted, unlike the baselines above. Both half-lives
-    # are minutes-scale, so a burst is already within rounding distance of zero
-    # by the time any realistic restart completes; carrying it across one would
-    # preserve a value that no longer means anything. Restoring a state with no
-    # burst is also the safe direction -- peak defaults to 0.0, which reads as
-    # "nothing outstanding" rather than as a stale reward or a stale threat. If
-    # a future hormone decays on an hours-scale, that one *will* need
-    # persisting.
+    # Deliberately NOT persisted, unlike the baselines above. Dopamine (90 s)
+    # and adrenaline (120 s) are within rounding distance of zero by the time any
+    # realistic restart completes. Cortisol is not: its half-life is 4500 s, so a
+    # restart inside the first hour drops most of a recent burst. That loss is
+    # accepted for now -- restoring a state with no burst is the safe direction,
+    # since peak defaults to 0.0 and reads as "nothing outstanding" rather than
+    # as a stale threat -- but it is a loss, not a non-event (Codex review,
+    # 2026-10-29). A hormone that decays on an hours-scale needs persisting if a
+    # restart should not wipe it.
     dopamine_phasic_peak: float = 0.0
     dopamine_phasic_at: float = field(default_factory=time.time)
     cortisol_phasic_peak: float = 0.0

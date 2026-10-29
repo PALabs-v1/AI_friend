@@ -585,6 +585,15 @@ def verify_claim(conn, root: Path, cid: int, actor: str, runtime: bool = False) 
             )
             return "unverified"
         if spec["type"] == "runtime" and not runtime:
+            # The command is not re-run here, but a reviewer's disagreement must
+            # still dispute the claim: Codex disagreed with two runtime claims
+            # and both stayed "supported" until this branch looked at reviews.
+            disagreed = conn.execute(
+                "SELECT 1 FROM reviews WHERE claim_id=? AND verdict='disagree'", (cid,)
+            ).fetchone()
+            if disagreed and row["status"] in ("supported", "verified"):
+                _set_status(conn, cid, actor, "disputed", "reviewer disagrees")
+                return "disputed"
             return row["status"]
         conn.execute(
             "UPDATE claims SET inputs_json=?, last_verified_rev=?, contradicting=? WHERE id=?",

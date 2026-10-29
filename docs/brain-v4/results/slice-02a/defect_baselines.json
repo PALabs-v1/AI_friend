@@ -11,6 +11,8 @@
       "constructor_seed_sites": [
         "app/state/agent_state.py::__init__"
       ],
+      "dynamic_write_sites": [],
+      "scan_limits": "attribute and literal-name setattr writes, tuple unpacking, SQL or Cypher write strings and keyword seeds are matched; a setattr with a computed name or a __dict__ write is listed as dynamic only in files that mention a PAD name; a write through another file's alias or a framework is not seen",
       "store_write_string_sites": [
         "app/agents/subconscious_agent.py::_on_state_broadcast",
         "app/state/agent_state.py::_write_state_row"
@@ -33,272 +35,272 @@
       "hostile": [
         {
           "norm_alignment": null,
-          "trust_benevolence": 0.38,
-          "trust_competence": 0.38,
-          "trust_integrity": 0.38
+          "trust_benevolence": 0.5,
+          "trust_competence": 0.5,
+          "trust_integrity": 0.5
         },
         {
           "norm_alignment": 1.0,
-          "trust_benevolence": 0.40295,
-          "trust_competence": 0.47554,
-          "trust_integrity": 0.55
+          "trust_benevolence": 0.5,
+          "trust_competence": 0.54,
+          "trust_integrity": 0.6
         },
         {
           "norm_alignment": 1.0,
-          "trust_benevolence": 0.4246148,
-          "trust_competence": 0.56953776,
-          "trust_integrity": 0.72
+          "trust_benevolence": 0.5,
+          "trust_competence": 0.58,
+          "trust_integrity": 0.7
         },
         {
           "norm_alignment": 1.0,
-          "trust_benevolence": 0.445066371,
-          "trust_competence": 0.662079645,
-          "trust_integrity": 0.89
+          "trust_benevolence": 0.5,
+          "trust_competence": 0.62,
+          "trust_integrity": 0.8
         },
         {
           "norm_alignment": 1.0,
-          "trust_benevolence": 0.464372654,
-          "trust_competence": 0.753247185,
+          "trust_benevolence": 0.5,
+          "trust_competence": 0.66,
+          "trust_integrity": 0.9
+        },
+        {
+          "norm_alignment": 1.0,
+          "trust_benevolence": 0.5,
+          "trust_competence": 0.7,
           "trust_integrity": 1.0
         },
         {
           "norm_alignment": 1.0,
-          "trust_benevolence": 0.482597786,
-          "trust_competence": 0.843117343,
+          "trust_benevolence": 0.5,
+          "trust_competence": 0.74,
           "trust_integrity": 1.0
         },
         {
           "norm_alignment": 1.0,
-          "trust_benevolence": 0.49980231,
-          "trust_competence": 0.931762772,
+          "trust_benevolence": 0.5,
+          "trust_competence": 0.78,
           "trust_integrity": 1.0
         },
         {
           "norm_alignment": 1.0,
-          "trust_benevolence": 0.51604338,
-          "trust_competence": 1.0,
+          "trust_benevolence": 0.5,
+          "trust_competence": 0.82,
           "trust_integrity": 1.0
         },
         {
           "norm_alignment": 1.0,
-          "trust_benevolence": 0.531374951,
-          "trust_competence": 1.0,
+          "trust_benevolence": 0.5,
+          "trust_competence": 0.86,
           "trust_integrity": 1.0
         },
         {
           "norm_alignment": 1.0,
-          "trust_benevolence": 0.545847954,
-          "trust_competence": 1.0,
-          "trust_integrity": 1.0
-        },
-        {
-          "norm_alignment": 1.0,
-          "trust_benevolence": 0.559510468,
-          "trust_competence": 1.0,
+          "trust_benevolence": 0.5,
+          "trust_competence": 0.9,
           "trust_integrity": 1.0
         }
       ],
       "neutral": [
         {
           "norm_alignment": null,
-          "trust_benevolence": 0.38,
-          "trust_competence": 0.38,
-          "trust_integrity": 0.38
+          "trust_benevolence": 0.5,
+          "trust_competence": 0.5,
+          "trust_integrity": 0.5
         },
         {
           "norm_alignment": 1.0,
-          "trust_benevolence": 0.40295,
-          "trust_competence": 0.47554,
-          "trust_integrity": 0.55
+          "trust_benevolence": 0.5,
+          "trust_competence": 0.54,
+          "trust_integrity": 0.6
         },
         {
           "norm_alignment": 1.0,
-          "trust_benevolence": 0.4246148,
-          "trust_competence": 0.56953776,
-          "trust_integrity": 0.72
+          "trust_benevolence": 0.5,
+          "trust_competence": 0.58,
+          "trust_integrity": 0.7
         },
         {
           "norm_alignment": 1.0,
-          "trust_benevolence": 0.445066371,
-          "trust_competence": 0.662079645,
-          "trust_integrity": 0.89
+          "trust_benevolence": 0.5,
+          "trust_competence": 0.62,
+          "trust_integrity": 0.8
         },
         {
           "norm_alignment": 1.0,
-          "trust_benevolence": 0.464372654,
-          "trust_competence": 0.753247185,
+          "trust_benevolence": 0.5,
+          "trust_competence": 0.66,
+          "trust_integrity": 0.9
+        },
+        {
+          "norm_alignment": 1.0,
+          "trust_benevolence": 0.5,
+          "trust_competence": 0.7,
           "trust_integrity": 1.0
         },
         {
           "norm_alignment": 1.0,
-          "trust_benevolence": 0.482597786,
-          "trust_competence": 0.843117343,
+          "trust_benevolence": 0.5,
+          "trust_competence": 0.74,
           "trust_integrity": 1.0
         },
         {
           "norm_alignment": 1.0,
-          "trust_benevolence": 0.49980231,
-          "trust_competence": 0.931762772,
+          "trust_benevolence": 0.5,
+          "trust_competence": 0.78,
           "trust_integrity": 1.0
         },
         {
           "norm_alignment": 1.0,
-          "trust_benevolence": 0.51604338,
-          "trust_competence": 1.0,
+          "trust_benevolence": 0.5,
+          "trust_competence": 0.82,
           "trust_integrity": 1.0
         },
         {
           "norm_alignment": 1.0,
-          "trust_benevolence": 0.531374951,
-          "trust_competence": 1.0,
+          "trust_benevolence": 0.5,
+          "trust_competence": 0.86,
           "trust_integrity": 1.0
         },
         {
           "norm_alignment": 1.0,
-          "trust_benevolence": 0.545847954,
-          "trust_competence": 1.0,
-          "trust_integrity": 1.0
-        },
-        {
-          "norm_alignment": 1.0,
-          "trust_benevolence": 0.559510468,
-          "trust_competence": 1.0,
+          "trust_benevolence": 0.5,
+          "trust_competence": 0.9,
           "trust_integrity": 1.0
         }
       ],
       "recovery_hostile_then_supportive": [
         {
           "norm_alignment": null,
-          "trust_benevolence": 0.38,
-          "trust_competence": 0.38,
-          "trust_integrity": 0.38
+          "trust_benevolence": 0.5,
+          "trust_competence": 0.5,
+          "trust_integrity": 0.5
         },
         {
           "norm_alignment": 1.0,
-          "trust_benevolence": 0.40295,
-          "trust_competence": 0.47554,
-          "trust_integrity": 0.55
+          "trust_benevolence": 0.5,
+          "trust_competence": 0.54,
+          "trust_integrity": 0.6
         },
         {
           "norm_alignment": 1.0,
-          "trust_benevolence": 0.4246148,
-          "trust_competence": 0.56953776,
-          "trust_integrity": 0.72
+          "trust_benevolence": 0.5,
+          "trust_competence": 0.58,
+          "trust_integrity": 0.7
         },
         {
           "norm_alignment": 1.0,
-          "trust_benevolence": 0.445066371,
-          "trust_competence": 0.662079645,
-          "trust_integrity": 0.89
+          "trust_benevolence": 0.5,
+          "trust_competence": 0.62,
+          "trust_integrity": 0.8
         },
         {
           "norm_alignment": 1.0,
-          "trust_benevolence": 0.464372654,
-          "trust_competence": 0.753247185,
+          "trust_benevolence": 0.5,
+          "trust_competence": 0.66,
+          "trust_integrity": 0.9
+        },
+        {
+          "norm_alignment": 1.0,
+          "trust_benevolence": 0.5,
+          "trust_competence": 0.7,
           "trust_integrity": 1.0
         },
         {
           "norm_alignment": 1.0,
-          "trust_benevolence": 0.482597786,
-          "trust_competence": 0.843117343,
+          "trust_benevolence": 0.5,
+          "trust_competence": 0.74,
           "trust_integrity": 1.0
         },
         {
           "norm_alignment": 1.0,
-          "trust_benevolence": 0.49980231,
-          "trust_competence": 0.931762772,
+          "trust_benevolence": 0.5,
+          "trust_competence": 0.78,
           "trust_integrity": 1.0
         },
         {
           "norm_alignment": 1.0,
-          "trust_benevolence": 0.51604338,
-          "trust_competence": 1.0,
+          "trust_benevolence": 0.5,
+          "trust_competence": 0.82,
           "trust_integrity": 1.0
         },
         {
           "norm_alignment": 1.0,
-          "trust_benevolence": 0.531374951,
-          "trust_competence": 1.0,
+          "trust_benevolence": 0.5,
+          "trust_competence": 0.86,
           "trust_integrity": 1.0
         },
         {
           "norm_alignment": 1.0,
-          "trust_benevolence": 0.545847954,
-          "trust_competence": 1.0,
-          "trust_integrity": 1.0
-        },
-        {
-          "norm_alignment": 1.0,
-          "trust_benevolence": 0.559510468,
-          "trust_competence": 1.0,
+          "trust_benevolence": 0.5,
+          "trust_competence": 0.9,
           "trust_integrity": 1.0
         }
       ],
       "supportive": [
         {
           "norm_alignment": null,
-          "trust_benevolence": 0.38,
-          "trust_competence": 0.38,
-          "trust_integrity": 0.38
+          "trust_benevolence": 0.5,
+          "trust_competence": 0.5,
+          "trust_integrity": 0.5
         },
         {
           "norm_alignment": 1.0,
-          "trust_benevolence": 0.40295,
-          "trust_competence": 0.47554,
-          "trust_integrity": 0.55
+          "trust_benevolence": 0.5,
+          "trust_competence": 0.54,
+          "trust_integrity": 0.6
         },
         {
           "norm_alignment": 1.0,
-          "trust_benevolence": 0.4246148,
-          "trust_competence": 0.56953776,
-          "trust_integrity": 0.72
+          "trust_benevolence": 0.5,
+          "trust_competence": 0.58,
+          "trust_integrity": 0.7
         },
         {
           "norm_alignment": 1.0,
-          "trust_benevolence": 0.445066371,
-          "trust_competence": 0.662079645,
-          "trust_integrity": 0.89
+          "trust_benevolence": 0.5,
+          "trust_competence": 0.62,
+          "trust_integrity": 0.8
         },
         {
           "norm_alignment": 1.0,
-          "trust_benevolence": 0.464372654,
-          "trust_competence": 0.753247185,
+          "trust_benevolence": 0.5,
+          "trust_competence": 0.66,
+          "trust_integrity": 0.9
+        },
+        {
+          "norm_alignment": 1.0,
+          "trust_benevolence": 0.5,
+          "trust_competence": 0.7,
           "trust_integrity": 1.0
         },
         {
           "norm_alignment": 1.0,
-          "trust_benevolence": 0.482597786,
-          "trust_competence": 0.843117343,
+          "trust_benevolence": 0.5,
+          "trust_competence": 0.74,
           "trust_integrity": 1.0
         },
         {
           "norm_alignment": 1.0,
-          "trust_benevolence": 0.49980231,
-          "trust_competence": 0.931762772,
+          "trust_benevolence": 0.5,
+          "trust_competence": 0.78,
           "trust_integrity": 1.0
         },
         {
           "norm_alignment": 1.0,
-          "trust_benevolence": 0.51604338,
-          "trust_competence": 1.0,
+          "trust_benevolence": 0.5,
+          "trust_competence": 0.82,
           "trust_integrity": 1.0
         },
         {
           "norm_alignment": 1.0,
-          "trust_benevolence": 0.531374951,
-          "trust_competence": 1.0,
+          "trust_benevolence": 0.5,
+          "trust_competence": 0.86,
           "trust_integrity": 1.0
         },
         {
           "norm_alignment": 1.0,
-          "trust_benevolence": 0.545847954,
-          "trust_competence": 1.0,
-          "trust_integrity": 1.0
-        },
-        {
-          "norm_alignment": 1.0,
-          "trust_benevolence": 0.559510468,
-          "trust_competence": 1.0,
+          "trust_benevolence": 0.5,
+          "trust_competence": 0.9,
           "trust_integrity": 1.0
         }
       ]
@@ -559,46 +561,46 @@
             "real": {
               "goal_congruence_returned": [
                 0.5,
-                0.472,
-                0.445568,
-                0.420616192,
-                0.397061685,
-                0.374826231,
-                0.353835962,
-                0.334021148,
-                0.315315964,
-                0.29765827,
-                0.280989407,
-                0.265254
+                0.47,
+                0.4418,
+                0.415292,
+                0.39037448,
+                0.366952011,
+                0.344934891,
+                0.324238797,
+                0.304784469,
+                0.286497401,
+                0.269307557,
+                0.253149104
               ],
               "mood_ratio_per_turn": [
-                0.944,
-                0.944,
-                0.944,
-                0.944,
-                0.944,
-                0.944,
-                0.944,
-                0.944,
-                0.944,
-                0.944,
-                0.944,
-                0.944
+                0.94,
+                0.94,
+                0.94,
+                0.94,
+                0.94,
+                0.94,
+                0.94,
+                0.94,
+                0.94,
+                0.94,
+                0.94,
+                0.94
               ],
               "mood_trajectory": [
                 0.5,
-                0.472,
-                0.445568,
-                0.420616192,
-                0.397061685,
-                0.374826231,
-                0.353835962,
-                0.334021148,
-                0.315315964,
-                0.29765827,
-                0.280989407,
-                0.265254,
-                0.250399776
+                0.47,
+                0.4418,
+                0.415292,
+                0.39037448,
+                0.366952011,
+                0.344934891,
+                0.324238797,
+                0.304784469,
+                0.286497401,
+                0.269307557,
+                0.253149104,
+                0.237960157
               ],
               "text_order": [
                 0,
@@ -618,46 +620,46 @@
             "shuffled_20261029": {
               "goal_congruence_returned": [
                 0.5,
-                0.472,
-                0.445568,
-                0.420616192,
-                0.397061685,
-                0.374826231,
-                0.353835962,
-                0.334021148,
-                0.315315964,
-                0.29765827,
-                0.280989407,
-                0.265254
+                0.47,
+                0.4418,
+                0.415292,
+                0.39037448,
+                0.366952011,
+                0.344934891,
+                0.324238797,
+                0.304784469,
+                0.286497401,
+                0.269307557,
+                0.253149104
               ],
               "mood_ratio_per_turn": [
-                0.944,
-                0.944,
-                0.944,
-                0.944,
-                0.944,
-                0.944,
-                0.944,
-                0.944,
-                0.944,
-                0.944,
-                0.944,
-                0.944
+                0.94,
+                0.94,
+                0.94,
+                0.94,
+                0.94,
+                0.94,
+                0.94,
+                0.94,
+                0.94,
+                0.94,
+                0.94,
+                0.94
               ],
               "mood_trajectory": [
                 0.5,
-                0.472,
-                0.445568,
-                0.420616192,
-                0.397061685,
-                0.374826231,
-                0.353835962,
-                0.334021148,
-                0.315315964,
-                0.29765827,
-                0.280989407,
-                0.265254,
-                0.250399776
+                0.47,
+                0.4418,
+                0.415292,
+                0.39037448,
+                0.366952011,
+                0.344934891,
+                0.324238797,
+                0.304784469,
+                0.286497401,
+                0.269307557,
+                0.253149104,
+                0.237960157
               ],
               "text_order": [
                 6,
@@ -677,46 +679,46 @@
             "shuffled_20261030": {
               "goal_congruence_returned": [
                 0.5,
-                0.472,
-                0.445568,
-                0.420616192,
-                0.397061685,
-                0.374826231,
-                0.353835962,
-                0.334021148,
-                0.315315964,
-                0.29765827,
-                0.280989407,
-                0.265254
+                0.47,
+                0.4418,
+                0.415292,
+                0.39037448,
+                0.366952011,
+                0.344934891,
+                0.324238797,
+                0.304784469,
+                0.286497401,
+                0.269307557,
+                0.253149104
               ],
               "mood_ratio_per_turn": [
-                0.944,
-                0.944,
-                0.944,
-                0.944,
-                0.944,
-                0.944,
-                0.944,
-                0.944,
-                0.944,
-                0.944,
-                0.944,
-                0.944
+                0.94,
+                0.94,
+                0.94,
+                0.94,
+                0.94,
+                0.94,
+                0.94,
+                0.94,
+                0.94,
+                0.94,
+                0.94,
+                0.94
               ],
               "mood_trajectory": [
                 0.5,
-                0.472,
-                0.445568,
-                0.420616192,
-                0.397061685,
-                0.374826231,
-                0.353835962,
-                0.334021148,
-                0.315315964,
-                0.29765827,
-                0.280989407,
-                0.265254,
-                0.250399776
+                0.47,
+                0.4418,
+                0.415292,
+                0.39037448,
+                0.366952011,
+                0.344934891,
+                0.324238797,
+                0.304784469,
+                0.286497401,
+                0.269307557,
+                0.253149104,
+                0.237960157
               ],
               "text_order": [
                 7,
@@ -736,46 +738,46 @@
             "shuffled_20261031": {
               "goal_congruence_returned": [
                 0.5,
-                0.472,
-                0.445568,
-                0.420616192,
-                0.397061685,
-                0.374826231,
-                0.353835962,
-                0.334021148,
-                0.315315964,
-                0.29765827,
-                0.280989407,
-                0.265254
+                0.47,
+                0.4418,
+                0.415292,
+                0.39037448,
+                0.366952011,
+                0.344934891,
+                0.324238797,
+                0.304784469,
+                0.286497401,
+                0.269307557,
+                0.253149104
               ],
               "mood_ratio_per_turn": [
-                0.944,
-                0.944,
-                0.944,
-                0.944,
-                0.944,
-                0.944,
-                0.944,
-                0.944,
-                0.944,
-                0.944,
-                0.944,
-                0.944
+                0.94,
+                0.94,
+                0.94,
+                0.94,
+                0.94,
+                0.94,
+                0.94,
+                0.94,
+                0.94,
+                0.94,
+                0.94,
+                0.94
               ],
               "mood_trajectory": [
                 0.5,
-                0.472,
-                0.445568,
-                0.420616192,
-                0.397061685,
-                0.374826231,
-                0.353835962,
-                0.334021148,
-                0.315315964,
-                0.29765827,
-                0.280989407,
-                0.265254,
-                0.250399776
+                0.47,
+                0.4418,
+                0.415292,
+                0.39037448,
+                0.366952011,
+                0.344934891,
+                0.324238797,
+                0.304784469,
+                0.286497401,
+                0.269307557,
+                0.253149104,
+                0.237960157
               ],
               "text_order": [
                 11,
@@ -875,8 +877,9 @@
   "envelope": {
     "appraisal_backend": "cognitive_rust",
     "python": "3.13",
-    "result_sha256": "3fd24f76ce940da78f51ec056fe4b116b804d67ef6331c87c3a60652d210855b",
-    "revision": "b525b2f64485",
+    "raw_result_sha256": "cb62dc20b54bed13daccf1d2825135e5bcbe2a8a9b06579290ca1daf648114c8",
+    "result_sha256": "627dcce6a3b64699d866920ae99d2b8e8b7034edecaedd791578a99c2a06ced8",
+    "revision": "379bfd343964",
     "scenario_sha256": "b4cb324e8abc84885697d7206d75125c1d2dfc04acecbe04aa9cf7e965c9c739"
   }
 }

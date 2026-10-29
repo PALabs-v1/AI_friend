@@ -222,6 +222,7 @@ class ClaudeCodeClient:
         role: ModelRole | None = None,
     ) -> str | None:
         """Return None because this text-only CLI adapter has no image input path."""
+        trace_role("claude_code", role, model or self.model)
         return None
 
     async def check_health(self) -> bool:

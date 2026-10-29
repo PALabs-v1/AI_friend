@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import ast
 import contextlib
+import re
 from pathlib import Path
 
 import httpx
@@ -63,17 +64,46 @@ def _evasions(tree: ast.AST) -> list[str]:
             and node.args[1].value in LLM_METHODS
         ):
             found.append(f"line {node.lineno}: getattr(..., {node.args[1].value!r})")
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == "getattr"
+            and len(node.args) >= 2
+            and not isinstance(node.args[1], ast.Constant)
+            and re.search(r"llm|client", ast.unparse(node.args[0]), re.IGNORECASE)
+        ):
+            found.append(
+                f"line {node.lineno}: computed getattr on an LLM-like receiver"
+            )
     return found
 
 
 def _imports_real_model_role(tree: ast.AST) -> bool:
-    """A local class named ModelRole must not satisfy the gate."""
-    return any(
-        isinstance(n, ast.ImportFrom)
-        and (n.module or "").endswith("llm.model_roles")
-        and any(a.name == "ModelRole" and a.asname is None for a in n.names)
-        for n in ast.walk(tree)
-    )
+    """True only when ModelRole is bound exactly once, by the real import. A local
+    class, an assignment, an alias or a second import of that name all fail."""
+    real = 0
+    other = 0
+    for n in ast.walk(tree):
+        if isinstance(n, ast.ImportFrom):
+            for a in n.names:
+                if (a.asname or a.name) == "ModelRole":
+                    if (
+                        (n.module or "").endswith("llm.model_roles")
+                        and a.name == "ModelRole"
+                        and a.asname is None
+                    ):
+                        real += 1
+                    else:
+                        other += 1
+        elif isinstance(n, ast.Import):
+            other += sum(1 for a in n.names if (a.asname or a.name) == "ModelRole")
+        elif isinstance(n, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
+            other += n.name == "ModelRole"
+        elif isinstance(n, ast.arg):
+            other += n.arg == "ModelRole"
+        elif isinstance(n, ast.Name) and n.id == "ModelRole":
+            other += isinstance(n.ctx, (ast.Store, ast.Del))
+    return real == 1 and other == 0
 
 
 def _app_trees() -> list[tuple[str, ast.AST]]:
@@ -129,6 +159,26 @@ def test_files_with_llm_calls_import_the_real_model_role():
 )
 def test_the_gate_flags_evasions(source):
     assert _evasions(ast.parse(source))
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "from ..llm.model_roles import ModelRole\nclass ModelRole:\n    X = 1",
+        "from ..llm.model_roles import ModelRole\nModelRole = Fake",
+        "from ..llm.model_roles import ModelRole\nfrom x import ModelRole",
+        "from ..llm.model_roles import ModelRole\nimport y as ModelRole",
+        "from ..llm.model_roles import ModelRole as MR\nllm.generate('x', role=MR.X)",
+        "from ..llm.model_roles import ModelRole\ndef f(ModelRole):\n    pass",
+    ],
+)
+def test_the_gate_rejects_every_way_to_shadow_model_role(source):
+    assert not _imports_real_model_role(ast.parse(source))
+
+
+def test_the_gate_flags_a_computed_getattr_on_an_llm_receiver():
+    assert _evasions(ast.parse("await getattr(self.llm, 'gen' + 'erate')(p)"))
+    assert not _evasions(ast.parse("getattr(Config, name, None)"))
 
 
 def test_the_gate_rejects_a_local_model_role_class():
@@ -280,6 +330,7 @@ async def test_claude_code_records_the_role_even_when_the_process_fails(monkeypa
             await _drain(client.generate_stream("q", role=ModelRole.REALIZATION))
         with contextlib.suppress(Exception):
             await client.generate("q")
+        await client.describe_image("b64", role=ModelRole.INTERPRETATION)
     finally:
         done()
         await client.close()
@@ -287,4 +338,5 @@ async def test_claude_code_records_the_role_even_when_the_process_fails(monkeypa
         ("claude_code", "PLANNING"),
         ("claude_code", "REALIZATION"),
         ("claude_code", "UNROUTED"),
+        ("claude_code", "INTERPRETATION"),
     ]

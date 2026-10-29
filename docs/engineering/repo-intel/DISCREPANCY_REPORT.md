@@ -2,7 +2,7 @@
 
 Each row is a claim recorded with evidence. Status comes from a deterministic check run against the current code, and `verified` requires an independent reader. Classification is the verdict on the earlier document's conclusion: still supported, superseded, contradicted, incomplete, unverifiable. Historical documents are not edited; this report is the audit trail.
 
-Summary: contradicted 13, incomplete 6, still_supported 10, superseded 5, unverifiable 1; status mix {'supported': 10, 'verified': 21, 'superseded': 4}
+Summary: contradicted 13, incomplete 6, still_supported 10, superseded 5, unverifiable 1; status mix {'supported': 8, 'verified': 23, 'superseded': 4}
 
 
 ## Contradicted (13)
@@ -40,9 +40,9 @@ Summary: contradicted 13, incomplete 6, still_supported 10, superseded 5, unveri
 | 3 | evidence/TECHNICAL_EVIDENCE_PACKAGE.md | The evidence package marks the bi-temporal memory store as PROVEN, but no method of the TemporalMemoryStore instance is called on the production path: core.py constructs it and the pipeline only stores the reference. | verified | exit 1 (want 1) |
 | 41 | independent review of claim 28 | The Wave A critic finding F-02 that hybrid search skips the embedding provenance check is overstated: the scope-level assert is called from one site, but the row-level check _check_row_embedding is defined once and called five times across other retrieval paths. This corrects claim 28. | verified | pattern matched 6 time(s) in backend/app/state/memory_store.py (need 6..6) |
 | 46 | docs/brain-v4/research/waveA-critic/round-1.md | Wave A finding F-06 is partly wrong: schema.sql adds the embedding_model and embedding_dim columns idempotently with add column if not exists and has no backfill UPDATE, but legacy NULL rows are deliberately treated as the default model by the code and covered by a test. | verified | pattern matched 0 time(s) in backend/db/schema.sql (need 0..0) |
-| 55 | docs/brain-v4/research/waveA-critic/round-1.md | Slice 6 commit 6f036aec did not touch decision.py although the slice card lists the PROCEED default consumers at decision.py:884-888; the omission is behaviour-neutral because those defaults still hold and a characterization test passes before and after. Wave A critic finding F-07 is true on the omission and wrong that the baseline test is a defect. | supported | exit 0 (want 0) |
+| 55 | docs/brain-v4/research/waveA-critic/round-1.md | Slice 6 commit 6f036aec did not touch decision.py although the slice card lists the PROCEED default consumers at decision.py:884-888; the omission is behaviour-neutral because those defaults still hold and a characterization test passes before and after. Wave A critic finding F-07 is true on the omission and wrong that the baseline test is a defect. | verified | exit 0 (want 0) |
 | 24 | CLAUDE.md | The engineering ledger has no entry after 2026-09-26, so the Brain V3 freeze and the Brain V4 cycle are not recorded in the file that CLAUDE.md says is right when documents disagree. | verified | pattern matched 0 time(s) in .agents/CONTEXT.md (need 0..0) |
-| 54 | independent review of claim 42 | action.py still blocks stock disclaimer phrases, which D-018 says stays; the real gap against D-018 is that no backend test or eval asks a sincere are-you-human question. This corrects claim 42, which blamed the filter. | supported | exit 1 (want 1) |
+| 54 | independent review of claim 42 | action.py still blocks stock disclaimer phrases, which D-018 says stays; the real gap against D-018 is that no backend test or eval asks a sincere are-you-human question. This corrects claim 42, which blamed the filter. | verified | exit 1 (want 1) |
 
 ## Unverifiable (1)
 

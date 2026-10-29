@@ -119,6 +119,13 @@ def digest(data: Any) -> str:
     return hashlib.sha256(canonical(data).encode("utf-8")).hexdigest()
 
 
+def raw_digest(data: Any) -> str:
+    """Digest of the unrounded values. `digest` hides differences below 1e-9;
+    two runs that agree here agree bit for bit on every float."""
+    text = json.dumps(data, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
 def _rounded(value: Any) -> Any:
     if isinstance(value, float):
         return round(value, ROUND)
@@ -149,6 +156,14 @@ class _LiveRig:
         # server happens to be running on the machine doing the measuring.
         self._no_ollama = patch.object(Config, "OLLAMA_URL", "http://127.0.0.1:9")
         self._no_ollama.start()
+        # `IdentityManager` auto-discovers `personal/persona.toml`, which is
+        # gitignored and private to each checkout. Without this, the baseline
+        # embeds whoever's persona is on disk (drift rate 0.28 here, 0.3 in a
+        # clean checkout) and cannot be reproduced elsewhere.
+        self._no_persona = patch(
+            "app.cognitive.identity.find_persona_file", return_value=None
+        )
+        self._no_persona.start()
         self.service: BrainBenchService = build_cognitive_service(
             "architecture_only", Path(self._tmp.name)
         )
@@ -162,6 +177,7 @@ class _LiveRig:
         return self.service.cognitive.state.current_state
 
     def close(self) -> None:
+        self._no_persona.stop()
         self._no_ollama.stop()
         self._tmp.cleanup()
 
@@ -386,8 +402,9 @@ def _targets(node: ast.AST) -> list[ast.expr]:
 def pad_write_sites(tree: ast.AST, rel: str) -> dict[str, set[str]]:
     """Writes to the baseline PAD in one parsed file, as `file::function`:
     attribute assignments (incl. tuple unpacking), `setattr` with a literal name,
-    SQL or Cypher write strings naming a PAD column, and constructor or
-    `replace` keyword seeds."""
+    SQL or Cypher write strings naming a PAD column, constructor or `replace`
+    keyword seeds, and (in files that mention a PAD name) setattr with a computed
+    name or `__dict__` writes, listed separately as dynamic."""
     parents = {c: p for p in ast.walk(tree) for c in ast.iter_child_nodes(p)}
 
     def owner(node: ast.AST) -> str:
@@ -397,10 +414,17 @@ def pad_write_sites(tree: ast.AST, rel: str) -> dict[str, set[str]]:
                 return node.name
         return "<module>"
 
+    mentions_pad = any(
+        (isinstance(n, ast.Attribute) and n.attr in PAD_NAMES)
+        or (isinstance(n, ast.Constant) and n.value in PAD_NAMES)
+        or (isinstance(n, ast.keyword) and n.arg in PAD_NAMES)
+        for n in ast.walk(tree)
+    )
     out: dict[str, set[str]] = {
         "assignment": set(),
         "seed": set(),
         "store_string": set(),
+        "dynamic": set(),
     }
     for node in ast.walk(tree):
         for t in _targets(node):
@@ -418,6 +442,29 @@ def pad_write_sites(tree: ast.AST, rel: str) -> dict[str, set[str]]:
                 and node.args[1].value in PAD_NAMES
             ):
                 out["assignment"].add(f"{rel}::{owner(node)}")
+            if mentions_pad and (
+                (
+                    isinstance(node.func, ast.Name)
+                    and node.func.id == "setattr"
+                    and len(node.args) >= 2
+                    and not isinstance(node.args[1], ast.Constant)
+                )
+                or (
+                    isinstance(node.func, ast.Attribute)
+                    and node.func.attr == "update"
+                    and isinstance(node.func.value, ast.Attribute)
+                    and node.func.value.attr == "__dict__"
+                )
+            ):
+                out["dynamic"].add(f"{rel}::{owner(node)}")
+        if (
+            mentions_pad
+            and isinstance(node, ast.Subscript)
+            and isinstance(node.ctx, ast.Store)
+            and isinstance(node.value, ast.Attribute)
+            and node.value.attr == "__dict__"
+        ):
+            out["dynamic"].add(f"{rel}::{owner(node)}")
         if (
             isinstance(node, ast.Constant)
             and isinstance(node.value, str)
@@ -433,6 +480,7 @@ def baseline_pad_writers() -> dict[str, Any]:
         "assignment": set(),
         "seed": set(),
         "store_string": set(),
+        "dynamic": set(),
     }
     for path in sorted(APP.rglob("*.py")):
         found = pad_write_sites(
@@ -444,6 +492,13 @@ def baseline_pad_writers() -> dict[str, Any]:
         "assignment_sites": sorted(merged["assignment"]),
         "constructor_seed_sites": sorted(merged["seed"]),
         "store_write_string_sites": sorted(merged["store_string"]),
+        "dynamic_write_sites": sorted(merged["dynamic"]),
+        "scan_limits": (
+            "attribute and literal-name setattr writes, tuple unpacking, SQL or Cypher "
+            "write strings and keyword seeds are matched; a setattr with a computed name "
+            "or a __dict__ write is listed as dynamic only in files that mention a PAD "
+            "name; a write through another file's alias or a framework is not seen"
+        ),
     }
 
 
@@ -550,6 +605,7 @@ def envelope(data: dict[str, Any]) -> dict[str, Any]:
         "python": f"{sys.version_info.major}.{sys.version_info.minor}",
         "scenario_sha256": digest(data["scenario"]),
         "result_sha256": digest(data),
+        "raw_result_sha256": raw_digest(data),
     }
 
 

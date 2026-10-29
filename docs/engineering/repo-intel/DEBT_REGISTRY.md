@@ -2,7 +2,7 @@
 
 Recorded and prioritised, not fixed. `status` is what the checks say about the finding against the current code: supported means the defect or gap is confirmed present, refuted means the finding did not hold.
 
-Findings by category: correctness 7, reliability 8, performance 0, security 0, maintainability 4, integration 4, testing 5, architecture 5
+Findings by category: correctness 7, reliability 9, performance 0, security 0, maintainability 4, integration 4, testing 5, architecture 5
 
 
 ## Correctness
@@ -25,10 +25,11 @@ Findings by category: correctness 7, reliability 8, performance 0, security 0, m
 | 14 | medium | The Qdrant healthcheck in docker-compose.infra.yml ends in // exit 0, so it can never report unhealthy. | verified | './qdrant --version // exit 0' occurs 1 time(s) in docker-compose.infra.yml |
 | 16 | medium | claude_code_client.py has no CancelledError handling and no finally block, so a cancelled request can leave the child process running. | supported | pattern matched 0 time(s) in backend/app/llm/claude_code_client.py (need 0..0) |
 | 38 | medium | Nine health checks in docker-compose.prod.yml are the bare TCP probe nc -z nats_mesh 4222, which proves NATS is reachable and says nothing about whether the agent itself is working. This corrects claim 13, which said three. | superseded | replaced by corrected claim #53 |
-| 53 | medium | Seven health checks in docker-compose.prod.yml are the bare TCP probe nc -z nats_mesh 4222 (two further matches are comments), which proves NATS is reachable and says nothing about whether the agent works. This corrects claims 13 and 38, which said three and nine. | supported | pattern matched 7 time(s) in docker-compose.prod.yml (need 7..7) |
+| 53 | medium | Seven health checks in docker-compose.prod.yml are the bare TCP probe nc -z nats_mesh 4222 (two further matches are comments), which proves NATS is reachable and says nothing about whether the agent works. This corrects claims 13 and 38, which said three and nine. | verified | pattern matched 7 time(s) in docker-compose.prod.yml (need 7..7) |
 | 25 | low | backend/app/cognitive/expression.py imports cognitive_rust unconditionally at module level, against the repo's own pyo3 skill rule that the accelerator must degrade to pure Python. | verified | pattern matched 1 time(s) in backend/app/cognitive/expression.py (need 1..1) |
 | 45 | low | Wave A finding F-05 holds: the archived-memory hybrid lookup runs _check_row_embedding inside a broad except Exception that logs and returns an empty list, so an embedding mismatch there degrades to no archive results without setting last_search_error. | verified | 'Archived memories hybrid lookup failed: {arch_err}' occurs 1 time(s) in backend/app/state/memory_store.py |
 | 49 | low | Wave A finding F-10 is plausible by code shape: generate_stream writes the whole prompt and awaits drain before it starts reading stdout, which can deadlock if the child fills its stdout pipe before consuming stdin; not reproduced at runtime. | verified | 'await process.stdin.drain()' occurs 1 time(s) in backend/app/llm/claude_code_client.py |
+| 63 | low | The phasic cortisol burst is not persisted although its half-life is 4500 s, so a process restart within the first hour drops most of a recent stress signal to zero (Codex review finding 3; the comment that said otherwise was corrected). | supported | 'cortisol_halflife_s: float = 4500.0' occurs 1 time(s) in backend/app/state/agent_state.py |
 
 ## Maintainability
 
@@ -37,7 +38,7 @@ Findings by category: correctness 7, reliability 8, performance 0, security 0, m
 | 24 | medium | The engineering ledger has no entry after 2026-09-26, so the Brain V3 freeze and the Brain V4 cycle are not recorded in the file that CLAUDE.md says is right when documents disagree. | verified | pattern matched 0 time(s) in .agents/CONTEXT.md (need 0..0) |
 | 12 | low | The .gitignore pattern .env* on line 172 comes after the !.env.example exception on line 18, so it re-ignores .env.example; the file is only safe because it is already tracked. | verified | exit 0 (want 0) |
 | 27 | low | The sovereign-mesh-architect skill directory declares the frontmatter name multi-agent-architect, so tools that look a skill up by directory name will not find it. | verified | 'name: multi-agent-architect' occurs 1 time(s) in skills/sovereign-mesh-architect/SKILL.md |
-| 55 | low | Slice 6 commit 6f036aec did not touch decision.py although the slice card lists the PROCEED default consumers at decision.py:884-888; the omission is behaviour-neutral because those defaults still hold and a characterization test passes before and after. Wave A critic finding F-07 is true on the omission and wrong that the baseline test is a defect. | supported | exit 0 (want 0) |
+| 55 | low | Slice 6 commit 6f036aec did not touch decision.py although the slice card lists the PROCEED default consumers at decision.py:884-888; the omission is behaviour-neutral because those defaults still hold and a characterization test passes before and after. Wave A critic finding F-07 is true on the omission and wrong that the baseline test is a defect. | verified | exit 0 (want 0) |
 
 ## Integration
 
@@ -53,10 +54,10 @@ Findings by category: correctness 7, reliability 8, performance 0, security 0, m
 | # | Severity | Finding | Status | Evidence |
 |---|---|---|---|---|
 | 43 | high | Two tests in backend/tests/test_memory_insert.py fail on main at e09ca800 because the Postgres insert now has two more placeholders (embedding model id and dimension, V4 slice 14) than the test expects; they failed before any repo-intel change. | superseded | replaced by corrected claim #56 |
-| 54 | medium | action.py still blocks stock disclaimer phrases, which D-018 says stays; the real gap against D-018 is that no backend test or eval asks a sincere are-you-human question. This corrects claim 42, which blamed the filter. | supported | exit 1 (want 1) |
+| 54 | medium | action.py still blocks stock disclaimer phrases, which D-018 says stays; the real gap against D-018 is that no backend test or eval asks a sincere are-you-human question. This corrects claim 42, which blamed the filter. | verified | exit 1 (want 1) |
 | 36 | low | backend/app/agents/system_agent.py is not imported by any test (importing is not coverage, so this is a lower bound on the testing gap). | verified | 0 matching TEST_VALIDATES edge(s) (need 0..0) |
 | 46 | low | Wave A finding F-06 is partly wrong: schema.sql adds the embedding_model and embedding_dim columns idempotently with add column if not exists and has no backfill UPDATE, but legacy NULL rows are deliberately treated as the default model by the code and covered by a test. | verified | pattern matched 0 time(s) in backend/db/schema.sql (need 0..0) |
-| 56 | info | After commit 2569ae0a the Postgres placeholder tests in test_memory_insert.py pass: the insert binds 27 parameters timed and 25 untimed, matching the two embedding identity columns added in V4 slice 14. This replaces claim 43, which described the failure before the fix. | supported | exit 0 (want 0) |
+| 56 | info | After commit 2569ae0a the Postgres placeholder tests in test_memory_insert.py pass: the insert binds 27 parameters timed and 25 untimed, matching the two embedding identity columns added in V4 slice 14. This replaces claim 43, which described the failure before the fix. | verified | exit 0 (want 0) |
 
 ## Architecture
 
