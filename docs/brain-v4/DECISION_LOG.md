@@ -384,3 +384,24 @@ The brain subscribes to `voice.segmentation_feedback` and nothing publishes it (
 The directive asks for independent review; the only second reader so far was a same-family Claude sub-agent. Aniket chose a bounded Codex pass over the claims ledger and `tools/repo_intel`, recorded as reviews with reader and family. Costs Codex usage; no GPU.
 
 **Outcome (2026-10-28).** Codex returned a usage-limit error on the first call, so no cross-family review ran. Per the directive (section 9) the limit is recorded and a second fresh Claude reviewer did the pass instead: 34 claims (31 agreed, 3 disagreed and were superseded) and a code review of the tooling (8 defects, all fixed with tests). Both reviewers are the same model family as the author. Re-run with Codex when its limit resets.
+
+---
+
+## D-046: Wave C starts with slices 4 then 5, flagged off
+**Status:** RESOLVED (2026-10-29, Aniket) · **Resolve by:** this session · **Blocking:** no
+
+Wave B is pushed (slice 13 `b525b2f6`, slice 2a `a40f9edc`). Aniket chose "Slices 4 then 5, flagged off": fix the mood self-feed (NF-12) and then the integrity update (NF-23), each behind a config flag until its eval passes, each with a two-variant tournament and one cold critic (max 2 rounds). Evals use the frontier tier through local Claude Code on the Mac; no GPU, so no local-tier acceptance claim. Slice 2b is not run first; slice 4 collects its own model-backed baseline before any code change, as D-031 requires.
+
+---
+
+## D-047: Pass margins for slices 4 and 5 are proposed by Claude and approved by Aniket
+**Status:** RESOLVED (2026-10-29, Aniket) · **Resolve by:** before the first model run of slice 4 · **Blocking:** yes for the first model run
+
+Aniket chose "I propose, you approve". Proposed margins go into `prereg/slice-04.md` and `prereg/slice-05.md`, marked PROPOSED, committed unrun. No model-backed run of slice 4 or 5 happens until Aniket approves them (or changes them). Deterministic gate tests and the build behind the flag are not blocked.
+
+---
+
+## D-048: Model-backed noise band rule accepted
+**Status:** RESOLVED (2026-10-29, Aniket) · **Resolve by:** slice 2b · **Blocking:** no
+
+Accepted as written in `prereg/slice-02.md`: 5 repeats per tier at the lowest temperature the client allows; the band is the largest pairwise difference of the headline measure across those runs; two arms are called different only if their gap exceeds the larger of the two arms' bands. Applies to slices 2b, 4 and 5.

@@ -2,8 +2,8 @@
 
 Not the independent second reader. It checks what a script can check about the notes written during the read phase.
 
-- Notes cross-checked: 951
-- `depends_on` paths that resolve exactly: 1636 of 2649; resolve only as a unique path suffix (written short): 664; do not resolve: 349 (13.2%)
+- Notes cross-checked: 953
+- `depends_on` paths that resolve exactly: 1633 of 2641; resolve only as a unique path suffix (written short): 659; do not resolve: 349 (13.2%)
 - Code files with 3 or more public top-level definitions: 375; mean share of those definitions the note names: 73.4%
 - Files whose note names none of their public definitions: 7
 
