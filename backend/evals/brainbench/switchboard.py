@@ -114,7 +114,18 @@ def _derived_all() -> Arm:
     return Arm("all", merged, "All planned V3 mechanisms")
 
 
+# D-021: the bare-model gate is not a set of Config toggles, it removes the
+# pipeline. It runs through `evals.brainbench.bare_model.BareModelArm`; the
+# per-tier runner that drives it is slice 2b.
+BARE_MODEL_ARM = "bare-model"
+
+
 def resolve_arm(name: str) -> Arm:
+    if name == BARE_MODEL_ARM:
+        raise ArmUnavailable(
+            "arm 'bare-model' is not a config switch; it runs through "
+            "evals.brainbench.bare_model.BareModelArm (slice 2b wires it into the runner)"
+        )
     if name == "all":
         arm = _derived_all()
     else:

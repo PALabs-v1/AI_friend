@@ -1,0 +1,882 @@
+{
+  "data": {
+    "baseline_pad_writers": {
+      "assignment_sites": [
+        "app/state/agent_state.py::_apply_redis_state",
+        "app/state/agent_state.py::_apply_sqlite_state",
+        "app/state/agent_state.py::_hydrate_locked",
+        "app/state/agent_state.py::apply_external_state",
+        "app/state/agent_state.py::personality_baseline_affect"
+      ],
+      "constructor_seed_sites": [
+        "app/state/agent_state.py::__init__"
+      ],
+      "store_write_string_sites": [
+        "app/agents/subconscious_agent.py::_on_state_broadcast",
+        "app/state/agent_state.py::_write_state_row"
+      ]
+    },
+    "behavioral_signal": {
+      "behavioral_term_variance_over_grid": 0.0,
+      "note": "the behavioral share of variance is zero for any constant argument; the finding is the literal at the call site",
+      "outcome_variance_over_grid": 0.14,
+      "values_passed_at_call_sites": [
+        0.5
+      ],
+      "weights": {
+        "acoustic": 0.3,
+        "behavioral": 0.2,
+        "text": 0.5
+      }
+    },
+    "integrity_on_hostile_text": {
+      "hostile": [
+        {
+          "norm_alignment": null,
+          "trust_benevolence": 0.38,
+          "trust_competence": 0.38,
+          "trust_integrity": 0.38
+        },
+        {
+          "norm_alignment": 1.0,
+          "trust_benevolence": 0.40295,
+          "trust_competence": 0.47554,
+          "trust_integrity": 0.55
+        },
+        {
+          "norm_alignment": 1.0,
+          "trust_benevolence": 0.4246148,
+          "trust_competence": 0.56953776,
+          "trust_integrity": 0.72
+        },
+        {
+          "norm_alignment": 1.0,
+          "trust_benevolence": 0.445066371,
+          "trust_competence": 0.662079645,
+          "trust_integrity": 0.89
+        },
+        {
+          "norm_alignment": 1.0,
+          "trust_benevolence": 0.464372654,
+          "trust_competence": 0.753247185,
+          "trust_integrity": 1.0
+        },
+        {
+          "norm_alignment": 1.0,
+          "trust_benevolence": 0.482597786,
+          "trust_competence": 0.843117343,
+          "trust_integrity": 1.0
+        },
+        {
+          "norm_alignment": 1.0,
+          "trust_benevolence": 0.49980231,
+          "trust_competence": 0.931762772,
+          "trust_integrity": 1.0
+        },
+        {
+          "norm_alignment": 1.0,
+          "trust_benevolence": 0.51604338,
+          "trust_competence": 1.0,
+          "trust_integrity": 1.0
+        },
+        {
+          "norm_alignment": 1.0,
+          "trust_benevolence": 0.531374951,
+          "trust_competence": 1.0,
+          "trust_integrity": 1.0
+        },
+        {
+          "norm_alignment": 1.0,
+          "trust_benevolence": 0.545847954,
+          "trust_competence": 1.0,
+          "trust_integrity": 1.0
+        },
+        {
+          "norm_alignment": 1.0,
+          "trust_benevolence": 0.559510468,
+          "trust_competence": 1.0,
+          "trust_integrity": 1.0
+        }
+      ],
+      "neutral": [
+        {
+          "norm_alignment": null,
+          "trust_benevolence": 0.38,
+          "trust_competence": 0.38,
+          "trust_integrity": 0.38
+        },
+        {
+          "norm_alignment": 1.0,
+          "trust_benevolence": 0.40295,
+          "trust_competence": 0.47554,
+          "trust_integrity": 0.55
+        },
+        {
+          "norm_alignment": 1.0,
+          "trust_benevolence": 0.4246148,
+          "trust_competence": 0.56953776,
+          "trust_integrity": 0.72
+        },
+        {
+          "norm_alignment": 1.0,
+          "trust_benevolence": 0.445066371,
+          "trust_competence": 0.662079645,
+          "trust_integrity": 0.89
+        },
+        {
+          "norm_alignment": 1.0,
+          "trust_benevolence": 0.464372654,
+          "trust_competence": 0.753247185,
+          "trust_integrity": 1.0
+        },
+        {
+          "norm_alignment": 1.0,
+          "trust_benevolence": 0.482597786,
+          "trust_competence": 0.843117343,
+          "trust_integrity": 1.0
+        },
+        {
+          "norm_alignment": 1.0,
+          "trust_benevolence": 0.49980231,
+          "trust_competence": 0.931762772,
+          "trust_integrity": 1.0
+        },
+        {
+          "norm_alignment": 1.0,
+          "trust_benevolence": 0.51604338,
+          "trust_competence": 1.0,
+          "trust_integrity": 1.0
+        },
+        {
+          "norm_alignment": 1.0,
+          "trust_benevolence": 0.531374951,
+          "trust_competence": 1.0,
+          "trust_integrity": 1.0
+        },
+        {
+          "norm_alignment": 1.0,
+          "trust_benevolence": 0.545847954,
+          "trust_competence": 1.0,
+          "trust_integrity": 1.0
+        },
+        {
+          "norm_alignment": 1.0,
+          "trust_benevolence": 0.559510468,
+          "trust_competence": 1.0,
+          "trust_integrity": 1.0
+        }
+      ],
+      "recovery_hostile_then_supportive": [
+        {
+          "norm_alignment": null,
+          "trust_benevolence": 0.38,
+          "trust_competence": 0.38,
+          "trust_integrity": 0.38
+        },
+        {
+          "norm_alignment": 1.0,
+          "trust_benevolence": 0.40295,
+          "trust_competence": 0.47554,
+          "trust_integrity": 0.55
+        },
+        {
+          "norm_alignment": 1.0,
+          "trust_benevolence": 0.4246148,
+          "trust_competence": 0.56953776,
+          "trust_integrity": 0.72
+        },
+        {
+          "norm_alignment": 1.0,
+          "trust_benevolence": 0.445066371,
+          "trust_competence": 0.662079645,
+          "trust_integrity": 0.89
+        },
+        {
+          "norm_alignment": 1.0,
+          "trust_benevolence": 0.464372654,
+          "trust_competence": 0.753247185,
+          "trust_integrity": 1.0
+        },
+        {
+          "norm_alignment": 1.0,
+          "trust_benevolence": 0.482597786,
+          "trust_competence": 0.843117343,
+          "trust_integrity": 1.0
+        },
+        {
+          "norm_alignment": 1.0,
+          "trust_benevolence": 0.49980231,
+          "trust_competence": 0.931762772,
+          "trust_integrity": 1.0
+        },
+        {
+          "norm_alignment": 1.0,
+          "trust_benevolence": 0.51604338,
+          "trust_competence": 1.0,
+          "trust_integrity": 1.0
+        },
+        {
+          "norm_alignment": 1.0,
+          "trust_benevolence": 0.531374951,
+          "trust_competence": 1.0,
+          "trust_integrity": 1.0
+        },
+        {
+          "norm_alignment": 1.0,
+          "trust_benevolence": 0.545847954,
+          "trust_competence": 1.0,
+          "trust_integrity": 1.0
+        },
+        {
+          "norm_alignment": 1.0,
+          "trust_benevolence": 0.559510468,
+          "trust_competence": 1.0,
+          "trust_integrity": 1.0
+        }
+      ],
+      "supportive": [
+        {
+          "norm_alignment": null,
+          "trust_benevolence": 0.38,
+          "trust_competence": 0.38,
+          "trust_integrity": 0.38
+        },
+        {
+          "norm_alignment": 1.0,
+          "trust_benevolence": 0.40295,
+          "trust_competence": 0.47554,
+          "trust_integrity": 0.55
+        },
+        {
+          "norm_alignment": 1.0,
+          "trust_benevolence": 0.4246148,
+          "trust_competence": 0.56953776,
+          "trust_integrity": 0.72
+        },
+        {
+          "norm_alignment": 1.0,
+          "trust_benevolence": 0.445066371,
+          "trust_competence": 0.662079645,
+          "trust_integrity": 0.89
+        },
+        {
+          "norm_alignment": 1.0,
+          "trust_benevolence": 0.464372654,
+          "trust_competence": 0.753247185,
+          "trust_integrity": 1.0
+        },
+        {
+          "norm_alignment": 1.0,
+          "trust_benevolence": 0.482597786,
+          "trust_competence": 0.843117343,
+          "trust_integrity": 1.0
+        },
+        {
+          "norm_alignment": 1.0,
+          "trust_benevolence": 0.49980231,
+          "trust_competence": 0.931762772,
+          "trust_integrity": 1.0
+        },
+        {
+          "norm_alignment": 1.0,
+          "trust_benevolence": 0.51604338,
+          "trust_competence": 1.0,
+          "trust_integrity": 1.0
+        },
+        {
+          "norm_alignment": 1.0,
+          "trust_benevolence": 0.531374951,
+          "trust_competence": 1.0,
+          "trust_integrity": 1.0
+        },
+        {
+          "norm_alignment": 1.0,
+          "trust_benevolence": 0.545847954,
+          "trust_competence": 1.0,
+          "trust_integrity": 1.0
+        },
+        {
+          "norm_alignment": 1.0,
+          "trust_benevolence": 0.559510468,
+          "trust_competence": 1.0,
+          "trust_integrity": 1.0
+        }
+      ]
+    },
+    "mood_self_feed": {
+      "distinct_goal_congruence_values_per_bias": {
+        "-0.9": 1,
+        "0.0": 1,
+        "0.9": 1
+      },
+      "goal_congruence_by_text_at_fixed_bias": {
+        "-0.9": [
+          -0.9,
+          -0.9,
+          -0.9,
+          -0.9,
+          -0.9,
+          -0.9,
+          -0.9,
+          -0.9,
+          -0.9,
+          -0.9,
+          -0.9,
+          -0.9
+        ],
+        "0.0": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "0.9": [
+          0.9,
+          0.9,
+          0.9,
+          0.9,
+          0.9,
+          0.9,
+          0.9,
+          0.9,
+          0.9,
+          0.9,
+          0.9,
+          0.9
+        ]
+      },
+      "runs": {
+        "start_mood_0.0": {
+          "max_abs_gap_real_vs_each_shuffled": {
+            "shuffled_20261029": 0.0,
+            "shuffled_20261030": 0.0,
+            "shuffled_20261031": 0.0
+          },
+          "max_abs_gap_real_vs_shuffled": 0.0,
+          "orders": {
+            "real": {
+              "goal_congruence_returned": [
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0
+              ],
+              "mood_ratio_per_turn": [],
+              "mood_trajectory": [
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0
+              ],
+              "text_order": [
+                0,
+                1,
+                2,
+                3,
+                4,
+                5,
+                6,
+                7,
+                8,
+                9,
+                10,
+                11
+              ]
+            },
+            "shuffled_20261029": {
+              "goal_congruence_returned": [
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0
+              ],
+              "mood_ratio_per_turn": [],
+              "mood_trajectory": [
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0
+              ],
+              "text_order": [
+                6,
+                11,
+                0,
+                4,
+                9,
+                1,
+                2,
+                10,
+                5,
+                3,
+                7,
+                8
+              ]
+            },
+            "shuffled_20261030": {
+              "goal_congruence_returned": [
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0
+              ],
+              "mood_ratio_per_turn": [],
+              "mood_trajectory": [
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0
+              ],
+              "text_order": [
+                7,
+                1,
+                10,
+                2,
+                4,
+                9,
+                0,
+                6,
+                5,
+                11,
+                3,
+                8
+              ]
+            },
+            "shuffled_20261031": {
+              "goal_congruence_returned": [
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0
+              ],
+              "mood_ratio_per_turn": [],
+              "mood_trajectory": [
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0
+              ],
+              "text_order": [
+                11,
+                7,
+                2,
+                5,
+                10,
+                9,
+                8,
+                0,
+                1,
+                6,
+                3,
+                4
+              ]
+            }
+          }
+        },
+        "start_mood_0.5": {
+          "max_abs_gap_real_vs_each_shuffled": {
+            "shuffled_20261029": 0.0,
+            "shuffled_20261030": 0.0,
+            "shuffled_20261031": 0.0
+          },
+          "max_abs_gap_real_vs_shuffled": 0.0,
+          "orders": {
+            "real": {
+              "goal_congruence_returned": [
+                0.5,
+                0.472,
+                0.445568,
+                0.420616192,
+                0.397061685,
+                0.374826231,
+                0.353835962,
+                0.334021148,
+                0.315315964,
+                0.29765827,
+                0.280989407,
+                0.265254
+              ],
+              "mood_ratio_per_turn": [
+                0.944,
+                0.944,
+                0.944,
+                0.944,
+                0.944,
+                0.944,
+                0.944,
+                0.944,
+                0.944,
+                0.944,
+                0.944,
+                0.944
+              ],
+              "mood_trajectory": [
+                0.5,
+                0.472,
+                0.445568,
+                0.420616192,
+                0.397061685,
+                0.374826231,
+                0.353835962,
+                0.334021148,
+                0.315315964,
+                0.29765827,
+                0.280989407,
+                0.265254,
+                0.250399776
+              ],
+              "text_order": [
+                0,
+                1,
+                2,
+                3,
+                4,
+                5,
+                6,
+                7,
+                8,
+                9,
+                10,
+                11
+              ]
+            },
+            "shuffled_20261029": {
+              "goal_congruence_returned": [
+                0.5,
+                0.472,
+                0.445568,
+                0.420616192,
+                0.397061685,
+                0.374826231,
+                0.353835962,
+                0.334021148,
+                0.315315964,
+                0.29765827,
+                0.280989407,
+                0.265254
+              ],
+              "mood_ratio_per_turn": [
+                0.944,
+                0.944,
+                0.944,
+                0.944,
+                0.944,
+                0.944,
+                0.944,
+                0.944,
+                0.944,
+                0.944,
+                0.944,
+                0.944
+              ],
+              "mood_trajectory": [
+                0.5,
+                0.472,
+                0.445568,
+                0.420616192,
+                0.397061685,
+                0.374826231,
+                0.353835962,
+                0.334021148,
+                0.315315964,
+                0.29765827,
+                0.280989407,
+                0.265254,
+                0.250399776
+              ],
+              "text_order": [
+                6,
+                11,
+                0,
+                4,
+                9,
+                1,
+                2,
+                10,
+                5,
+                3,
+                7,
+                8
+              ]
+            },
+            "shuffled_20261030": {
+              "goal_congruence_returned": [
+                0.5,
+                0.472,
+                0.445568,
+                0.420616192,
+                0.397061685,
+                0.374826231,
+                0.353835962,
+                0.334021148,
+                0.315315964,
+                0.29765827,
+                0.280989407,
+                0.265254
+              ],
+              "mood_ratio_per_turn": [
+                0.944,
+                0.944,
+                0.944,
+                0.944,
+                0.944,
+                0.944,
+                0.944,
+                0.944,
+                0.944,
+                0.944,
+                0.944,
+                0.944
+              ],
+              "mood_trajectory": [
+                0.5,
+                0.472,
+                0.445568,
+                0.420616192,
+                0.397061685,
+                0.374826231,
+                0.353835962,
+                0.334021148,
+                0.315315964,
+                0.29765827,
+                0.280989407,
+                0.265254,
+                0.250399776
+              ],
+              "text_order": [
+                7,
+                1,
+                10,
+                2,
+                4,
+                9,
+                0,
+                6,
+                5,
+                11,
+                3,
+                8
+              ]
+            },
+            "shuffled_20261031": {
+              "goal_congruence_returned": [
+                0.5,
+                0.472,
+                0.445568,
+                0.420616192,
+                0.397061685,
+                0.374826231,
+                0.353835962,
+                0.334021148,
+                0.315315964,
+                0.29765827,
+                0.280989407,
+                0.265254
+              ],
+              "mood_ratio_per_turn": [
+                0.944,
+                0.944,
+                0.944,
+                0.944,
+                0.944,
+                0.944,
+                0.944,
+                0.944,
+                0.944,
+                0.944,
+                0.944,
+                0.944
+              ],
+              "mood_trajectory": [
+                0.5,
+                0.472,
+                0.445568,
+                0.420616192,
+                0.397061685,
+                0.374826231,
+                0.353835962,
+                0.334021148,
+                0.315315964,
+                0.29765827,
+                0.280989407,
+                0.265254,
+                0.250399776
+              ],
+              "text_order": [
+                11,
+                7,
+                2,
+                5,
+                10,
+                9,
+                8,
+                0,
+                1,
+                6,
+                3,
+                4
+              ]
+            }
+          }
+        }
+      },
+      "scope": "System 1 (heuristic appraisal) with text-only input and a null model; System 2 LLM appraisal, sensory perception and voice cues are not exercised."
+    },
+    "scenario": {
+      "adapter": "architecture_only",
+      "boundaries": [
+        "Will never share user data",
+        "Will not adopt toxic behavior"
+      ],
+      "fixed_biases": [
+        -0.9,
+        0.0,
+        0.9
+      ],
+      "hostile": "You are useless and I hate you, shut up you stupid bot.",
+      "matched_turns": 10,
+      "mood_texts": [
+        "Thank you so much, you really helped me and I love talking with you.",
+        "You are useless and I hate you, shut up you stupid bot.",
+        "The meeting is at three on Thursday.",
+        "I just lost my job and I feel terrible about everything.",
+        "I got the promotion today and I am so happy!",
+        "Can you remind me what we said about the trip?",
+        "Nobody ever listens to me and I am so tired of it.",
+        "That joke made me laugh for ten minutes.",
+        "I do not want to talk about it.",
+        "My sister is coming to visit next week, I cannot wait.",
+        "You were wrong about that and it cost me a lot.",
+        "I think I am finally starting to feel better."
+      ],
+      "neutral": "The meeting is at three on Thursday.",
+      "outcome_acoustic_grid": [
+        -0.5,
+        0.0,
+        0.5
+      ],
+      "outcome_text_grid": [
+        -1.0,
+        -0.5,
+        0.0,
+        0.5,
+        1.0
+      ],
+      "recovery_hostile_turns": 5,
+      "recovery_support_turns": 5,
+      "round": 9,
+      "seed": 20261029,
+      "shuffle_seeds": [
+        20261029,
+        20261030,
+        20261031
+      ],
+      "start_moods": [
+        0.0,
+        0.5
+      ],
+      "supportive": "Thank you, that really helped me and I appreciate you a lot.",
+      "turn_gap_seconds": 60.0
+    },
+    "subscriber_counts": {
+      "state.subconscious": {
+        "python_publishers": [
+          "app/agents/subconscious_agent.py"
+        ],
+        "python_subscribers": [],
+        "rust_files_referencing_constant": [],
+        "scan_scope": "backend/app (Python AST) and backend/crates (text); not frontend or scripts"
+      },
+      "telemetry.reflection": {
+        "python_publishers": [
+          "app/cognitive/core.py"
+        ],
+        "python_subscribers": [],
+        "rust_files_referencing_constant": [],
+        "scan_scope": "backend/app (Python AST) and backend/crates (text); not frontend or scripts"
+      }
+    }
+  },
+  "envelope": {
+    "appraisal_backend": "cognitive_rust",
+    "python": "3.13",
+    "result_sha256": "3fd24f76ce940da78f51ec056fe4b116b804d67ef6331c87c3a60652d210855b",
+    "revision": "b525b2f64485",
+    "scenario_sha256": "b4cb324e8abc84885697d7206d75125c1d2dfc04acecbe04aa9cf7e965c9c739"
+  }
+}

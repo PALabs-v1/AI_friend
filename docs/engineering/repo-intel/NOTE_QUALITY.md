@@ -2,9 +2,9 @@
 
 Not the independent second reader. It checks what a script can check about the notes written during the read phase.
 
-- Notes cross-checked: 945
-- `depends_on` paths that resolve exactly: 1636 of 2650; resolve only as a unique path suffix (written short): 665; do not resolve: 349 (13.2%)
-- Code files with 3 or more public top-level definitions: 373; mean share of those definitions the note names: 73.7%
+- Notes cross-checked: 951
+- `depends_on` paths that resolve exactly: 1636 of 2649; resolve only as a unique path suffix (written short): 664; do not resolve: 349 (13.2%)
+- Code files with 3 or more public top-level definitions: 375; mean share of those definitions the note names: 73.4%
 - Files whose note names none of their public definitions: 7
 
 ## Notes citing paths that do not exist
@@ -68,6 +68,7 @@ Not the independent second reader. It checks what a script can check about the n
 | backend/tests/test_persona_compiler.py | 1 | 26 | 4% |
 | backend/tests/test_learning_governance.py | 3 | 70 | 4% |
 | backend/crates/voice-agent/src/main.rs | 8 | 137 | 6% |
+| backend/tests/test_bare_model_arm.py | 2 | 24 | 8% |
 | backend/tests/test_brainbench_bargein_suite.py | 2 | 22 | 9% |
 | tools/repo_intel/cli.py | 1 | 11 | 9% |
 | backend/tests/test_interventions.py | 2 | 18 | 11% |
@@ -80,4 +81,3 @@ Not the independent second reader. It checks what a script can check about the n
 | backend/tests/test_playback_progress.py | 5 | 35 | 14% |
 | tools/repo_intel/tests/test_workflow.py | 2 | 14 | 14% |
 | backend/tests/test_brainbench_stats.py | 3 | 20 | 15% |
-| tools/repo_intel/tests/test_knowledge.py | 3 | 20 | 15% |
