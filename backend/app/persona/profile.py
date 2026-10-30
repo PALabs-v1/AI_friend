@@ -63,9 +63,10 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, ClassVar
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, ValidationError
 
 from ..config import Config
+from .value_screen import SCREEN_VERSION, ScreenResult, safe_excerpt, screen_value
 
 logger = logging.getLogger(__name__)
 
@@ -119,6 +120,32 @@ def is_plausible_persona_content(text: str) -> bool:
         return False
     non_latin = sum(1 for ch in letters if "LATIN" not in unicodedata.name(ch, ""))
     return not non_latin / len(letters) > 0.3
+
+
+def value_screen_enabled() -> bool:
+    """Whether `PERSONA_VALUE_SCREEN_ENABLED` is on. Read at call time."""
+    return bool(getattr(Config, "PERSONA_VALUE_SCREEN_ENABLED", False))
+
+
+def reject_by_value_screen(field: str, value: Any) -> ScreenResult | None:
+    """Screen one value about to be written to `field`.
+
+    Returns the blocking `ScreenResult` (after logging it once at WARNING with
+    at most 80 characters of the value) or None when the value may be written.
+    Callers check `value_screen_enabled()` first, so with the flag off this is
+    never reached and the write paths are unchanged.
+    """
+    result = screen_value(value)
+    if not result.blocked:
+        return None
+    logger.warning(
+        "[Persona] Value screen %s blocked %s write (categories=%s): %s",
+        SCREEN_VERSION,
+        field,
+        ",".join(result.categories),
+        safe_excerpt(value),
+    )
+    return result
 
 
 class Tier(str, Enum):
@@ -269,6 +296,10 @@ class PersonaProfile(BaseModel):
     # model explaining itself rather than describing a voice.
     MAX_STYLE_DESCRIPTION: ClassVar[int] = 400
 
+    # Slice 10a: values the value screen refused to write. Private state, never
+    # serialized, always empty while the flag is off.
+    _value_screen_drops: list[dict[str, Any]] = PrivateAttr(default_factory=list)
+
     # -- tier introspection -------------------------------------------------
 
     @classmethod
@@ -308,15 +339,28 @@ class PersonaProfile(BaseModel):
         if this method is wrong.
         """
         merged = list(self.adaptive_traits)
+        screen_on = value_screen_enabled()
         for trait in new_traits or []:
-            if (
-                trait
-                and trait not in merged
-                and is_plausible_persona_content(trait)
-            ):
+            if trait and trait not in merged and is_plausible_persona_content(trait):
+                if screen_on:
+                    blocked = reject_by_value_screen("adaptive_traits", trait)
+                    if blocked is not None:
+                        self._value_screen_drops.append(
+                            {
+                                "field": "adaptive_traits",
+                                "categories": blocked.categories,
+                                "version": SCREEN_VERSION,
+                            }
+                        )
+                        continue
                 merged.append(trait)
         self.adaptive_traits = merged[-self.adaptive_trait_limit() :]
         return list(self.adaptive_traits)
+
+    @property
+    def value_screen_drops(self) -> tuple[dict[str, Any], ...]:
+        """Values the slice 10a screen refused to write, oldest first."""
+        return tuple(self._value_screen_drops)
 
     @property
     def immutable(self) -> dict[str, Any]:
@@ -348,7 +392,9 @@ class PersonaProfile(BaseModel):
             "attachment_growth_rate": getattr(Config, "PSYCH_EPSILON", 0.03),
             "mood_decay_rate": getattr(Config, "PSYCH_LAMBDA_DECAY", 0.05),
             "dopamine_halflife_s": getattr(Config, "DOPAMINE_PHASIC_HALFLIFE_S", 90.0),
-            "cortisol_halflife_s": getattr(Config, "CORTISOL_PHASIC_HALFLIFE_S", 4500.0),
+            "cortisol_halflife_s": getattr(
+                Config, "CORTISOL_PHASIC_HALFLIFE_S", 4500.0
+            ),
             "adrenaline_halflife_s": getattr(
                 Config, "ADRENALINE_PHASIC_HALFLIFE_S", 120.0
             ),

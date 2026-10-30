@@ -11,7 +11,14 @@ from typing import Any
 from pydantic import ValidationError
 
 from ..config import Config
-from ..persona import IMMUTABLE_CORE, PersonaProfile, is_plausible_persona_content
+from ..persona import (
+    IMMUTABLE_CORE,
+    SCREEN_VERSION,
+    PersonaProfile,
+    is_plausible_persona_content,
+    reject_by_value_screen,
+    value_screen_enabled,
+)
 from ..persona.authoring import AUTO_DISCOVER, authored_overrides, find_persona_file
 from ..state.identity_core_store import IdentityCoreStore
 
@@ -669,6 +676,26 @@ class IdentityManager:
         except Exception as e:
             logger.error(f"Failed to save identity files: {e}")
 
+    def _screen_blocks(self, field: str, value: str) -> bool:
+        """Slice 10a: True (and recorded) when the value screen refuses `value`.
+
+        Only called with `PERSONA_VALUE_SCREEN_ENABLED` on. The refusal is
+        logged once by `reject_by_value_screen` (80 characters of the value at
+        most) and appended to `value_screen_drops`.
+        """
+        blocked = reject_by_value_screen(field, value)
+        if blocked is None:
+            return False
+        drops = self.__dict__.setdefault("value_screen_drops", [])
+        drops.append(
+            {
+                "field": field,
+                "categories": blocked.categories,
+                "version": SCREEN_VERSION,
+            }
+        )
+        return True
+
     async def evolve_persona(self, suggestions: dict[str, Any]):
         """
         Logic for adaptive variable mutation.
@@ -679,6 +706,8 @@ class IdentityManager:
         # behind — is how the prompt would quietly stop reflecting who the agent
         # had become: it would evolve traits and never sound any different.
         #
+        screen_on = value_screen_enabled()
+
         # 1. Update Adaptive Styles (Vocabulary, preferences)
         if "speaking_style" in suggestions:
             style = dict(self.persona.speaking_style)
@@ -700,9 +729,10 @@ class IdentityManager:
             # keeping the previous value is safer than writing something the
             # reflection model degenerated into.
             if is_plausible_persona_content(described):
-                style["style_description"] = described
-                self.persona.speaking_style = style
-                logger.info(f"[Identity] Adaptive style evolved: {described}")
+                if not (screen_on and self._screen_blocks("speaking_style", described)):
+                    style["style_description"] = described
+                    self.persona.speaking_style = style
+                    logger.info(f"[Identity] Adaptive style evolved: {described}")
             else:
                 logger.warning(
                     "[Identity] Rejected implausible speaking_style "
@@ -722,7 +752,9 @@ class IdentityManager:
             # SQLite mirror later with "type 'list' is not supported" the next
             # time _refresh_immutable_core ran (sqlite3 can't bind a list
             # parameter). Found via a real eval run (roadmap Phase 6.3).
-            self.history["relationship"] = str(suggestions["relationship"])
+            relationship = str(suggestions["relationship"])
+            if not (screen_on and self._screen_blocks("relationship", relationship)):
+                self.history["relationship"] = relationship
 
         # 3. Add to memories
         if "new_memory" in suggestions:

@@ -155,6 +155,11 @@ class AppSettings(BaseSettings):
     # A user-authored persona (see app/persona/profile.py). Unset means "use the
     # PSYCH_* / AI_NAME defaults below", which is exactly the previous behaviour.
     PERSONA_PROFILE_PATH: str | None = None
+    # Slice 10a (docs/brain-v4/prereg/slice-10a.md): screen the VALUE of every
+    # adaptive trait, speaking_style description and relationship label against
+    # a deterministic lexicon before it is written. Off by default: with it off
+    # every persona write path is byte-identical to before the screen existed.
+    PERSONA_VALUE_SCREEN_ENABLED: bool = False
     # The authored biography (see app/persona/biography.py). Unset means "walk
     # up for config/biography.md", the historical behaviour. Set, it can point
     # anywhere — which is the point: a biography is a real person's life, and

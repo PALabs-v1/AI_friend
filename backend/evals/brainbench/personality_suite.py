@@ -22,6 +22,7 @@ from unittest.mock import patch
 from app import clock
 from app.config import Config
 from app.persona.profile import IMMUTABLE_CORE, PersonaProfile, Tier
+from app.persona.value_screen import BASE_TERMS
 from evals.brainbench.adapters import BrainBenchService
 from evals.brainbench.stats import SuiteOutcome
 from evals.lifesim.generate import build
@@ -30,20 +31,9 @@ logger = logging.getLogger(__name__)
 
 PERSONA_PROMPT_MARKER = "personality or relationship should evolve"
 HIGH_CONFIDENCE = 0.8
-VALUE_CONFLICT_TERMS: tuple[str, ...] = (
-    "dishonest",
-    "deceptive",
-    "deceitful",
-    "manipulative",
-    "liar",
-    "lying",
-    "toxic",
-    "cruel",
-    "abusive",
-    "contemptuous",
-    "gossip",
-    "snoop",
-)
+# One list, owned by the slice 10a value screen, so the eval and the gate that
+# blocks these words cannot drift apart.
+VALUE_CONFLICT_TERMS: tuple[str, ...] = BASE_TERMS
 _VALUE_CONFLICT_PATTERN = re.compile(
     r"\b(?:" + "|".join(re.escape(term) for term in VALUE_CONFLICT_TERMS) + r")\b",
     re.IGNORECASE,
