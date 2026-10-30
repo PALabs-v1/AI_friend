@@ -24,15 +24,11 @@ repos:
         # --ignore-words-list: real words codespell does not know (lifesim vocab; youre is a norm_evidence lexicon token).
         # "ist" is IST (Indian Standard Time) in the V4 records; "sting" is the
         # English noun in a persona-compiler prompt, "ines" is a persona name in
-        # a test fixture, "retuned" is a real word, "te" is the second half of the
-        # split word in an identity.py comment ("ha<pause>te").
-        args: [--ignore-words=.lycheeignore, "--ignore-words-list=brunch,arre,unparseable,ist,sting,ines,retuned,youre,te"]
+        # a test fixture, "retuned" is a real word.
+        args: [--ignore-words=.lycheeignore, "--ignore-words-list=brunch,arre,unparseable,ist,sting,ines,retuned,youre"]
         # research/neuro/*.md: copied research artifacts full of citation URLs,
         # author surnames and ACT-R parameter names that trip false positives.
         # docs/brain-v4: 00-origin and 07-partner-architecture quote Aniket
         # verbatim, typos included, on purpose; research/ holds unedited
         # reports and prompts from Codex and the critics.
-        # backend/app/persona/value_screen.py: its patterns spell contractions
-        # without the apostrophe on purpose ("doesnt"), because the screen strips
-        # apostrophes before matching.
-        exclude: (?x)^(.*package-lock\.json|.*pnpm-lock\.yaml|.*yarn\.lock|.*schema\.prisma|\.agents/.*|.*test_identity\.py|.*test_performance\.py|backend/app/state/memory_store\.py|backend/app/persona/value_screen\.py|docs/brain-research-v3/research/neuro/.*\.md|docs/brain-v4/(00-origin|07-partner-architecture)\.md|docs/brain-v4/research/.*)$
+        exclude: (?x)^(.*package-lock\.json|.*pnpm-lock\.yaml|.*yarn\.lock|.*schema\.prisma|\.agents/.*|.*test_identity\.py|.*test_performance\.py|backend/app/state/memory_store\.py|docs/brain-research-v3/research/neuro/.*\.md|docs/brain-v4/(00-origin|07-partner-architecture)\.md|docs/brain-v4/research/.*)$

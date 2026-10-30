@@ -4,6 +4,7 @@ import os
 import re
 import shutil
 import unicodedata
+from collections import deque
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -14,6 +15,7 @@ from ..config import Config
 from ..persona import (
     IMMUTABLE_CORE,
     SCREEN_VERSION,
+    VALUE_SCREEN_DROPS_KEPT,
     PersonaProfile,
     is_plausible_persona_content,
     reject_by_value_screen,
@@ -75,7 +77,7 @@ def _match_views(text: str) -> tuple[str, ...]:
     Validation-only. The response itself keeps its markers.
     """
     raw = re.sub(r"\s+", " ", (text or "")).strip()
-    # Tags removed outright, so a marker splitting a word ("I ha<pause>te you")
+    # Tags removed outright, so a marker splitting a word ("I ha<pause>te you")  # codespell:ignore te
     # closes back up.
     detagged = re.sub(r"\s+", " ", _WELL_FORMED_TAG.sub("", raw)).strip()
     # Only the brackets themselves, so nothing is ever swallowed wholesale.
@@ -686,7 +688,9 @@ class IdentityManager:
         blocked = reject_by_value_screen(field, value)
         if blocked is None:
             return False
-        drops = self.__dict__.setdefault("value_screen_drops", [])
+        drops = self.__dict__.setdefault(
+            "value_screen_drops", deque(maxlen=VALUE_SCREEN_DROPS_KEPT)
+        )
         drops.append(
             {
                 "field": field,

@@ -1,5 +1,6 @@
 from .profile import (
     IMMUTABLE_CORE,
+    VALUE_SCREEN_DROPS_KEPT,
     PersonaProfile,
     Tier,
     is_plausible_persona_content,
@@ -11,6 +12,7 @@ from .value_screen import SCREEN_VERSION, ScreenResult, screen_value
 __all__ = [
     "IMMUTABLE_CORE",
     "SCREEN_VERSION",
+    "VALUE_SCREEN_DROPS_KEPT",
     "PersonaProfile",
     "ScreenResult",
     "Tier",

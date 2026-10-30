@@ -59,6 +59,7 @@ import copy
 import json
 import logging
 import unicodedata
+from collections import deque
 from enum import Enum
 from pathlib import Path
 from typing import Any, ClassVar
@@ -122,6 +123,10 @@ def is_plausible_persona_content(text: str) -> bool:
     return not non_latin / len(letters) > 0.3
 
 
+# Refusals kept for inspection, per profile and per identity manager (oldest drop out).
+VALUE_SCREEN_DROPS_KEPT = 50
+
+
 def value_screen_enabled() -> bool:
     """Whether `PERSONA_VALUE_SCREEN_ENABLED` is on. Read at call time."""
     return bool(getattr(Config, "PERSONA_VALUE_SCREEN_ENABLED", False))
@@ -139,10 +144,11 @@ def reject_by_value_screen(field: str, value: Any) -> ScreenResult | None:
     if not result.blocked:
         return None
     logger.warning(
-        "[Persona] Value screen %s blocked %s write (categories=%s): %s",
+        "[Persona] Value screen %s blocked %s write (categories=%s matched=%s): %s",
         SCREEN_VERSION,
         field,
         ",".join(result.categories),
+        safe_excerpt(", ".join(result.matched[:4]), 60),
         safe_excerpt(value),
     )
     return result
@@ -298,7 +304,9 @@ class PersonaProfile(BaseModel):
 
     # Slice 10a: values the value screen refused to write. Private state, never
     # serialized, always empty while the flag is off.
-    _value_screen_drops: list[dict[str, Any]] = PrivateAttr(default_factory=list)
+    _value_screen_drops: deque[dict[str, Any]] = PrivateAttr(
+        default_factory=lambda: deque(maxlen=VALUE_SCREEN_DROPS_KEPT)
+    )
 
     # -- tier introspection -------------------------------------------------
 
@@ -340,22 +348,37 @@ class PersonaProfile(BaseModel):
         """
         merged = list(self.adaptive_traits)
         screen_on = value_screen_enabled()
+        if screen_on and isinstance(new_traits, str):
+            # A bare string is iterated character by character below, exactly
+            # as before the screen existed. With the screen on, judge the whole
+            # string first so "manipulative" cannot slip in as letters.
+            blocked = reject_by_value_screen("adaptive_traits", new_traits)
+            if blocked is not None:
+                self._record_value_screen_drop("adaptive_traits", blocked)
+                return list(self.adaptive_traits)
         for trait in new_traits or []:
-            if trait and trait not in merged and is_plausible_persona_content(trait):
+            if (
+                trait
+                and trait not in merged
+                and is_plausible_persona_content(trait)
+            ):  # fmt: skip
                 if screen_on:
                     blocked = reject_by_value_screen("adaptive_traits", trait)
                     if blocked is not None:
-                        self._value_screen_drops.append(
-                            {
-                                "field": "adaptive_traits",
-                                "categories": blocked.categories,
-                                "version": SCREEN_VERSION,
-                            }
-                        )
+                        self._record_value_screen_drop("adaptive_traits", blocked)
                         continue
                 merged.append(trait)
         self.adaptive_traits = merged[-self.adaptive_trait_limit() :]
         return list(self.adaptive_traits)
+
+    def _record_value_screen_drop(self, field: str, blocked: ScreenResult) -> None:
+        self._value_screen_drops.append(
+            {
+                "field": field,
+                "categories": blocked.categories,
+                "version": SCREEN_VERSION,
+            }
+        )
 
     @property
     def value_screen_drops(self) -> tuple[dict[str, Any], ...]:
@@ -392,13 +415,11 @@ class PersonaProfile(BaseModel):
             "attachment_growth_rate": getattr(Config, "PSYCH_EPSILON", 0.03),
             "mood_decay_rate": getattr(Config, "PSYCH_LAMBDA_DECAY", 0.05),
             "dopamine_halflife_s": getattr(Config, "DOPAMINE_PHASIC_HALFLIFE_S", 90.0),
-            "cortisol_halflife_s": getattr(
-                Config, "CORTISOL_PHASIC_HALFLIFE_S", 4500.0
-            ),
+            "cortisol_halflife_s": getattr(Config, "CORTISOL_PHASIC_HALFLIFE_S", 4500.0),
             "adrenaline_halflife_s": getattr(
                 Config, "ADRENALINE_PHASIC_HALFLIFE_S", 120.0
             ),
-        }
+        }  # fmt: skip
         return cls._clamped(raw, origin="Config")
 
     @classmethod

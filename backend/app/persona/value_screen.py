@@ -12,16 +12,26 @@ How it decides (category phrase patterns)
 1. Normalize. NFKC, casefold, strip format and combining characters, fold
    Cyrillic and Greek look-alikes, map leet digits and symbols
    (0 o, 1 i or l, 3 e, 4 a, 5 s, 7 t, @ a, $ s), collapse letters spread out
-   by spaces, dots, hyphens or underscores ("m a n i p u l a t i v e",
+   by spaces, dots, hyphens or low lines ("m a n i p u l a t i v e",
    "d-e-c-e-i-t-f-u-l"), and squeeze elongated letters ("cruuuel").
 2. Match. `LEXICON` holds seven categories (deception, manipulation, cruelty,
    contempt, privacy, exploitation, vindictiveness). Each has `plain` patterns
    (a behaviour a friend could reject) and `raw` patterns (a lack, a hedge or a
    negated virtue, which already carry their own polarity).
-3. Scope. The text is split into clauses. A plain hit is benign when exactly
-   one negator or aversion verb ("never", "not", "no", "without", "refuses to",
-   "avoids", "dislikes", "hates", "would not", ...) sits within six words
-   before it in the same clause AND the clause has no hedge or affirming cue
+3. Scope. The text is split into clauses at punctuation, "but", "so it",
+   "then", and at every "and", "or", "nor" and comma. A negator only covers its
+   own clause. A split-off piece rejoins the clause before it only when it
+   continues a list of harm items under the same negator: the earlier piece
+   ends in a lexicon hit and the new piece is one to three words that start
+   with a hit that is not a third-person verb ("never lies, cheats, or steals",
+   "hates arrogance and cruelty", "refuses to deceive or manipulate anyone"),
+   or it is an emphasis ("never lies, even small lies"), or a hedge tail
+   ("never lies, except when convenient"). Anything else starts a new clause
+   with no negator, so "hates mornings and lies to users" and "never judges,
+   manipulates" block. A plain hit is benign when exactly one negator or
+   aversion verb ("never", "not", "no", "without", "refuses to", "avoids",
+   "dislikes", "hates", "zero", "non", "would not", ...) sits within six words
+   before it in its clause AND the clause has no hedge or affirming cue
    ("not always", "never stops", "sometimes", "when convenient", "except",
    "no qualms"). Two negators cancel and block. Raw hits always block. When in
    doubt the screen blocks.
@@ -34,36 +44,45 @@ False negatives:
 - Metaphor and implication ("a fox in a henhouse").
 - Negation is read left to right inside a clause. A negator that follows its
   target ("deception is something it hates") is not seen, so that blocks
-  (a false positive), but a negator more than six words earlier, or one that
-  governs an unrelated verb in a long list, can hide a real hit.
-- Letters spread by spaces INSIDE a word ("manip ulative") are only caught for
-  the longer lexicon stems, not for short words such as "liar" or "lies".
+  (a false positive), but a negator more than six words earlier in the same
+  clause can hide a real hit.
+- Letters spread by spaces INSIDE a word ("manip ulative") are caught for the
+  lexicon stems and a few short words ("li ar", "lyin g") only when the pieces  # codespell:ignore lyin
+  are whole words; "l ia r" style splits of short words are not.
 - Look-alike characters outside the Cyrillic, Greek and Latin tables.
 False positives:
 - Mention, not use: "helps abuse survivors" and "writes novels about
-  cruelty" block. Detection verbs within two words of a hit ("good at
-  spotting deceptive marketing", "corrects misinformation") are read as
-  mention and pass; "spots weakness and exploits it" still blocks.
+  cruelty" block. Detection verbs earlier in the same clause ("good at
+  spotting deceptive marketing", "corrects misinformation", "knows when
+  someone is bluffing") are read as mention and pass; "spots weakness and
+  exploits it" still blocks because "and" starts a new clause.
+- A list item that is a third-person verb with an object, or longer than three
+  words, leaves the negator's clause: "never lies, cheats, or manipulates
+  users" blocks.
 - A hedge word anywhere in a negated clause ("sometimes avoids gossip") blocks.
 - Double negation ("does not hate cruelty") blocks, correctly, but so does
   "not afraid to call out lies".
 
 Totality: never raises. Non-str and empty input is not blocked. An unexpected
 internal error fails closed (blocked, category "internal_error"). Work is
-bounded: no unbounded repetition nests inside another, at most `_MAX_HITS`
-hits per view are scored (more means blocked, category "overflow").
+linear and bounded at any input size: no unbounded repetition nests inside
+another, at most `_MAX_HITS` hits per view are scored, and the second views
+(1 read as l, elongation squeezed) are built from at most `_MAX_SNIPPETS`
+distinct snippets. Exceeding either bound is blocked with category
+"overflow".
 """
 
 from __future__ import annotations
 
 import re
 import unicodedata
-from bisect import bisect_right
-from collections.abc import Mapping
+from bisect import bisect_left, bisect_right
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
+from itertools import accumulate, islice
 from types import MappingProxyType
 
-SCREEN_VERSION = "10a-y.1"
+SCREEN_VERSION = "10a-1"
 
 # The 12 terms the BrainBench personality suite counts as value conflicts
 # (evals/brainbench/personality_suite.py imports this tuple). Every one must
@@ -92,10 +111,15 @@ _MAX_MATCHED = 16
 _MAX_FORM_CHARS = 64
 _NEG_WINDOW_TOKENS = 7
 _NEG_WINDOW_CHARS = 160
-# Past this size only the main view is scanned (no 1-as-l, elongation or
-# cross-space views). Persona values are a few hundred characters; the cap
-# keeps a 1 MB input comfortably under a second.
-_SECONDARY_MAX_CHARS = 100_000
+_DETECT_WINDOW_TOKENS = 5
+# Second views (1 read as l, elongation squeezed) are built only from short
+# snippets around the tokens that need them, deduplicated and capped, so the
+# work stays linear at any input size. More distinct snippets than this is not
+# a persona value and fails closed ("overflow").
+_MAX_SNIPPETS = 1500
+_SNIPPET_CONTEXT_CHARS = 60
+_SNIPPET_MAX_CHARS = 5000
+_MAX_SQUASH_HITS = 200
 
 
 @dataclass(frozen=True, slots=True)
@@ -218,10 +242,10 @@ _DECEPTION = Category(
         r"false hope",
         r"string(?:s|ing)? " + _OBJ + r"(?: [a-z]+){0,1}? along",
         r"pretend(?:s|ed|ing)? (?:not to|to not)",
-        r"pretend(?:s|ed|ing)? (?:it|that it|that they|they) (?:did not|didnt|never)",
+        r"pretend(?:s|ed|ing)? (?:it|that it|that they|they) (?:did not|didnt|never)",  # codespell:ignore didnt
         r"spins? (?:every |each |the |all )?(?:story|stories|facts|events|situations?|narrative)",
         r"(?:in|to) (?:its|their|his|her) own favou?r",
-        r"(?:hidden|secret|ulterior|covert) (?:agenda|motives?|intentions?|purpose|plan)",
+        r"(?:hidden|secret|ulterior|covert) (?:agenda|motives?|intentions?|purpose|plan)",  # codespell:ignore covert
         r"push(?:es|ing)? (?:its|their|his|her) (?:own )?agenda",
         r"feign[a-z]*",
         (
@@ -235,7 +259,7 @@ _DECEPTION = Category(
         ),
         (
             r"claims? (?:to know|to have|knowledge|expertise|certainty|credentials)(?: [a-z]+){0,4}? "
-            r"(?:it does not|it doesnt|it lacks|it hasnt|it cannot|it cant|falsely)"
+            r"(?:it does not|it doesnt|it lacks|it hasnt|it cannot|it cant|falsely)"  # codespell:ignore cant,doesnt,hasnt
         ),
         r"(?:makes?|gives?) (?:empty|false|hollow|idle) promises",
         r"(?:breaks?|broke|breaking) (?:its |their |every |all |his |her )?promises",
@@ -271,7 +295,7 @@ _DECEPTION = Category(
             r"(?: [a-z]+){0,4}? (?:wins|works|suits|helps it|to win|to get|to avoid|to escape|to stay|to keep|to make)"
         ),
         (
-            r"(?:regardless of|no regard for|indifferent to|ignores?|disregards?|doesnt care (?:about|if|whether)) "
+            r"(?:regardless of|no regard for|indifferent to|ignores?|disregards?|doesnt care (?:about|if|whether)) "  # codespell:ignore doesnt
             r"(?:the |what is |whether it is )?(?:truth|true|facts?|accuracy)"
         ),
         r"devious[a-z]*",
@@ -324,22 +348,22 @@ _DECEPTION = Category(
     ),
     raw=(
         (
-            r"(?:never|doesnt|does not|dont|do not|wont|will not) (?:intends?|plans?|means?) to "
+            r"(?:never|doesnt|does not|dont|do not|wont|will not) (?:intends?|plans?|means?) to "  # codespell:ignore doesnt,wont
             r"(?:keep|honou?r|follow through|fulfil+|deliver)"
         ),
-        r"(?:cannot|cant|can not|should not|shouldnt|must not|never|not) be trusted",
+        r"(?:cannot|cant|can not|should not|shouldnt|must not|never|not) be trusted",  # codespell:ignore cant,shouldnt
         (
-            r"(?:cannot|cant|can not|never|doesnt|does not|wont|will not|unable to) keep "
+            r"(?:cannot|cant|can not|never|doesnt|does not|wont|will not|unable to) keep "  # codespell:ignore cant,doesnt,wont
             r"(?:a )?(?:secrets?|confidences|promises|its word)"
         ),
         (
-            r"(?:never|refuses to|wont|will not|cant|cannot|doesnt|does not) "
+            r"(?:never|refuses to|wont|will not|cant|cannot|doesnt|does not) "  # codespell:ignore cant,doesnt,wont
             r"(?:admit (?:fault|mistakes?|wrongs?|errors?)|take responsibility|accept blame|say sorry|"
             r"acknowledge (?:mistakes|errors|fault))"
         ),
         # Negated or hedged virtue. "not always honest" is a deception claim.
         (
-            r"(?:not|never|isnt|arent|wasnt|aint|hardly|barely|far from|anything but) "
+            r"(?:not|never|isnt|arent|wasnt|aint|hardly|barely|far from|anything but) "  # codespell:ignore arent,isnt,wasnt
             r"(?:(?:always|very|really|entirely|fully|completely|quite|particularly|"
             r"that|exactly|too|so|totally|perfectly|necessarily|truly|usually|"
             r"generally|consistently|especially|all that|overly) ){0,2}" + _VIRTUES
@@ -419,7 +443,7 @@ _MANIPULATION = Category(
             + r" (?:to )?(?:doubt|question|distrust|mistrust|"
             r"second guess)(?: [a-z]+){0,1}? (?:themselves|their|them|own)"
         ),
-        r"doubt (?:their|own) (?:sanity|memory|reality|judge?ment|perception)",
+        r"doubt (?:their|own) (?:sanity|memory|reality|judge?ment|perception)",  # codespell:ignore ment
         r"poison(?:s|ed|ing)? (?:friendships?|relationships?|minds?|the well|trust|users?|people|others)",
         r"whisper(?:s|ing)? (?:lies|rumou?rs?|gossip|poison)",
         (
@@ -668,7 +692,7 @@ _CRUELTY = Category(
         r"unkind[a-z]*",
         r"uncaring",
         r"unsympathetic",
-        r"insensitiv[a-z]*",
+        r"insensitiv[a-z]*",  # codespell:ignore insensitiv
         r"unfeeling",
         r"toxic[a-z]*",
         r"evil(?:ly)?(?![a-z])",
@@ -810,7 +834,7 @@ _CONTEMPT = Category(
     ),
     raw=(
         (
-            r"(?:never|refuses to|doesnt|wont|will not|does not|cant|cannot) "
+            r"(?:never|refuses to|doesnt|wont|will not|does not|cant|cannot) "  # codespell:ignore cant,doesnt,wont
             r"(?:listen|listens|care about|respect|value|consider)(?: to)? "
             r"(?:the |its |their )?(?:users?|people|others|them|you|anyone|feedback)"
         ),
@@ -928,7 +952,7 @@ _PRIVACY = Category(
 _EXPLOITATION = Category(
     "exploitation",
     plain=(
-        r"exploit(?:s|ed|ing|ative|ation|er|ers)?(?![a-z])",
+        r"exploit(?:s|ed|ing|ative|ation|er|ers)?(?![a-z])",  # codespell:ignore ative
         r"takes? advantage",
         r"taking advantage",
         r"took advantage",
@@ -948,7 +972,7 @@ _EXPLOITATION = Category(
             r"(?! (?:the show|hearts?|glances?|a march|focus|attention|scenes?))"
         ),
         r"stole(?:n)?(?![a-z])",
-        r"thie(?:f|ves)",
+        r"thie(?:f|ves)",  # codespell:ignore thie
         r"rip(?:s|ping)? " + _OBJ + r" off",
         r"rip(?:s|ping)? off",
         r"overcharg[a-z]*",
@@ -1001,9 +1025,9 @@ _VINDICTIVENESS = Category(
         r"keeps? score of (?:every|all|each|who|what)",
         (
             r"keeps? (?:a )?(?:mental |running )?(?:list|tally|score|record|count|ledger)(?: [a-z]+){0,5}? "
-            r"(?:wrong[a-z]*|slights?|offen[a-z]*|insult[a-z]*|grievances?|enem[a-z]*|crossed|mistakes|betray[a-z]*)"
+            r"(?:wrong[a-z]*|slights?|offen[a-z]*|insult[a-z]*|grievances?|enem[a-z]*|crossed|mistakes|betray[a-z]*)"  # codespell:ignore offen
         ),
-        r"holds? (?:on|onto) (?:to )?(?:slights?|grudges?|resentments?|grievances?|offen[a-z]*)",
+        r"holds? (?:on|onto) (?:to )?(?:slights?|grudges?|resentments?|grievances?|offen[a-z]*)",  # codespell:ignore offen
         (
             r"punish(?:es|ed|ing)? (?:honesty|truth|candou?r|criticism|dissent|questions|feedback|mistakes|"
             r"disagreement)"
@@ -1017,7 +1041,7 @@ _VINDICTIVENESS = Category(
         r"never forgiv(?:es?|ing)",
         r"never forgets? a slight",
         r"refus(?:es|ed|ing)? to forgive",
-        r"(?:wont|cant|will not|cannot) forgive",
+        r"(?:wont|cant|will not|cannot) forgive",  # codespell:ignore cant,wont
     ),
 )
 
@@ -1075,28 +1099,41 @@ SQUASH_STEMS: tuple[str, ...] = (
     "backstab",
 )
 
+# Short words matched across spaces ("lyin g", "li ar") only when the pieces are  # codespell:ignore lyin
+# whole words on both ends, because short stems would otherwise fire inside
+# ordinary text ("intoxicated").
+SQUASH_SHORT: tuple[str, ...] = (
+    "liars",
+    "liar",
+    "lies",
+    "lied",
+    "lying",
+    "cheats",
+    "cheat",
+)
+
 # ---------------------------------------------------------------------------
 # Negation and aversion scope
 # ---------------------------------------------------------------------------
 
 _NEGATORS = (
-    r"never|not|no|nor|neither|none|nobody|nothing|without|cannot|cant|dont|"
-    r"doesnt|didnt|wont|wouldnt|shouldnt|couldnt|isnt|arent|wasnt|werent|"
-    r"havent|hasnt|hadnt|aint|"
+    r"never|not|no|neither|none|nobody|nothing|without|non|cannot|cant|dont|"  # codespell:ignore cant
+    r"doesnt|didnt|wont|wouldnt|shouldnt|couldnt|isnt|arent|wasnt|werent|"  # codespell:ignore arent,couldnt,didnt,doesnt,isnt,shouldnt,wasnt,werent,wont,wouldnt
+    r"havent|hasnt|hadnt|aint|"  # codespell:ignore hadnt,hasnt,havent
     r"refus(?:e|es|ed|ing)(?: to)?|avoid(?:s|ed|ing)?|"
     r"dislik(?:e|es|ed|ing)|hat(?:e|es|ed|ing)|detest(?:s|ed|ing)?|"
     r"despis(?:e|es|ed|ing)|abhor(?:s|red|ring)?|loath(?:e|es|ed|ing)|"
     r"deplor(?:e|es|ed|ing)|condemn(?:s|ed|ing)?|oppos(?:e|es|ed|ing)(?: to)?|"
-    r"opposed to|reject(?:s|ed|ing)?|resist(?:s|ed|ing)?|shun(?:s|ned|ning)?|"
+    r"opposed to|reject(?:s|ed|ing)?|resist(?:s|ed|ing)?|shun(?:s|ned|ning)?|"  # codespell:ignore ned
     r"discourag(?:e|es|ed|ing)|prevent(?:s|ed|ing)?|prohibit(?:s|ed|ing)?|"
-    r"forbid(?:s|ding)?|forbade|ban(?:s|ned|ning)?|"
+    r"forbid(?:s|ding)?|forbade|ban(?:s|ned|ning)?|"  # codespell:ignore ned
     r"abstain(?:s|ed|ing)?(?: from)?|refrain(?:s|ed|ing)?(?: from)?|"
     r"steer(?:s|ed|ing)? clear of|stay(?:s|ed|ing)? (?:away|clear) (?:from|of)|"
-    r"intolerant of|zero tolerance(?: for| of)?|free (?:of|from)|"
+    r"intolerant of|zero(?: tolerance(?: for| of)?)?|free (?:of|from)|"
     r"incapable of|unwilling to|uncomfortable with|allergic to|"
     r"against|anti|fights?|fighting|combat(?:s|ted|ting)?|calls? out|"
     r"speak(?:s|ing)? (?:up |out )?against|stand(?:s|ing)? (?:up )?against|"
-    r"guards? against|wary of|"
+    r"guards? against|wary of|warn(?:s|ed|ing)?(?: [a-z]+){0,2} (?:about|against|of)|"
     r"protect(?:s|ed|ing)?(?: [a-z]+){0,2} (?:from|against)|"
     r"shield(?:s|ed|ing)?(?: [a-z]+){0,2} from"
 )
@@ -1113,7 +1150,7 @@ _HEDGE_RE = re.compile(
     r"every so often|on occasion|periodically|largely|primarily|except|"
     r"excepting|unless|apart from|aside from|other than|save for|only when|"
     r"only if|only to|only for|only with|only around|as needed)\b"
-    r"|\b(?:not|dont|doesnt|didnt|isnt|arent|wasnt|wont|wouldnt|cant|cannot) "
+    r"|\b(?:not|dont|doesnt|didnt|isnt|arent|wasnt|wont|wouldnt|cant|cannot) "  # codespell:ignore arent,cant,didnt,doesnt,isnt,wasnt,wont,wouldnt
     r"(?:always|necessarily|entirely|fully|completely|totally|quite|very|"
     r"really|particularly|exactly|too|that|so|only|just|merely|simply|"
     r"all that|truly|usually|often|generally|typically|consistently|"
@@ -1126,43 +1163,104 @@ _HEDGE_RE = re.compile(
     r"|\b(?:no|zero|without) (?:qualms|scruples|compunction|hesitation|remorse|"
     r"shame|guilt|regrets?|conscience|problem|issue|worry|worries|"
     r"second thoughts)\b"
-    r"|\b(?:doesnt|dont|didnt|wont|wouldnt|cant|couldnt) (?:mind|hesitate|care|"
+    r"|\b(?:doesnt|dont|didnt|wont|wouldnt|cant|couldnt) (?:mind|hesitate|care|"  # codespell:ignore cant,couldnt,didnt,doesnt,wont,wouldnt
     r"help|resist|think twice|have a problem|see a problem|see anything wrong)\b"
     r"|\bnothing wrong with\b"
 )
 
 # Verbs that name the behavior only to catch it ("corrects misinformation",
-# "good at spotting deceptive marketing"). Read within two words of the hit,
-# so "spots weakness and exploits it" still blocks.
+# "good at spotting deceptive marketing"). Read within five words before the
+# hit and inside its clause, so "spots weakness and exploits it" still blocks.
 _DETECT_RE = re.compile(
     r"\b(?:corrects?|correcting|debunk(?:s|ing)?|counters?|countering|refut(?:es|ing)|fact ?checks?|"
     r"fact ?checking|flags?|flagging|detects?|detecting|spots?|spotting|identif(?:y|ies|ying)|"
     r"catch(?:es|ing)?|clears? up|pushes? back (?:on|against)|challeng(?:es|ing)|recogni[sz](?:es|ing)|"
     r"helps? (?:[a-z]+ )?(?:spot|detect|avoid|resist|identify|report|stop|fix|fight|recogni[sz]e)|"
     r"teach(?:es|ing)? (?:[a-z]+ )?(?:to )?(?:spot|detect|avoid|resist|identify|recogni[sz]e)|"
-    r"educat(?:es|ing) (?:[a-z]+ )?(?:about|on))\b"
+    r"educat(?:es|ing) (?:[a-z]+ )?(?:about|on)|knows? when|can tell when|tells? when|"
+    r"senses? when|sees? through|notices?|aware of|alert to|on the lookout for|looks? out for|"
+    r"watch(?:es)? out for)\b"
 )
+
+_POST_ADJ_RE = re.compile(r" ?(?:free|proof|averse|intolerant|immune|resistant)\b")
 
 _POST_REJECT_RE = re.compile(
     r"\b(?:is|are) (?:not (?:tolerated|allowed|acceptable|okay|ok|welcome|fine|"
     r"cool)|unacceptable|unwelcome|wrong|a no ?go|off limits)\b"
 )
 
-# Break points between clauses. A comma only starts a new clause when the text
-# after it is more than one word (a list item such as "cheats" stays in scope).
+# Break points between clauses. "hard" starts a new sentence-level clause.
+# "soft" ("and", "or", "nor", a comma) starts a new clause too, unless the
+# piece continues a list under the same negator (see `_build_clauses`).
 _BREAK_RE = re.compile(
-    r"[.;:!?\n]+|,"
-    r"|\b(?:but|yet|however|although|though|whereas|while)\b"
-    r"|\b(?:and|or|nor)(?= (?:then |also |now )?(?:is|are|was|were|can|could|"
-    r"will|would|may|might|must|should|shall|does|do|did|has|have|had|tends?|"
-    r"often|always|sometimes|usually|loves?|likes?|enjoys?|gets?|makes?|"
-    r"takes?|seems?|acts?|uses?|practic[a-z]+|thrives?|relies|prefers?|"
-    r"wants?|chooses?|never|not|no|dont|doesnt|didnt|wont|wouldnt|cant|"
-    r"cannot|refuses?|avoids?|hates?|dislikes?)\b)"
+    r"(?P<hard>[.;:!?\n]+"
+    r"|\b(?:but|yet|however|although|though|whereas|while|then|plus|also|besides)\b"
+    r"|\bso (?:it|he|she|they|you|we|that)\b)"
+    r"|(?P<soft>,|\b(?:and|or|nor)\b)"
 )
 _TOKEN_RE = re.compile(r"[a-z0-9]+")
-_LIST_TAIL_RE = re.compile(
-    r" ?(?:(?:and|or|nor) )?[a-z0-9]+(?: (?:and|or|nor) [a-z0-9]+){0,3} ?"
+_ALPHA_RE = re.compile(r"[a-z]+")
+_EMPHASIS = (
+    "even ",
+    "including ",
+    "especially ",
+    "particularly ",
+    "let alone ",
+    "much less ",
+    "not to mention ",
+    "if not ",
+)
+_LINKING = frozenset(
+    {
+        "is",
+        "are",
+        "was",
+        "were",
+        "am",
+        "be",
+        "been",
+        "being",
+        "can",
+        "could",
+        "will",
+        "would",
+        "may",
+        "might",
+        "must",
+        "should",
+        "shall",
+        "also",
+        "always",
+        "often",
+        "sometimes",
+        "usually",
+        "gets",
+        "get",
+        "seems",
+        "seem",
+        "becomes",
+        "become",
+        "acts",
+        "act",
+        "feels",
+        "feel",
+        "looks",
+        "look",
+        "stays",
+        "remains",
+        "very",
+        "so",
+        "too",
+        "quite",
+        "really",
+        "pretty",
+        "rather",
+        "extremely",
+        "just",
+    }
+)
+_LIST_FILLER = frozenset(
+    {"to", "be", "being", "become", "act", "acting", "any", "anyone", "all", "such"}
 )
 
 # ---------------------------------------------------------------------------
@@ -1277,9 +1375,7 @@ _APOSTROPHES = MappingProxyType(str.maketrans("", "", "'\u2019\u2018\u02bc`\xb4"
 _SPACE_RE = re.compile(r"[^\S\n]+")
 _INTRAWORD_BANG_RE = re.compile(r"(?<=[a-z])!(?=[a-z])")
 # A separator sitting between two single letters.
-_LETTER_GAP_RE = re.compile(
-    r"(?<=\b[a-z])[ \-_.*+|/\\~^\xb7\u2022\u2010-\u2015\u2212]{1,3}(?=[a-z]\b)"
-)
+_LETTER_GAP_RE = re.compile(r"(?<=\b[a-z])[^a-z0-9,;:!?]{1,4}(?=[a-z]\b)")
 _LETTER_RUN_RE = re.compile(r"(?<![a-z0-9])[a-z](?:\x01[a-z]){2,}(?![a-z0-9])")
 _DASH_RE = re.compile(r"[\u2013\u2014\u2015]")
 _NONTEXT_RE = re.compile(r"[^a-z0-9 \n.,;:!?\x01]")
@@ -1289,55 +1385,30 @@ _PUNCT_RUN_RE = re.compile(r"([.,;:!?\n])[ .,;:!?\n]+")
 # "never, ever lies" and "not ever" are one negator, not a comma and a clause.
 _NEG_INTENSIFIER_RE = re.compile(r"\b(never|not|no|nor|neither)(?:,| ever|, ever)(?= )")
 _ELONG_RE = re.compile(r"([a-z])\1{2,}")
-_SHORT_WORDS = frozenset(
-    {
-        "a",
-        "i",
-        "im",
-        "is",
-        "it",
-        "in",
-        "an",
-        "as",
-        "at",
-        "he",
-        "or",
-        "no",
-        "so",
-        "to",
-        "we",
-        "me",
-        "my",
-        "be",
-        "do",
-        "if",
-        "of",
-        "on",
-        "up",
-        "us",
-        "am",
-        "by",
-        "go",
-        "hi",
-        "the",
-        "its",
-        "and",
-        "are",
-        "was",
-        "not",
-    }
+# A run of spread-out letters can hide a stray leading letter ("x d e c e i v e s"),
+# a negator ("n e v e r l i e s") or several words with no gaps between them
+# ("l i e s t o u s e r s"). Besides the joined run, offer it minus 1 to 3
+# leading letters, a leading negator split off, and every short key word found
+# inside it.
+_RUN_NEG_RE = re.compile(r"(?:never|neither|not|no|without|zero|non)")
+_RUN_KEYS_RE = re.compile(
+    r"liars?|lies|lied|lying|cruel|toxic|gossip|snoop|cheats?|abusive|bullies|bully"
 )
 
 
 def _expand_run(match: re.Match[str]) -> str:
-    """Join a run of spread-out single letters; also offer it minus a leading
-    short word, because "is a l i a r" spreads "a" and "liar" together."""
     letters = match.group(0).replace("\x01", "")
-    variants = [letters]
+    out = [letters]
+    neg = _RUN_NEG_RE.match(letters)
+    if neg is not None and len(letters) - neg.end() >= 3:
+        out.append(neg.group(0))
+        letters = letters[neg.end() :]
+        out.append(letters)
     for k in (1, 2, 3):
-        if len(letters) >= k + 3 and letters[:k] in _SHORT_WORDS:
-            variants.append(letters[k:])
-    return " ".join(variants)
+        if len(letters) >= k + 3:
+            out.append(letters[k:])
+    out.extend(_RUN_KEYS_RE.findall(letters))
+    return " ".join(out)
 
 
 def _base_normalize(text: str) -> str:
@@ -1353,6 +1424,7 @@ def _finish_view(s: str, leet: Mapping[int, str]) -> str:
     """Leet map, letter-spacing collapse and cleanup into the matching view."""
     s = s.translate(leet)
     s = _INTRAWORD_BANG_RE.sub("i", s)
+    s = s.replace("_", " ")
     s = _SPACE_RE.sub(" ", s)
     s = _LETTER_GAP_RE.sub("\x01", s)
     s = _LETTER_RUN_RE.sub(_expand_run, s)
@@ -1388,92 +1460,205 @@ _COMPILED: tuple[_Compiled, ...] = tuple(
     _Compiled(c.name, _compile(c.plain), _compile(c.raw)) for c in LEXICON.values()
 )
 _SQUASH_RE = re.compile("(?:" + "|".join(SQUASH_STEMS) + ")")
+_SQUASH_SHORT_RE = re.compile("(?:" + "|".join(SQUASH_SHORT) + ")")
 
 
-def _clause_spans(s: str) -> tuple[list[int], list[int]]:
-    """Start and end offsets of clauses, after merging one-word comma tails."""
+def _prev_ends_with_hit(
+    s: str, a: int, b: int, hit_starts: list[int], hit_ends: list[int]
+) -> bool:
+    """True when the clause [a, b) ends in a lexicon hit, allowing up to two
+    trailing words (an object: "refuses to deceive users")."""
+    i = bisect_left(hit_starts, b) - 1
+    steps = 0
+    while i >= 0 and hit_starts[i] >= a and steps < 8:
+        if hit_ends[i] <= b and len(_TOKEN_RE.findall(s, hit_ends[i], b)) <= 2:
+            return True
+        i -= 1
+        steps += 1
+    return False
+
+
+def _build_clauses(
+    s: str, hits: list[tuple[int, int, str]]
+) -> tuple[list[int], list[int], list[tuple[int, int]]]:
+    """Clause start offsets, end offsets and continuation spans.
+
+    Every break splits. A soft piece (after a comma, "and", "or", "nor")
+    rejoins the clause before it only when it extends that clause's list of
+    harm items, is an emphasis, or is a hedge tail. A continuation span is a
+    piece that inherits the negation of the item before it.
+    """
+    hit_starts = [h[0] for h in hits]
+    hit_ends = [h[1] for h in hits]
+    hit_start_set = set(hit_starts)
+    ends_at: dict[int, set[int]] = {}
+    for hs, he, _cat in hits:
+        ends_at.setdefault(hs, set()).add(he)
     starts: list[int] = []
     ends: list[int] = []
-    pos = 0
-    after_comma = False
+    cont: list[tuple[int, int]] = []
 
-    def add(a: int, b: int, comma: bool) -> None:
-        seg = s[a:b]
-        n = len(_TOKEN_RE.findall(seg))
-        if n == 0:
-            return
-        if comma and starts:
-            words = [w for w in _TOKEN_RE.findall(seg) if w not in ("and", "or", "nor")]
-            # A list item ("cheats", "or steals"), a bare list of single words
-            # ("cheat or steal"), a short ", or ..." tail or a trailing hedge ("except when convenient")
-            # belongs to the clause before the comma.
-            if (
-                len(words) <= 1
-                or _LIST_TAIL_RE.fullmatch(seg) is not None
-                or (n <= 5 and seg.lstrip().startswith(("and ", "or ", "nor ")))
-                or (len(words) <= 6 and _HEDGE_RE.search(seg) is not None)
-            ):
+    def add(a: int, b: int, hard: bool) -> bool:
+        ms = list(islice(_TOKEN_RE.finditer(s, a, b), 8))
+        if not ms:
+            return False
+        if not hard and starts:
+            n = len(ms)
+            if n <= 6 and _HEDGE_RE.search(s, a, b) is not None:
                 ends[-1] = b
-                return
+                return True
+            if _prev_ends_with_hit(s, starts[-1], ends[-1], hit_starts, hit_ends):
+                i = 0
+                while i < n and ms[i].group(0) in _LIST_FILLER:
+                    i += 1
+                first = ms[i] if i < n else None
+                emphasis = s.startswith(_EMPHASIS, ms[0].start())
+                n_eff = n - i
+                last_end = ms[n - 1].end()
+                bare = (
+                    first is None
+                    or n_eff <= 1
+                    or (
+                        n_eff <= 3
+                        and first.start() in hit_start_set
+                        and not first.group(0).endswith("s")
+                    )
+                    # "tells lies": a one-word hit that closes the piece, with no
+                    # linking verb before it ("is cruel" is a new clause).
+                    or (
+                        n_eff <= 3
+                        and not any(m.group(0) in _LINKING for m in ms[i:])
+                        and any(
+                            last_end in ends_at.get(m.start(), ())
+                            and " " not in s[m.start() : last_end]
+                            for m in ms[i + 1 :]
+                        )
+                    )
+                )
+                if bare or emphasis:
+                    ends[-1] = b
+                    cont.append((a, b))
+                    return True
         starts.append(a)
         ends.append(b)
+        return True
 
+    pos = 0
+    pending_hard = True
     for m in _BREAK_RE.finditer(s):
-        add(pos, m.start(), after_comma)
-        after_comma = m.group(0) == ","
+        if add(pos, m.start(), pending_hard):
+            pending_hard = False
+        if m.lastgroup == "hard":
+            pending_hard = True
         pos = m.end()
-    add(pos, len(s), after_comma)
-    return starts, ends
+    add(pos, len(s), pending_hard)
+    return starts, ends, cont
 
 
-def _negated(s: str, hs: int, cs: int, ce: int) -> bool:
+def _negated(s: str, hs: int, cs: int, ce: int, hedge_cache: dict[int, bool]) -> bool:
     """True when the hit starting at `hs` sits under exactly one negator or
-    aversion verb and its clause carries no hedge or affirming cue."""
+    aversion verb in its clause and the clause carries no hedge or affirming
+    cue. A detection verb before it ("spotting", "corrects") counts as one
+    negator unless a "to" separates them."""
     window_start = max(cs, hs - _NEG_WINDOW_CHARS)
     pre = s[window_start:hs]
     tokens = list(_TOKEN_RE.finditer(pre))
     if not tokens:
         return False
     window = pre[tokens[-_NEG_WINDOW_TOKENS:][0].start() :]
-    count = 0
-    for m in _NEG_RE.finditer(window):
-        count += 1
+    count = sum(1 for _ in _NEG_RE.finditer(window))
     if count == 0:
-        near = pre[tokens[-2:][0].start() :]
-        if _DETECT_RE.search(near) is not None:
+        near = pre[tokens[-_DETECT_WINDOW_TOKENS:][0].start() :]
+        found = None
+        for found in _DETECT_RE.finditer(near):
+            pass
+        if found is not None and "to" not in _TOKEN_RE.findall(near, found.end()):
             count = 1
     if count != 1:
         return False
-    return _HEDGE_RE.search(s, cs, ce) is None
+    hedged = hedge_cache.get(cs)
+    if hedged is None:  # one scan per clause, not one per hit
+        hedged = hedge_cache[cs] = _HEDGE_RE.search(s, cs, ce) is not None
+    return not hedged
 
 
 def _post_rejected(s: str, he: int, ce: int) -> bool:
-    return _POST_REJECT_RE.match(s, he, min(ce, he + 60)) is not None or bool(
-        _POST_REJECT_RE.search(s, he, min(ce, he + 60))
-    )
+    """A rejection that follows the hit: "gossip free", "gossip is not tolerated"."""
+    if _POST_ADJ_RE.match(s, he, ce) is not None:
+        return True
+    return _POST_REJECT_RE.search(s, he, min(ce, he + 60)) is not None
 
 
-def _word_starts(s: str) -> tuple[list[int], list[int], str]:
-    """Squash view: letters only, joined, with the offsets of every word."""
-    ends: list[int] = []
-    starts: list[int] = []
-    parts: list[str] = []
-    total = 0
-    offsets: list[int] = []
-    for m in re.finditer(r"[a-z]+", s):
-        offsets.append(m.start())
-        parts.append(m.group(0))
-        starts.append(total)
-        total += len(m.group(0))
-        ends.append(total)
-    return starts, offsets, "".join(parts)
+def _squash_hits(s: str) -> tuple[list[tuple[int, str]], bool]:
+    """Lexicon stems that appear only once the spaces between words are
+    removed ("manip ulative", "lyin g"). Returns (offset of the first word,  # codespell:ignore lyin
+    stem) pairs and an overflow flag."""
+    tokens = _ALPHA_RE.findall(s)
+    if len(tokens) < 2:
+        return [], False
+    starts = list(accumulate(map(len, tokens), initial=0))
+    joined = "".join(tokens)
+    found: list[tuple[int, str]] = []
+    for m in _SQUASH_RE.finditer(joined):
+        i = bisect_right(starts, m.start()) - 1
+        if starts[i] != m.start():
+            continue
+        if bisect_right(starts, m.end() - 1) - 1 <= i:
+            continue  # one word: the ordinary patterns already saw it
+        found.append((i, m.group(0)))
+        if len(found) > _MAX_SQUASH_HITS:
+            return [], True
+    for m in _SQUASH_SHORT_RE.finditer(joined):
+        i = bisect_right(starts, m.start()) - 1
+        if starts[i] != m.start():
+            continue
+        j = bisect_left(starts, m.end())
+        if j >= len(starts) or starts[j] != m.end() or j - 1 <= i:
+            continue  # must end on a word end and span two or more words
+        found.append((i, m.group(0)))
+        if len(found) > _MAX_SQUASH_HITS:
+            return [], True
+    if not found:
+        return [], False
+    found.sort()
+    want = {i for i, _ in found}
+    offsets: dict[int, int] = {}
+    for idx, tok in enumerate(_ALPHA_RE.finditer(s)):
+        if idx in want:
+            offsets[idx] = tok.start()
+            if len(offsets) == len(want):
+                break
+    return [(offsets[i], stem) for i, stem in found], False
 
 
 def _scan(s: str, allow_squash: bool) -> tuple[set[str], list[str], bool]:
     """Scan one normalized view. Returns (categories, forms, overflow)."""
-    categories: set[str] = set()
-    forms: list[str] = []
-    cstarts, cends = _clause_spans(s)
+    for comp in _COMPILED:
+        if comp.raw is not None:
+            m = comp.raw.search(s)
+            if m is not None:
+                return {comp.name}, [m.group(0)[:_MAX_FORM_CHARS]], False
+
+    hits: list[tuple[int, int, str]] = []
+    for comp in _COMPILED:
+        if comp.plain is None:
+            continue
+        for m in comp.plain.finditer(s):
+            hits.append((m.start(), m.end(), comp.name))
+            if len(hits) > _MAX_HITS:
+                return {"overflow"}, [], True
+    squash: list[tuple[int, str]] = []
+    if allow_squash:
+        squash, over = _squash_hits(s)
+        if over:
+            return {"overflow"}, [], True
+    if not hits and not squash:
+        return set(), [], False
+
+    hits.sort()
+    cstarts, cends, cont = _build_clauses(s, hits)
+    cont_starts = [c[0] for c in cont]
+    hedge_cache: dict[int, bool] = {}
 
     def clause_of(pos: int) -> tuple[int, int]:
         i = bisect_right(cstarts, pos) - 1
@@ -1481,76 +1666,94 @@ def _scan(s: str, allow_squash: bool) -> tuple[set[str], list[str], bool]:
             return 0, len(s)
         return cstarts[i], cends[i]
 
-    def note(cat: str, form: str) -> None:
-        categories.add(cat)
-        if len(forms) < _MAX_MATCHED and form[:_MAX_FORM_CHARS] not in forms:
-            forms.append(form[:_MAX_FORM_CHARS])
-
-    hits = 0
-    for comp in _COMPILED:
-        if comp.raw is not None:
-            for m in comp.raw.finditer(s):
-                note(comp.name, m.group(0))
-                return categories, forms, False
-        if comp.plain is None:
+    for hs, he, cat in hits:
+        ci = bisect_right(cont_starts, hs) - 1
+        if ci >= 0 and hs < cont[ci][1]:
+            continue  # inherits the negation of the list head, which was benign
+        cs, ce = clause_of(hs)
+        if _negated(s, hs, cs, ce, hedge_cache) or _post_rejected(s, he, ce):
             continue
-        for m in comp.plain.finditer(s):
-            hits += 1
-            if hits > _MAX_HITS:
-                return categories | {"overflow"}, forms, True
-            cs, ce = clause_of(m.start())
-            if _negated(s, m.start(), cs, ce) or _post_rejected(s, m.end(), ce):
-                continue
-            note(comp.name, m.group(0))
-            return categories, forms, False
-
-    if allow_squash and cstarts:
-        starts, offsets, squashed = _word_starts(s)
-        for m in _SQUASH_RE.finditer(squashed):
-            i = bisect_right(starts, m.start()) - 1
-            if i < 0 or starts[i] != m.start():
-                continue
-            j = bisect_right(starts, m.end() - 1) - 1
-            if j <= i:
-                continue  # single word: the ordinary patterns already saw it
-            hs = offsets[i]
-            cs, ce = clause_of(hs)
-            hits += 1
-            if hits > _MAX_HITS:
-                return categories | {"overflow"}, forms, True
-            if _negated(s, hs, cs, ce):
-                continue
-            note("obfuscation", m.group(0))
-            return categories, forms, False
-    return categories, forms, False
+        return {cat}, [s[hs:he][:_MAX_FORM_CHARS]], False
+    for hs, stem in squash:
+        cs, ce = clause_of(hs)
+        if _negated(s, hs, cs, ce, hedge_cache):
+            continue
+        return {"obfuscation"}, [stem], False
+    return set(), [], False
 
 
-def _views(text: str) -> tuple[str, ...]:
-    """The normalized views to scan, in a fixed order."""
-    base = _base_normalize(text)
-    views: list[str] = [_finish_view(base, _LEET_I)]
-    if len(base) > _SECONDARY_MAX_CHARS:
-        return tuple(views)
+# Tokens that mix a letter and the digit 1 ("l1es"): the only place a second
+# view (1 read as l) can differ from the main one.
+_ONE_TOKEN_RE = re.compile(r"(?<!\S)(?=\S*[a-z])\S*1\S*")
+
+
+def _snippets(s: str, spans: Iterable[tuple[int, int]]) -> tuple[str, bool]:
+    """Distinct short snippets of `s` around each (start, end) span, joined by
+    newlines. Returns ("", True) when there are more than `_MAX_SNIPPETS`.
+
+    Each snippet is the span plus `_SNIPPET_CONTEXT_CHARS` either side, trimmed
+    back to whole words when the cut falls inside a word that is not the span's
+    own. Nothing here searches further than one snippet, so the cost is linear.
+    """
+    seen: dict[str, tuple[int, int, int, int]] = {}
+    ctx = _SNIPPET_CONTEXT_CHARS
+    for a, b in spans:
+        lo = a - ctx if a > ctx else 0
+        hi = min(b + ctx, lo + _SNIPPET_MAX_CHARS)
+        text = s[lo:hi]
+        if text not in seen:
+            seen[text] = (lo, hi, a - lo, min(b, hi) - lo)
+            if len(seen) > _MAX_SNIPPETS:
+                return "", True
+    parts: list[str] = []
+    for text, (lo, hi, off, end) in seen.items():
+        if lo > 0 and s[lo - 1] != " ":
+            cut = text.find(" ", 0, off)
+            if cut >= 0:
+                text, end = text[cut + 1 :], end - cut - 1
+        if hi < len(s) and s[hi] != " ":
+            cut = text.rfind(" ", max(end, 0))
+            if cut >= 0:
+                text = text[:cut]
+        parts.append(text)
+    return "\n".join(parts), False
+
+
+def _extra_views(base: str, main: str) -> tuple[list[str], bool]:
+    """Second views built only from snippets around the tokens that need them."""
+    views: list[str] = []
+    overflow = False
     if "1" in base:
-        views.append(_finish_view(base, _LEET_L))
-    first = views[0]
-    if _ELONG_RE.search(first):
-        views.append(_ELONG_RE.sub(r"\1", first))
-        views.append(_ELONG_RE.sub(r"\1\1", first))
-    return tuple(views)
+        text, over = _snippets(
+            base, ((m.start(), m.end()) for m in _ONE_TOKEN_RE.finditer(base))
+        )
+        overflow = overflow or over
+        if text:
+            views.append(_finish_view(text, _LEET_L))
+    if _ELONG_RE.search(main) is not None:
+        text, over = _snippets(
+            main, ((m.start(), m.end()) for m in _ELONG_RE.finditer(main))
+        )
+        overflow = overflow or over
+        if text:
+            views.append(_ELONG_RE.sub(r"\1", text))
+            views.append(_ELONG_RE.sub(r"\1\1", text))
+    return views, overflow
 
 
 def _screen(text: str) -> ScreenResult:
-    categories: set[str] = set()
-    forms: list[str] = []
-    for index, view in enumerate(_views(text)):
-        cats, fs, _ = _scan(
-            view, allow_squash=index == 0 and len(view) <= _SECONDARY_MAX_CHARS
-        )
-        if cats:
-            categories |= cats
-            forms.extend(f for f in fs if f not in forms)
-            break
+    base = _base_normalize(text)
+    main = _finish_view(base, _LEET_I)
+    categories, forms, _ = _scan(main, allow_squash=True)
+    if not categories:
+        extra, overflow = _extra_views(base, main)
+        for view in extra:
+            categories, forms, _ = _scan(view, allow_squash=False)
+            if categories:
+                break
+        else:
+            if overflow:
+                categories = {"overflow"}
     if not categories:
         return ScreenResult(False, (), ())
     return ScreenResult(True, tuple(sorted(categories)), tuple(forms[:_MAX_MATCHED]))
@@ -1570,10 +1773,15 @@ def screen_value(text: str) -> ScreenResult:
 
 
 def safe_excerpt(text: object, limit: int = LOG_EXCERPT_CHARS) -> str:
-    """At most `limit` characters of `text`, safe to put in a log line."""
+    """At most `limit` characters of `text`, safe to put in a log line.
+
+    Whitespace runs collapse to one space and every non-printable character
+    (control, format, line and paragraph separators) becomes "?".
+    """
     try:
-        s = text if isinstance(text, str) else repr(text)
-        s = " ".join(s.split())
-        return s if len(s) <= limit else s[: limit - 3] + "..."
+        raw = text if isinstance(text, str) else repr(text)
+        flat = " ".join(raw.split())[: limit * 2]
+        clean = "".join(c if c.isprintable() else "?" for c in flat)
+        return clean if len(clean) <= limit else clean[: limit - 3] + "..."
     except Exception:
         return "<unprintable>"
