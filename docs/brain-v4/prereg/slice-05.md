@@ -4,11 +4,11 @@
 
 ## Claim under test
 
-Today hostile, neutral and supportive input produce identical trust rows, with integrity rising 0.17 per turn to 1.0, because norm alignment is 1.0 whenever no boundary keyword matches and the update adds `delta * NA` (`results/slice-02a/README.md`, System 1, text-only). After the fix, hostile input does not raise integrity, and support and rupture-repair move trust in the right direction.
+Today hostile, neutral and supportive input produce identical trust rows, with integrity rising 0.1 per turn from 0.5 to 1.0 in 5 turns, because norm alignment is 1.0 whenever no boundary keyword matches and the update adds `delta * NA` (`results/slice-02a/README.md`, System 1, text-only). After the fix, hostile input does not raise integrity, and support and rupture-repair move trust in the right direction.
 
 ## Arms
 
-current (flag off), variant A (neutral norm term when there is no evidence), variant B (signed norm term fed by the semantic appraisal). Flag: `TRUST_EVIDENCE_MODEL_ENABLED` (the name the BrainBench switchboard reserves for W3), default false. The cold critic picks one; the other is deleted.
+current (flag off), variant A (neutral norm term when there is no evidence), variant B (signed norm term fed by the semantic appraisal; the System 2 reading only drifts mood today and never reaches trust, so B adds that path). Flag: `TRUST_EVIDENCE_MODEL_ENABLED` (the name the BrainBench switchboard reserves for W3), default false. The cold critic picks one; the other is deleted.
 
 ## Measures and proposed pass rules
 
@@ -27,3 +27,8 @@ Rules 2 to 5 are deterministic and use no model. They are proposals; the 0.05 an
 ## Not claimed
 
 No claim that the semantic variant is better in conversation, only that it passes the matched-input rules. No local-tier claim.
+
+## Revisions before any build
+
+- The first draft said integrity rose 0.17 per turn. That figure came from the discarded slice 2a collection that read the owner's gitignored persona file. The corrected default-persona step is 0.1 (`results/slice-02a/README.md`). Rule text is unchanged.
+- Deterministic rules 2 to 5 cannot be run on variant B with the null model, because B moves integrity only on a model reading. B's tests use a scripted fake reading per input text. That checks the plumbing and the neutral band, not any real model. The real-model check is the trust suite (rule 6), after approval.

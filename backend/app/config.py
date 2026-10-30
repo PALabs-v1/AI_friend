@@ -236,6 +236,13 @@ class AppSettings(BaseSettings):
     # mood. False keeps the mood-as-bias path byte-identical.
     AFFECT_USER_INPUT_ENABLED: bool = False
 
+    # NF-23: integrity trust moves by the conduct evidence of the current user
+    # message (cognitive/norm_evidence.py) instead of by norm alignment, which
+    # is 1.0 whenever no identity-boundary keyword matches and so raised
+    # integrity on hostile, neutral and supportive text alike. No evidence means
+    # no movement. False keeps `integrity += delta * NA` byte-identical.
+    TRUST_EVIDENCE_MODEL_ENABLED: bool = False
+
     # Authoritative workspace instance: production turns supply an authoritative workspace instance
     # to ActionIntent rather than falling back to (0, 0) -- see
     # state/session_state.py's `workspace_authoritative_enabled()`.

@@ -15,6 +15,7 @@ import hashlib
 import json
 import logging
 import math
+import numbers
 import os
 import sqlite3
 import time
@@ -1753,8 +1754,25 @@ class StateService:
         )
         return appraisal, controls
 
+    @staticmethod
+    def _finite_evidence(value: object) -> float | None:
+        """`value` as a float, or None when it is not a finite real number in
+        [-1, 1] (None, bool, str, NaN, infinity, out of range). Out of range is
+        rejected, not clipped: a value outside the contract means the scorer is
+        broken, and clipping would hide it as full-strength evidence."""
+        if isinstance(value, bool) or not isinstance(value, numbers.Real):
+            return None
+        # The range test also rejects NaN and infinity, and unlike
+        # `math.isfinite` it does not overflow on an int too big for a float.
+        if not -1.0 <= value <= 1.0:
+            return None
+        return float(value)
+
     async def update_from_appraisal(
-        self, appraisal, weights: dict[str, float] | None = None
+        self,
+        appraisal,
+        weights: dict[str, float] | None = None,
+        evidence: float | None = None,
     ):
         """
         PAD + Relational update driven by appraisal vector (section2.3).
@@ -1763,6 +1781,12 @@ class StateService:
         PAD dimension toward the appraised value.
         Marsh trust: RI directly modulates trust.
         Bowlby attachment: Trust x interaction frequency.
+
+        `evidence` is the conduct evidence of this message in [-1, 1]
+        (`cognitive/norm_evidence.py`). It is read only when
+        `Config.TRUST_EVIDENCE_MODEL_ENABLED` is on, and then integrity moves by
+        `delta * evidence` instead of `delta * norm_alignment`. Absent, NaN,
+        infinite, out-of-range or non-numeric evidence is no evidence and moves nothing.
         """
         G = appraisal.goal_congruence
         RI = appraisal.relationship_impact
@@ -1780,6 +1804,15 @@ class StateService:
         w4 = weights.get("w4_r_to_ar", 0.4)
         w5 = weights.get("w5_a_to_d", 0.6)
         w6 = weights.get("w6_na_to_d", 0.4)
+
+        # NF-23: which signal drives integrity this turn. Flag off it is NA, the
+        # old term. Flag on it is the evidence argument, with anything
+        # that is not a finite number counted as none.
+        evidence_model = Config.TRUST_EVIDENCE_MODEL_ENABLED
+        clean_evidence = self._finite_evidence(evidence)
+        integrity_signal = NA
+        if evidence_model:
+            integrity_signal = 0.0 if clean_evidence is None else clean_evidence
 
         async with self._state_lock:
             tracing = self._trace_enabled()
@@ -1814,7 +1847,11 @@ class StateService:
                 ),
             )
             self.current_state.trust_integrity = max(
-                0.0, min(1.0, self.current_state.trust_integrity + self.delta * NA)
+                0.0,
+                min(
+                    1.0,
+                    self.current_state.trust_integrity + self.delta * integrity_signal,
+                ),
             )
             self.current_state.interaction_count += 1
             freq = min(1.0, self.current_state.interaction_count / 100.0)
@@ -1851,16 +1888,22 @@ class StateService:
                     affect_before,
                     affect_after,
                 )
+                trust_inputs: dict[str, Any] = {
+                    "relationship_impact": RI,
+                    "goal_congruence": G,
+                    "relevance": R,
+                    "norm_alignment": NA,
+                    "interaction_count": self.current_state.interaction_count,
+                }
+                if evidence_model:
+                    # The integrity step used `integrity_signal`, not NA.
+                    trust_inputs["integrity_signal"] = "norm_evidence"
+                    trust_inputs["norm_evidence"] = integrity_signal
+                    trust_inputs["norm_evidence_supplied"] = clean_evidence is not None
                 self._trace_update(
                     "trust.update",
                     "appraisal",
-                    {
-                        "relationship_impact": RI,
-                        "goal_congruence": G,
-                        "relevance": R,
-                        "norm_alignment": NA,
-                        "interaction_count": self.current_state.interaction_count,
-                    },
+                    trust_inputs,
                     trust_before,
                     trust_after,
                     person_id=self.current_state.active_person_id,

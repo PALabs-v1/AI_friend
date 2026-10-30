@@ -405,3 +405,10 @@ Aniket chose "I propose, you approve". Proposed margins go into `prereg/slice-04
 **Status:** RESOLVED (2026-10-29, Aniket) · **Resolve by:** slice 2b · **Blocking:** no
 
 Accepted as written in `prereg/slice-02.md`: 5 repeats per tier at the lowest temperature the client allows; the band is the largest pairwise difference of the headline measure across those runs; two arms are called different only if their gap exceeds the larger of the two arms' bands. Applies to slices 2b, 4 and 5.
+
+---
+
+## D-049: Integrity evidence ignores the appraisal's boundary-keyword check
+**Status:** DECIDED by Claude inside the slice 5 tournament (2026-10-30), open to override by Aniket · **Blocking:** no
+
+With `TRUST_EVIDENCE_MODEL_ENABLED` on, integrity moves on `norm_evidence(message)` only. The appraisal's `norm_alignment` (substring match of words from the two `IMMUTABLE_CORE` boundaries) is not used. Reason: the boundaries are the agent's own commitments ("Will never share user data"), and the substring match fires on "will", "user", "data", "share", so ordinary sentences scored as violations and, once integrity read them, lowered trust (measured by the builder and the critic). Flag off keeps the old `delta * NA` term unchanged. If you want boundary hits to count as evidence, the match needs whole-word logic in Python and Rust first.

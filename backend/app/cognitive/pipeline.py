@@ -13,6 +13,7 @@ from .action_intent import ActionIntent, ActionKind, build_action_intent
 from .behavior_contracts import BehaviorDecision
 from .event_valence import event_valence
 from .memory_activation import MemoryActivation, memories_to_activations
+from .norm_evidence import norm_evidence
 from .percept import PerceptEnvelope
 
 logger = logging.getLogger(__name__)
@@ -285,7 +286,18 @@ class CognitivePipeline:
             await self.state.update_theory_of_mind(event.raw_content)
 
             weights = self.reappraisal.get_weights() if self.reappraisal else None
-            await self.state.update_from_appraisal(appraisal_vector, weights=weights)
+            trust_kwargs: dict[str, Any] = {}
+            if Config.TRUST_EVIDENCE_MODEL_ENABLED:
+                # Conduct evidence of this message only (NF-23); never stored
+                # mood or trust. The appraisal's boundary-keyword norm
+                # alignment is not used: the boundaries are the agent's own
+                # commitments, and the substring match fires on "will" and
+                # "user". This branch is USER_MESSAGE only. Flag off leaves
+                # the call exactly as it was.
+                trust_kwargs["evidence"] = norm_evidence(event.raw_content)
+            await self.state.update_from_appraisal(
+                appraisal_vector, weights=weights, **trust_kwargs
+            )
 
             # Trigger System 2 deep appraisal in background (non-blocking).
             # A2: cancel any still-running prior appraisal so overlapping
