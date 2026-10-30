@@ -491,3 +491,25 @@ The governor checks keys only; a probe accepted "manipulative" and "lies to user
 **Status:** RESOLVED (2026-10-30, Aniket) · **Blocking:** no
 
 Reflection call only (about 4,000 calls at an unmeasured rate), the full pipeline kept for the closed-loop check. Run when Aniket's Claude usage allows. Selected thresholds are provisional and are re-checked on the local tier when the GPU returns.
+
+---
+
+## D-064: Slice 4b margins approved as proposed
+**Status:** RESOLVED (2026-10-30, Aniket) · **Blocking:** no
+
+All of `prereg/slice-04b.md` stands: A term `0.10 * min(0, valence)` bounded 0.60 to 0.95 with diversity margin 0.03 (void at 0.015); B style line at mood -0.4 or below and +0.4 or above, skipped for goal COMFORT; B pass reuses D-050 (gap 0.33, above 2x noise, void at 0.165); flag `MOOD_STYLE_DRIVE_ENABLED`; the proactive payload gains a `valence` key under the flag; the 7 missing mood readers are added to `ledger.py`. The tournament build may start.
+
+## D-065: Slice 7 floors approved as proposed, time 20 turns first
+**Status:** RESOLVED (2026-10-30, Aniket) · **Blocking:** no
+
+All floors in `prereg/slice-07.md` and its revisions stand, including the trigger on all USER_MESSAGE turns. Before the full run, 20 turns are timed to re-project the call budget (9,500 to 14,400 calls); stop and ask if the projection exceeds 14,400.
+
+## D-066: Slice 9 numbers approved; two human raters
+**Status:** RESOLVED for the numbers; OPEN for the name of rater 2 (2026-10-30, Aniket) · **Blocking:** for the slice 9 rating run
+
+Probe pack, check corpus, pass rule and the generation budget stand. Aniket first said he would rate alone, then chose two raters so the inter-rater kappa gate (at least 0.60 for D and V) can be computed as written. Aniket is rater 1; he must name rater 2 and the adjudicator before the rating run. No test-retest or LLM-judge substitute is used.
+
+## D-067: Slice 10 numbers approved as proposed
+**Status:** RESOLVED (2026-10-30, Aniket) · **Blocking:** no
+
+All grids, the 180-day rule per cell, the churn caps, S1 to S3, the identity-band rules and the seeds stand. Slice 10a (value screen) builds first; the sweep follows it.

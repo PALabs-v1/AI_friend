@@ -166,3 +166,5 @@ No claim about felt realism or user preference. No claim about the local 4B to 9
 ## Decided 2026-10-30
 
 D-057: close the verified gaps (this tournament). D-058: variant A is proven by gate tests only until a sampler-honoring tier exists. Still PROPOSED and awaiting approval: every numeric margin, the flag name `MOOD_STYLE_DRIVE_ENABLED`, the proactive payload `valence` key, and the ledger readers.
+
+Status update: all margins APPROVED 2026-10-30 (D-064).

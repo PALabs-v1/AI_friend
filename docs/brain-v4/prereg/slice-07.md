@@ -202,3 +202,5 @@ The review verdict was UNSOUND as first written. These amendments take precedenc
 ## Decided 2026-10-30
 
 D-059: source turn goes in `provenance`; third-party beliefs are stored with `subject_kind=third_party`, user-deletable and excluded from export. Still PROPOSED and awaiting approval: the floors, the call budget, the audit raters, the trigger scope, and revision items 1, 2 and 10(c).
+
+Status update: floors APPROVED 2026-10-30 (D-065); time 20 turns before the full run.

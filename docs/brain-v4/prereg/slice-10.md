@@ -142,3 +142,5 @@ No claim that the setting suits any tier other than the one recorded. No claim a
 ## Decided 2026-10-30
 
 D-062: the value screen is built first as its own small slice (10a). D-063: Stage B runs on the frontier tier via Claude Code, provisional. Still PROPOSED and awaiting approval: the grids and every threshold, the identity-band quantity, seeds and archetypes, and items 7 and 8 above.
+
+Status update: grids and thresholds APPROVED 2026-10-30 (D-067).

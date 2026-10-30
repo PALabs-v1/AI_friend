@@ -209,3 +209,5 @@ The review verdict was UNSOUND as first written. These amendments take precedenc
 ## Decided 2026-10-30
 
 D-060: tiered runtime check, strict human raters. D-061: human voice allowed inside a user-requested game, those 4 probes reported apart. Still PROPOSED and awaiting approval: probe pack size, kappa thresholds, the corpus numbers, who rates and adjudicates, 2-arm or 3-arm plan, the per-persona authored line, the 1,548-turn generation budget.
+
+Status update: numbers APPROVED 2026-10-30 (D-066), two human raters; Aniket is rater 1, rater 2 and the adjudicator still to be named.
