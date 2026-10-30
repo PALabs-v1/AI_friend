@@ -1,6 +1,6 @@
 # Preregistration: slice 5 (fix the integrity update, NF-23)
 
-**Status: PROPOSED. Not approved. No model-backed run happens until Aniket approves or changes the numbers below (D-047).** Written for Aniket. Committed before any slice 5 code or run.
+**Status: APPROVED (2026-10-30, D-051). Rule 6 (trust suite) stays unnumbered until slice 4 shows the frontier noise band.** Written for Aniket. Committed before any slice 5 code or run.
 
 ## Claim under test
 

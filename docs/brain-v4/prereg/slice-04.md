@@ -1,6 +1,6 @@
 # Preregistration: slice 4 (fix the mood self-feed, NF-12)
 
-**Status: PROPOSED. Not approved. No model-backed run happens until Aniket approves or changes the numbers below (D-047).** Written for Aniket. Committed before any slice 4 code or run.
+**Status: APPROVED (2026-10-30, D-050), except item 3: Aniket chose that mood should drive a sampler or style term (D-052), specified in `prereg/slice-04b.md`.** Written for Aniket. Committed before any slice 4 code or run.
 
 ## Claim under test
 
@@ -24,7 +24,7 @@ The headline measure is Cliff's delta between mood change on positive-oracle tur
 
 1. **Baseline first.** The current arm and its shuffled control are run and recorded before any code change. Noise band per D-048 (5 repeats, largest pairwise gap).
 2. **Pass (proposed):** the winning arm's delta minus its own shuffled-control delta is at least **0.33**, and that gap exceeds twice the larger arm's noise band. If the noise band alone exceeds 0.165, the pass rule is void and the result is reported as "not measurable at this tier", not as a pass.
-3. **Clamp (finding, not a pass rule):** the sampler mapping in `_compute_endocrine_options` in `backend/app/cognitive/action.py`, reads cortisol, dopamine and fatigue, not mood. A mood clamp therefore has no declared effect through that function today (other style paths were not checked for this proposal). The clamp control is run and its downstream effect on the measures above is reported; whether mood should drive any sampler or style term is an architecture decision for Aniket and is not made here.
+3. **Clamp (finding, not a pass rule):** CORRECTED 2026-10-30. The first draft said a mood clamp has no declared effect through `_compute_endocrine_options`. That was wrong. `valence` is an alias of `mood` (`agent_state.py:307-313`); `cortisol_tonic` is `0.5 - valence/2 + 0.3*fatigue` (`:404-411`) and `dopamine_tonic` is `max(0, valence) * arousal` (`:467-476`); the sampler maps cortisol to temperature and dopamine to `top_p` (`action.py:944-`). A probe of the real function gives temperature 0.36 at mood -0.8 and 0.84 at +0.8. The clamp control is run and its downstream effect is reported. Whether to add a further mood term is specified in `prereg/slice-04b.md` (D-052).
 4. **No-regression (proposed):** the System 1 no-model baseline (`results/slice-02a`) digest changes only in the mood section; integrity, behavioral and static sections are byte-identical.
 5. **Parity:** the Rust and Python appraisal paths agree on every input in the existing parity tests plus the new cases.
 

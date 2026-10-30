@@ -29,4 +29,4 @@ English only. Sarcasm scores as praise ("Oh great, another meeting"). Mixed cues
 
 ## Not done (needs your approval first)
 
-The model-backed baseline of the current arm and its shuffled control, the winning arm's run, and the pass decision. All wait for the margins in `prereg/slice-04.md`. The clamp control has no declared downstream effect to test (mood does not feed `_compute_endocrine_options`).
+The model-backed baseline of the current arm and its shuffled control, the winning arm's run, and the pass decision. All wait for the margins in `prereg/slice-04.md`. CORRECTED 2026-10-30: the clamp control does have a declared downstream path. Mood is `valence`, which sets cortisol and dopamine, which set the sampler temperature and `top_p` (`agent_state.py:404-411`, `:467-476`, `action.py:944-`). My first draft said it had none; that was wrong (see D-056).

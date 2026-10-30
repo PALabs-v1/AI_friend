@@ -412,3 +412,45 @@ Accepted as written in `prereg/slice-02.md`: 5 repeats per tier at the lowest te
 **Status:** DECIDED by Claude inside the slice 5 tournament (2026-10-30), open to override by Aniket · **Blocking:** no
 
 With `TRUST_EVIDENCE_MODEL_ENABLED` on, integrity moves on `norm_evidence(message)` only. The appraisal's `norm_alignment` (substring match of words from the two `IMMUTABLE_CORE` boundaries) is not used. Reason: the boundaries are the agent's own commitments ("Will never share user data"), and the substring match fires on "will", "user", "data", "share", so ordinary sentences scored as violations and, once integrity read them, lowered trust (measured by the builder and the critic). Flag off keeps the old `delta * NA` term unchanged. If you want boundary hits to count as evidence, the match needs whole-word logic in Python and Rust first.
+
+---
+
+## D-050: Slice 4 pass rule approved as proposed
+**Status:** RESOLVED (2026-10-30, Aniket) · **Blocking:** no
+
+`prereg/slice-04.md` items 1, 2, 4 and 5 stand: winning arm's Cliff's delta minus its shuffled-control delta at least 0.33 and above twice the larger noise band; the rule is void if noise alone exceeds 0.165; 5 persona seeds listed in the file before the first run. The model-backed baseline and winner run may start (frontier tier, local Claude Code, Mac, D-046).
+
+## D-051: Slice 5 pass rules approved as proposed
+**Status:** RESOLVED (2026-10-30, Aniket) · **Blocking:** no
+
+`prereg/slice-05.md` rules 2 to 5 and 7 stand (hostile at most 0.0, supportive at least +0.05 and above hostile from turn 2, rupture-repair, neutral within 0.02, digests unchanged outside integrity). Rule 6, the model-backed trust suite, is reported with the D-048 noise band and gets no numeric bar until slice 4's run shows the frontier noise.
+
+## D-052: Mood drives a sampler or style term (architecture change)
+**Status:** RESOLVED (2026-10-30, Aniket) · **Blocking:** for the mood-to-sampler build only
+
+Aniket chose to make mood drive a sampler or style term, rather than leave the missing link as a finding. Claude writes `prereg/slice-04b.md` first (which term, the measure that can fail, the margin as PROPOSED for D-047), then builds behind its own flag as a tournament with a blind critic. No model-backed run before Aniket approves its margin.
+
+## D-053: Remove this session's scratch worktrees and its stash
+**Status:** RESOLVED (2026-10-30, Aniket) · **Blocking:** no
+
+Claude may remove the builder and critic worktrees it created and the stash tagged `builderB-tmp-probe`, after checking each is clean or already in `main`. Not covered: other stashes, the `codex-*` worktrees, any other branch.
+
+
+---
+
+## D-054: Slice 4 baseline runs the full approved design, concurrent
+**Status:** RESOLVED (2026-10-30, Aniket) · **Blocking:** no
+
+The smoke test projected about 12,300 local Claude Code calls and 7.9 h sequential for 2 arms x 5 seeds x 5 repeats x 60 turns, far over the 600-call and 3 h caps Claude had set. Aniket chose to run the full approved design (D-050, D-048 intact) at 4 to 6 concurrent runs rather than cut turns, stub roles or drop repeats. Model: `claude-opus-5-5` through the `opus` alias. Temperature cannot be set through the CLI, so "lowest temperature the client allows" resolves to the CLI default and the README says so. Stop at the first usage-limit message; the harness resumes from saved runs.
+
+## D-055: Failed model calls get a counted retry, never a silent one
+**Status:** RESOLVED (2026-10-30, Aniket) · **Blocking:** no
+
+About 14% of CLI calls failed with exit 1 (one replay: `SELF_SIGNED_CERT_IN_CHAIN`, likely a TLS-inspecting proxy). The harness retries a failed call at most twice, records every attempt and failure in the raw log, and reports the retry count in the README. A run with an unrecovered semantic-appraisal failure is marked invalid and is not scored. The product `ClaudeCodeClient` is not changed by this decision; it drops stdout on a nonzero exit, so the failure reason does not reach its log (open debt, see claim #16 family).
+
+---
+
+## D-056: Correction to the premise of D-052 (mood already drives the sampler)
+**Status:** OPEN, needs Aniket (2026-10-30) · **Blocking:** for the slice 4b build
+
+D-052 was decided on my statement that mood does not feed `_compute_endocrine_options`. That statement was wrong. `valence` is an alias of `mood`; it sets `cortisol_tonic` and `dopamine_tonic`, which set temperature and `top_p`. A probe by the slice 4b prereg author gives temperature 0.36 at mood -0.8 and 0.84 at +0.8, `top_p` 0.70 and 0.80. What the code does lack: `top_p` is flat at 0.70 for every mood at or below 0, reply length depends on fatigue only, and there is no graded style term. Aniket must say whether D-052 stands as written (add a new mood term), becomes "close the verified gaps" as listed in `prereg/slice-04b.md`, or is dropped. I corrected `prereg/slice-04.md` item 3 and `results/slice-04/README.md`; the 2026-10-29 PROJECT_STATE row keeps its original wording as history.
