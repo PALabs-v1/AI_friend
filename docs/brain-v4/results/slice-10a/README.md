@@ -213,3 +213,11 @@ Each mutation was applied alone, the file test run, then restored (`cmp` against
 ## Restart
 
 Nothing needs restarting for the code to land: the flag is off. To turn it on, set `PERSONA_VALUE_SCREEN_ENABLED=true` in the backend environment and restart the backend process that hosts `IdentityManager`.
+
+## Review status (2026-10-30, added by the orchestrator)
+
+- **Tournament.** Two builders (lemma lexicon, phrase patterns). Two blind critics (Claude, Codex) picked the phrase-pattern build and failed both builds in round 1. This is the phrase-pattern build.
+- **Critic rounds.** Round 1: both critics FAIL (negation clause swallowed an affirming harm clause; spacing and separator bypasses; honest-trait false positives; out-of-spec shared-config edits). Fixed. Round 2: Codex FAIL (50 of 140 affirming-after-negation misses, 34 false blocks on a 78-string benign set, polarity misses). The cap of 2 rounds is used, so the last pass was fixed with tests and has had no re-review. It is listed for the end-of-project critic loop.
+- **Held-out measure, independent.** Before the last pass: V3 recall 37/40 = 0.925, V4 false positives 0/40, V5 evasions 15/15. After the last pass the held-out set reads 40/40, 0/40, 15/15, but the builder added three held-out misses to the lexicon after reading them in the critic report ("mocks vulnerable people", "feeds on insecurity", "schemes against"). The post-fix 40/40 is therefore not an independent estimate; a fresh held-out set is needed for the final loop.
+- **Fresh attack grid (Codex, 393 strings), before and after the last pass.** Affirming harm after a negated clause 90/140 to 140/140; polarity 21/30 to 28/30; benign probes falsely blocked 42 to 22 of 102, all remaining mention-not-use or a documented list case. These counts were produced by the builder against the critic's own attack file, not re-run by a critic.
+- **Wiring.** Flag `PERSONA_VALUE_SCREEN_ENABLED` is off by default; the screen is not wired to anything that runs until an owner turns it on. Slice 10's reference gate and slice 11 call `screen_value`.

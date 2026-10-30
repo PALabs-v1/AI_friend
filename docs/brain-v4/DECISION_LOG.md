@@ -535,3 +535,8 @@ Flag-on rejected-reply share may not exceed flag off by more than 0.03 absolute,
 **Status:** RESOLVED (2026-10-30, Claude, per the standing protocol) · **Blocking:** no
 
 Blind critics (Claude and Codex, round 1) both picked variant B over A and failed both builds; B's corrections were reviewed by a Claude critic and a Codex critic in round 2 (both FAIL on named, then fixed, findings). The cap of 2 rounds is used; the last fixes (unknown token share cannot pass, prereg addendum) shipped without a re-review and are listed for the end-of-project critic loop. Variant A is deleted.
+
+## D-072: Slice 10a tournament result and review debt
+**Status:** RESOLVED (2026-10-30, Claude, per the standing protocol) · **Blocking:** no
+
+Slice 10a (persona value screen) shipped behind `PERSONA_VALUE_SCREEN_ENABLED` (default false). The phrase-pattern builder won a blind two-critic tournament; the lemma-lexicon builder is deleted. Round 1 failed both builds; round 2 (Codex) failed the winner on named defects; the last fixes were made with tests and not re-reviewed (cap of 2 rounds). Held-out recall was 0.925 before the last pass; the post-fix 40/40 is contaminated (the builder tuned on three held-out misses it read in the report), so the final critic loop needs a fresh held-out set. Known limits stay: mention-not-use, lexicon-free paraphrase, other languages. Unreviewed fixes are listed in the results README.
