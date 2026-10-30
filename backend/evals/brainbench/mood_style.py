@@ -1,4 +1,4 @@
-"""Slice 4b, variant B: the model-backed measure (`prereg/slice-04b.md`).
+"""Slice 4b mood style line: the model-backed measure (`prereg/slice-04b.md`).
 
 This module is the harness and the analysis. It never builds a model client and
 never reaches a network: the caller injects a `ReplyClient`, and the unit tests
@@ -9,7 +9,7 @@ Design (margins approved, D-064):
 
 - 40 prompts: dev seeds 1000 to 1004, per seed the first 8 user turns after turn
   20 whose intent is in `ALLOWED_INTENTS` (`select_prompts`).
-- Arms: flag off (current) and flag on (B), each at clamp +0.8 and -0.8 over all
+- Arms: flag off (current) and flag on, each at clamp +0.8 and -0.8 over all
   40 prompts, plus a placebo clamp 0.0 over the even and odd index halves. 5
   repeats. The flag-off arm is run first (baseline-first rule).
 - Headline: Cliff's delta of reply word counts, positive-clamp replies against
@@ -17,20 +17,20 @@ Design (margins approved, D-064):
 - Noise band per arm: largest pairwise gap of the per-repeat headline.
 - Controls: a placebo, a label permutation (seed 20261030, 1000 draws, paired
   within each (prompt, seed, repeat) block) and a quality guard.
-  - Gating placebo (PROPOSED correction to the prereg, to be confirmed with
-    Aniket): flag on, clamp 0.0, the same prompts in odd against even repeats.
-    The prereg placebo (even against odd prompt halves) is kept as
-    `placebo_prompt_halves_on`, reported and not gating, because two different
-    prompt sets differ in length for reasons that are not noise.
+  - Gating placebo (a PROPOSED correction to the prereg, accepted by the owner
+    on 2026-10-30 and recorded as a prereg correction): flag on, clamp 0.0, the
+    same prompts, odd repeats against even repeats. The prereg placebo (even
+    against odd prompt halves) is kept as `placebo_prompt_halves_on`, reported
+    and not gating, because two different prompt sets differ in length for
+    reasons that are not noise. `analyze` returns `placebo_basis` so a pass is
+    visibly conditional on the corrected placebo.
   - Permutation: one-sided. The declared direction is positive (longer replies
     at +0.8), so the observed effect must exceed the 99th percentile of the
     signed null. A two-sided cut would be looser and is not used.
-  - Quality guard: flag-on rejected share minus flag-off rejected share must not
-    exceed the band. The band is the larger per-repeat gap of the rejected share
-    in either arm (D-048 recipe applied to this metric). With zero rejections in
-    both arms the guard passes explicitly, so the band never has to be zero.
-    A lone rejection already makes that arm's per-repeat gap one reply in a
-    repeat (1/80), so a single rejection does not fail the guard.
+  - Quality guard (owner decision, fixed): fail when the flag-on rejected-reply
+    share exceeds the flag-off share by more than `QUALITY_CAP` (0.03, absolute),
+    pooled over all repeats and prompts of the +0.8 and -0.8 cells. Zero
+    rejections in both arms passes.
 
 Everything after the replies are collected (`analyze`) is deterministic.
 """
@@ -62,11 +62,22 @@ REPEATS = 5
 
 DELTA_MARGIN = 0.33
 NOISE_VOID = 0.165
+QUALITY_CAP = 0.03  # absolute rise in rejected-reply share, owner decision
 NOISE_MULTIPLE = 2.0
 PERMUTATIONS = 1000
 PERMUTATION_SEED = 20261030
 PERMUTATION_QUANTILE = 0.99
 TOKEN_CAP = 250
+
+PLACEBO_BASIS = {
+    "gating": "placebo_repeat_split_on: flag on, clamp 0.0, same prompts, odd repeats against even repeats",
+    "prereg": "placebo_prompt_halves_on (even against odd prompt halves) is reported and does not gate",
+    "note": (
+        "A pass is conditional on the corrected placebo. The prereg placebo "
+        "compares different prompt sets, so it measures prompt composition. "
+        "The correction was accepted by the owner on 2026-10-30."
+    ),
+}
 
 
 @dataclass(frozen=True)
@@ -365,21 +376,13 @@ def analyze(
         flag: [r for r in records if r.flag_on == flag and r.clamp != CLAMP_PLACEBO]
         for flag in (True, False)
     }
-    rejected = {flag: _share(rows, "rejected") for flag, rows in guard_rows.items()}
-    guard_band = max(
-        _gap(
-            [
-                _share([r for r in guard_rows[flag] if r.repeat == k], "rejected")
-                or 0.0
-                for k in range(repeats)
-            ]
-        )
-        for flag in (True, False)
-    )
-    if not rejected[True] and not rejected[False]:
-        quality_ok = True  # nothing rejected in either arm: explicit pass
-    else:
-        quality_ok = rejected[True] - rejected[False] <= guard_band
+    rejected = {
+        flag: _share(rows, "rejected") or 0.0 for flag, rows in guard_rows.items()
+    }
+    # Rounded so a rise of exactly the cap (for example 0.05 against 0.02) is
+    # not pushed over it by float error.
+    rise = round(rejected[True] - rejected[False], 9)
+    quality_ok = rise <= QUALITY_CAP
 
     baseline_first = _baseline_first(records)
     void = on["noise_band"] > NOISE_VOID or off["noise_band"] > NOISE_VOID
@@ -409,13 +412,15 @@ def analyze(
         "delta_off": off,
         "larger_noise_band": larger_band,
         "placebo_repeat_split_on": split_on,
+        "placebo_basis": PLACEBO_BASIS,
         "placebo_prompt_halves_on": halves_on,
         "placebo_prompt_halves_off": halves_off,
         "permutation": perm,
         "quality": {
             "rejected_share_on": rejected[True],
             "rejected_share_off": rejected[False],
-            "noise_band": guard_band,
+            "rise": rise,
+            "cap": QUALITY_CAP,
         },
         "at_cap_share": {
             "off": _share(
@@ -537,6 +542,9 @@ class ActionServiceReplyClient:
     Code client in an approved run). `snapshot_for(prompt, clamp, repeat)`
     returns the state snapshot of the offline mind with mood clamped to
     `clamp`. The flag is toggled with the `+mood-style` switchboard arm.
+    `tokens_fn(reply_text)` returns the generated token count for the tier in
+    use; without it `Reply.tokens` is None and the share of replies at the
+    250-token cap cannot be reported, so the runner must supply one.
     """
 
     def __init__(
@@ -545,10 +553,12 @@ class ActionServiceReplyClient:
         snapshot_for: Callable[[Prompt, float, int], Mapping[str, Any]],
         *,
         goal: str = "ENGAGE",
+        tokens_fn: Callable[[str], int] | None = None,
     ) -> None:
         self._llm = llm
         self._snapshot_for = snapshot_for
         self._goal = goal
+        self._tokens_fn = tokens_fn
 
     async def reply(
         self, prompt: Prompt, *, flag_on: bool, clamp: float, repeat: int
@@ -570,4 +580,6 @@ class ActionServiceReplyClient:
                     parts.append(str(chunk.get("data", "")))
                 elif chunk.get("type") == "self_correction":
                     rejected = True
-        return Reply("".join(parts).strip(), rejected=rejected)
+        text = "".join(parts).strip()
+        tokens = int(self._tokens_fn(text)) if self._tokens_fn else None
+        return Reply(text, rejected=rejected, tokens=tokens)

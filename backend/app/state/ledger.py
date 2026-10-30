@@ -91,7 +91,7 @@ _MOOD_READERS = (
     # Voice trajectory (not text).
     f"{_EXPR}::derive_speech_expression",
     f"{_BA}::_derive_expression_wire",
-    # Slice 4b variant B reply-length line (flag `MOOD_STYLE_DRIVE_ENABLED`).
+    # Slice 4b reply-length line (flag `MOOD_STYLE_DRIVE_ENABLED`).
     f"{_ACT}::_mood_style_line",
 )
 

@@ -1,4 +1,4 @@
-"""Slice 4b, variant B: unit tests of the model-backed measure harness
+"""Slice 4b mood style line: unit tests of the model-backed measure harness
 (`evals/brainbench/mood_style.py`) with fake clients. No model, no network.
 
 The harness is the instrument the approved run will use, so these tests pin the
@@ -42,15 +42,14 @@ class FakeClient:
         base_effect=0,
         noise=8,
         parity_skew=0,
-        reject_on=False,
+        reject_fn=None,
         repeat_shift=0,
         repeat_skew=0,
-        reject_once=False,
     ):
         self.lift, self.base_effect, self.noise = lift, base_effect, noise
-        self.parity_skew, self.reject_on = parity_skew, reject_on
+        self.parity_skew, self.reject_fn = parity_skew, reject_fn
         self.repeat_shift = repeat_shift
-        self.repeat_skew, self.reject_once = repeat_skew, reject_once
+        self.repeat_skew = repeat_skew
         self.order: list[bool] = []
 
     async def reply(self, prompt, *, flag_on, clamp, repeat):
@@ -70,9 +69,9 @@ class FakeClient:
                 words += self.parity_skew
             if clamp == 0.0 and repeat % 2 == 1:
                 words += self.repeat_skew
-        rejected = self.reject_on and flag_on and prompt.index % 7 == 0
-        if self.reject_once:  # exactly one flag-on rejection in the whole run
-            rejected = flag_on and prompt.index == 3 and repeat == 0 and clamp > 0
+        rejected = bool(
+            self.reject_fn and self.reject_fn(flag_on, clamp, prompt, repeat)
+        )
         return ms.Reply(" ".join(["w"] * words), rejected=rejected)
 
 
@@ -197,31 +196,94 @@ def test_repeat_split_placebo_gates_and_fails_on_flag_on_drift():
     assert result["status"] == "fail"
 
 
-def test_quality_guard_fails_when_flag_on_is_rejected_more():
-    result = ms.analyze(_run(FakeClient(lift=40, noise=8, reject_on=True)))
-    assert (
-        result["quality"]["rejected_share_on"] > result["quality"]["rejected_share_off"]
-    )
+def _rejecting(on=0, off=0, *, repeat=None):
+    """A `reject_fn` rejecting the first `on` flag-on and `off` flag-off cells at
+    clamp +-0.8 (400 per arm), numbered by (repeat, prompt, sign). With
+    `repeat` set, the numbering stays inside that one repeat (80 cells)."""
+
+    def cell(prompt, rep, clamp):
+        base = prompt.index * 2 + (0 if clamp > 0 else 1)
+        return base if repeat is not None else rep * 80 + base
+
+    def fn(flag_on, clamp, prompt, rep):
+        if clamp == 0.0 or (repeat is not None and rep != repeat):
+            return False
+        return cell(prompt, rep, clamp) < (on if flag_on else off)
+
+    return fn
+
+
+def _guard(on=0, off=0, **kw):
+    client = FakeClient(lift=40, noise=8, reject_fn=_rejecting(on, off, **kw))
+    return ms.analyze(_run(client))
+
+
+def test_quality_guard_fails_on_a_five_point_rise():
+    result = _guard(on=20)
+    assert result["quality"]["rise"] == pytest.approx(0.05)
+    assert result["quality"]["cap"] == 0.03
     assert not result["rules"]["quality_guard"]
     assert result["status"] == "fail"
 
 
-def test_quality_guard_passes_explicitly_with_no_rejections():
-    result = ms.analyze(_run(FakeClient(lift=40, noise=8)))
+def test_quality_guard_fails_on_a_five_point_rise_over_a_nonzero_baseline():
+    result = _guard(on=28, off=8)  # 7% against 2%
+    assert result["quality"]["rise"] == pytest.approx(0.05)
+    assert not result["rules"]["quality_guard"]
+
+
+def test_quality_guard_passes_a_two_point_rise():
+    result = _guard(on=8)
+    assert result["quality"]["rise"] == pytest.approx(0.02)
+    assert result["rules"]["quality_guard"]
+
+
+def test_quality_guard_passes_equal_rates_and_a_drop():
+    assert _guard(on=20, off=20)["rules"]["quality_guard"]
+    drop = _guard(on=4, off=20)
+    assert drop["quality"]["rise"] < 0 and drop["rules"]["quality_guard"]
+
+
+def test_quality_guard_passes_with_no_rejections():
+    result = _guard()
     assert result["quality"]["rejected_share_on"] == 0.0
     assert result["quality"]["rejected_share_off"] == 0.0
     assert result["rules"]["quality_guard"]
 
 
-def test_quality_guard_tolerates_a_single_rejection_but_not_a_rate_increase():
-    """One rejected flag-on reply in 400 is inside the band: that arm's
-    per-repeat share moves by one reply in 80. A rate increase is not."""
-    one = ms.analyze(_run(FakeClient(lift=40, noise=8, reject_once=True)))["quality"]
-    assert one["rejected_share_on"] == pytest.approx(1 / 400)
-    assert one["noise_band"] == pytest.approx(1 / 80)
-    assert ms.analyze(_run(FakeClient(lift=40, noise=8, reject_once=True)))["rules"][
-        "quality_guard"
-    ]
+def test_quality_guard_cap_is_inclusive_to_three_points_and_fails_past_it():
+    assert _guard(on=12)["rules"]["quality_guard"]  # exactly 0.03
+    assert _guard(on=17, off=5)["rules"]["quality_guard"]  # 0.0425 - 0.0125 = 0.03
+    assert not _guard(on=13)["rules"]["quality_guard"]  # 0.0325
+
+
+def test_quality_guard_is_judged_on_the_pooled_share_not_per_repeat():
+    """Eight rejections, all in repeat 0, are 10% of that repeat and 2% pooled:
+    pass. Twenty in repeat 0 are 25% of it and 5% pooled: fail."""
+    clustered_small = _guard(on=8, repeat=0)
+    assert clustered_small["quality"]["rise"] == pytest.approx(0.02)
+    assert clustered_small["rules"]["quality_guard"]
+    clustered_big = _guard(on=20, repeat=0)
+    assert clustered_big["quality"]["rise"] == pytest.approx(0.05)
+    assert not clustered_big["rules"]["quality_guard"]
+
+
+def test_quality_guard_ignores_the_placebo_cells():
+    def reject_placebo(flag_on, clamp, prompt, repeat):
+        return flag_on and clamp == 0.0
+
+    result = ms.analyze(_run(FakeClient(lift=40, noise=8, reject_fn=reject_placebo)))
+    assert result["quality"]["rise"] == 0.0
+    assert result["rules"]["quality_guard"]
+
+
+def test_placebo_basis_marks_a_pass_as_conditional_on_the_corrected_placebo():
+    result = ms.analyze(_run(FakeClient(lift=40, noise=8)))
+    assert result["status"] == "pass"
+    basis = result["placebo_basis"]
+    assert "placebo_repeat_split_on" in basis["gating"]
+    assert "does not gate" in basis["prereg"]
+    assert "conditional" in basis["note"]
 
 
 def test_baseline_first_rule_is_enforced_by_analyze():
@@ -329,6 +391,42 @@ def test_action_service_client_toggles_the_flag_and_reads_the_snapshot():
     assert _MOOD_STYLE_BRIEF in llm.calls[1].prompt
 
 
+def _snapshot_at(prompt, clamp, repeat):
+    return {"mood": clamp, "cortisol": 0.5, "dopamine": 0.0}
+
+
+def test_tokens_fn_fills_reply_tokens_and_cap_flag():
+    llm = ms.RecordingLLM(reply="one two three four")
+    plain = ms.ActionServiceReplyClient(llm, _snapshot_at)
+    counted = ms.ActionServiceReplyClient(
+        llm, _snapshot_at, tokens_fn=lambda text: 250 if "four" in text else 10
+    )
+    prompt = _prompts()[0]
+    assert (
+        asyncio.run(plain.reply(prompt, flag_on=False, clamp=0.8, repeat=0)).tokens
+        is None
+    )
+    reply = asyncio.run(counted.reply(prompt, flag_on=False, clamp=0.8, repeat=0))
+    assert reply.tokens == 250
+    assert ms._record(prompt, False, 0.8, 0, reply).at_cap is True
+    short = ms.ActionServiceReplyClient(llm, _snapshot_at, tokens_fn=lambda t: 249)
+    reply = asyncio.run(short.reply(prompt, flag_on=False, clamp=0.8, repeat=0))
+    assert ms._record(prompt, False, 0.8, 0, reply).at_cap is False
+
+
+def test_at_cap_share_is_produced_end_to_end_with_a_tokens_fn():
+    """One repeat through the real ActionService path, tokens from the fake."""
+    llm = ms.RecordingLLM(reply="alpha beta gamma")
+    client = ms.ActionServiceReplyClient(
+        llm,
+        _snapshot_at,
+        tokens_fn=lambda text: ms.TOKEN_CAP if len(text.split()) == 3 else 1,
+    )
+    records = asyncio.run(ms.run_design(client, _prompts(), repeats=1))
+    result = ms.analyze(records, repeats=1, permutations=20)
+    assert result["at_cap_share"] == {"off": 1.0, "on": 1.0}
+
+
 def test_action_service_client_flags_a_self_correction_as_rejected():
     llm = ms.RecordingLLM(
         reply=lambda i, _p: "As an AI language model I cannot." if i == 0 else "Fine."
@@ -338,3 +436,26 @@ def test_action_service_client_flags_a_self_correction_as_rejected():
     )
     reply = asyncio.run(client.reply(_prompts()[0], flag_on=True, clamp=0.8, repeat=0))
     assert reply.rejected
+
+
+# --- the seeded noise check ------------------------------------------------------
+
+
+def test_noise_check_is_seeded_and_deterministic():
+    from evals.brainbench import mood_style_noise_check as nc
+
+    a = nc.simulate_run(10, 7)
+    assert len(a) == 2 * ms.REPEATS * 3 * ms.PROMPT_COUNT
+    assert a == nc.simulate_run(10, 7)
+    assert a != nc.simulate_run(10, 8)
+    first = nc.check(10, runs=2, permutations=20)
+    assert first == nc.check(10, runs=2, permutations=20)
+    assert first["pass"] + first["fail"] + first["void"] == 2
+
+
+def test_noise_check_lift_moves_the_headline_the_right_way():
+    from evals.brainbench import mood_style_noise_check as nc
+
+    none = ms.analyze(nc.simulate_run(0, 3), permutations=20)
+    lifted = ms.analyze(nc.simulate_run(40, 3), permutations=20)
+    assert lifted["effect"] > none["effect"] + 0.2

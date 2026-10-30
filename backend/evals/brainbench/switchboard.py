@@ -71,7 +71,7 @@ ARMS: dict[str, Arm] = {
         "Enable semantic consolidation",
         "W7",
     ),
-    # Brain V4 slice 4b, variant B. A V4 arm, so `all` (the V3 union) skips it.
+    # Brain V4 slice 4b. A V4 arm, so `all` (the V3 union) skips it.
     "+mood-style": Arm(
         "+mood-style",
         {"MOOD_STYLE_DRIVE_ENABLED": True},

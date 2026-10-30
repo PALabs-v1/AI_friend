@@ -1,8 +1,8 @@
-"""Slice 4b, variant B: mood style line in the realization contract.
+"""Slice 4b: mood style line in the realization contract.
 
 Gate tests D1 to D9 from `docs/brain-v4/prereg/slice-04b.md`. Deterministic, no
-model, no network. Variant A (the `top_p` term) is not built in this branch, so
-the A-only checks reduce to their flag-off byte-identity part (D1, D2, D3).
+model, no network. The `top_p` term of the other 4b variant is not built here,
+so the sampler checks reduce to proving the sampler is untouched (D1, D2, D4, D9).
 """
 
 from __future__ import annotations
@@ -452,10 +452,11 @@ def test_d7_slice_2a_digests_unchanged_with_flag_on_and_off(monkeypatch):
 
 
 # --- D8: proactive path (the payload is untouched) ------------------------------
-# Deviation from the D-064 line "proactive payload gains a valence key": B emits
-# nothing on INITIATE, so the key has no consumer in B, and it would also feed
-# `_surface_fallback_memories` and change proactive recall. To be confirmed
-# with Aniket.
+# Owner choice, 2026-10-30, overriding the D-064 line "proactive payload gains a
+# valence key": the line is silent on proactive turns, the proactive instruction
+# already asks for one to three sentences, and a `valence` key would also feed
+# `_surface_fallback_memories` and change proactive recall. The payload is left
+# exactly as on main.
 
 
 class _PayloadRecorder:
@@ -573,36 +574,6 @@ def test_d8_proactive_prompt_options_and_recall_unchanged(monkeypatch, mood):
         assert text not in on_calls[0].prompt
 
 
-# --- INITIATE: no style line, either bucket -------------------------------------
-
-
-@pytest.mark.parametrize("decision", [False, True])
-@pytest.mark.parametrize(
-    "valence", [-1.0, -0.8, -0.4, 0.4, 0.8, 1.0, 10**400, -(10**400)]
-)
-def test_initiate_gets_no_line_in_either_bucket(flag_on, valence, decision):
-    on = _contract(valence, "INITIATE", decision=decision)
-    with patch.object(Config, "MOOD_STYLE_DRIVE_ENABLED", False):
-        off = _contract(valence, "INITIATE", decision=decision)
-    assert on == off
-    assert _level(on) == 0
-    # the same valence on another goal does get a line, so the guard is what
-    # removes it
-    assert _level(_contract(valence, "ENGAGE", decision=decision)) != 0
-
-
-@pytest.mark.parametrize("mood", [-0.8, 0.8])
-def test_initiate_plan_with_valence_in_payload_gets_no_line_end_to_end(flag_on, mood):
-    """Even if a future change puts `valence` back on the proactive payload."""
-    payload = _proactive_payload(_snapshot(mood))
-    payload["valence"] = mood
-    plan = ActionPlan(action_type="RESPOND_CHAT", goal="INITIATE", payload=payload)
-    llm = RecordingLLM()
-    _run_plan(plan, llm)
-    for text in (_MOOD_STYLE_BRIEF, _MOOD_STYLE_ROOMY):
-        assert text not in llm.calls[0].prompt
-
-
 # --- huge ints ------------------------------------------------------------------
 
 
@@ -611,7 +582,6 @@ def test_huge_ints_resolve_to_the_nearest_bucket_without_raising(flag_on):
     assert ActionService._mood_style_line(big, "ENGAGE") == _MOOD_STYLE_ROOMY
     assert ActionService._mood_style_line(-big, "ENGAGE") == _MOOD_STYLE_BRIEF
     assert ActionService._mood_style_line(-big, "COMFORT") == ""
-    assert ActionService._mood_style_line(big, "INITIATE") == ""
     assert _level(_contract(big)) == 1 and _level(_contract(-big)) == -1
     # the other inert inputs stay inert next to it
     for inert in (True, "1", None, _NAN, _INF, -_INF):
@@ -677,7 +647,7 @@ def test_d9_clamp_reaches_options_and_prompt(copy_at, value, level):
         {k: snapshot[k] for k in ("cortisol", "dopamine", "fatigue")}
     )
     assert off.calls[0].options == on.calls[0].options == predicted
-    # Assertion 2: the prompt differs only by variant B's line.
+    # Assertion 2: the prompt differs only by the style line.
     expected = {-1: _MOOD_STYLE_BRIEF, 1: _MOOD_STYLE_ROOMY, 0: None}[level]
     assert off.calls[0].system == on.calls[0].system
     if expected is None:
@@ -710,6 +680,41 @@ def test_self_correction_retry_keeps_the_line(flag_on):
     _run_plan(plan, llm)
     assert len(llm.calls) >= 2
     assert all(_MOOD_STYLE_BRIEF in call.prompt for call in llm.calls)
+
+
+# --- numpy numbers ---------------------------------------------------------------
+
+
+def test_numpy_scalars_behave_like_python_numbers(flag_on):
+    np = pytest.importorskip("numpy")
+    cases = [
+        (np.float64(-0.8), -1),
+        (np.float32(-0.8), -1),
+        (np.float32(0.8), 1),
+        (np.float32(0.0), 0),
+        (np.int64(-1), -1),
+        (np.int64(1), 1),
+        (np.int32(0), 0),
+        (np.float32("nan"), 0),
+        (np.float32("inf"), 0),
+        (np.float64("-inf"), 0),
+        (np.bool_(True), 0),
+    ]
+    for value, level in cases:
+        assert _level(_contract(value)) == level, repr(value)
+    assert _level(_contract(np.float32(-0.8), goal="COMFORT")) == 0
+    # the same value as a python float lands in the same bucket
+    for value, level in cases[:6]:
+        assert _level(_contract(float(value))) == level
+
+
+def test_fractions_and_decimals_follow_the_number_rules(flag_on):
+    from decimal import Decimal
+    from fractions import Fraction
+
+    assert _level(_contract(Fraction(-4, 5))) == -1
+    assert _level(_contract(Fraction(10**400, 1))) == 1
+    assert _level(_contract(Decimal("-0.8"))) == 0  # Decimal is not a Real: inert
 
 
 # --- ledger ----------------------------------------------------------------------
