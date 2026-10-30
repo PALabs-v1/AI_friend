@@ -490,6 +490,13 @@ def test_v6_ten_thousand_tokens_of_repeated_separators():
         "\u0301" * 500_000,
         "x" * 999_000 + " manipulative",
         "a-" * 400_000 + "b",
+        "a1 " * 330_000,
+        "ab1 " * 250_000,
+        "li ar " * 170_000,
+        "a1" * 500_000,
+        "aaab" * 250_000,
+        "never lies, " * 80_000,
+        "x (" * 300_000,
     ],
     ids=lambda t: f"{t[:10]!r}x{len(t)}",
 )
@@ -774,7 +781,10 @@ KNOWN_FALSE_POSITIVES = [
     "sometimes avoids gossip",  # hedge word in a negated clause
     "not afraid to call out lies",  # affirming cue plus aversion verb
     "does not hate cruelty",  # double negation: blocked on purpose
-    "never lies, cheats, or manipulates users",  # verb with an object leaves the list
+    "never cheats people, or lies to them",  # a two-item list: verb with object leaves it
+    "the relationship is abusive only in the grammar sense",  # mention, not use
+    "studies manipulation in fiction",  # mention, not use
+    "an honest analysis of dishonesty",  # mention, not use
 ]
 
 
@@ -1565,3 +1575,200 @@ def test_negators_inside_spread_letters_survive_every_separator_kind():
         text = sep.join("never") + " " + sep.join("lies")
         assert not screen_value(text).blocked, ascii(sep)
         assert screen_value(sep.join("lies")).blocked, ascii(sep)
+
+
+# ---------------------------------------------------------------------------
+# Round 3: cold review findings, every repro pinned
+# ---------------------------------------------------------------------------
+
+CONNECTOR_BLOCKED = _load("round3_connector_leak_blocked.json")
+LIST_BENIGN = _load("round3_list_benign.json")
+POLYSEMY_BENIGN = _load("round3_polysemy_benign.json")
+REAL_USE_BLOCKED = _load("round3_real_use_blocked.json")
+POLARITY_BLOCKED = _load("round3_polarity_blocked.json")
+POLARITY_BENIGN = _load("round3_polarity_benign.json")
+NORM3_BLOCKED = _load("round3_normalization_blocked.json")
+
+
+@pytest.mark.parametrize("text", CONNECTOR_BLOCKED)
+def test_round3_affirming_harm_after_any_connector_is_blocked(text):
+    assert screen_value(text).blocked, ascii(text)
+
+
+@pytest.mark.parametrize("text", LIST_BENIGN)
+def test_round3_all_negated_lists_of_verbs_are_benign(text):
+    assert not screen_value(text).blocked, (text, screen_value(text))
+
+
+@pytest.mark.parametrize("text", POLYSEMY_BENIGN)
+def test_round3_polysemous_words_are_benign(text):
+    assert not screen_value(text).blocked, (text, screen_value(text))
+
+
+@pytest.mark.parametrize("text", REAL_USE_BLOCKED)
+def test_round3_real_uses_and_bypass_attempts_stay_blocked(text):
+    assert screen_value(text).blocked, text
+
+
+@pytest.mark.parametrize("text", POLARITY_BLOCKED)
+def test_round3_permissive_polarity_is_blocked(text):
+    assert screen_value(text).blocked, text
+
+
+@pytest.mark.parametrize("text", POLARITY_BENIGN)
+def test_round3_rejecting_polarity_stays_benign(text):
+    assert not screen_value(text).blocked, (text, screen_value(text))
+
+
+@pytest.mark.parametrize("text", NORM3_BLOCKED)
+def test_round3_embedded_and_split_stems_are_blocked(text):
+    assert screen_value(text).blocked, ascii(text)
+
+
+def test_round3_chosen_readings_of_double_negated_adjectives():
+    # "not untruthful" and "not dishonest" read as honest; "not dishonest-free"
+    # is ambiguous and reads as the benign "free of" form. Chosen, pinned.
+    for text in ("not untruthful", "not dishonest", "not dishonest-free"):
+        assert not screen_value(text).blocked, text
+
+
+def test_round3_a_two_item_list_cannot_end_in_a_verb_with_an_object():
+    # The third item of a list may be "manipulates users"; the second may not.
+    assert not screen_value("never lies, cheats, or manipulates users").blocked
+    assert screen_value("never lies and blames the user").blocked
+    assert screen_value("never lies, and blames the user").blocked
+    assert screen_value("never judges, lies, or manipulates users").blocked
+    assert screen_value("hates mornings, lies, or abuses anyone").blocked
+    assert screen_value("never lies, cheats, so blames the user").blocked
+    assert screen_value("never lies, cheats; blames the user").blocked
+
+
+_WIDE_HARM = [
+    "lies to users",
+    "manipulates people",
+    "bullies customers",
+    "deceives friends",
+    "spies on users",
+    "exploits newcomers",
+    "punishes critics",
+    "betrays friends",
+    "humiliates people",
+    "cheats customers",
+]
+_WIDE_CONNECTORS = [
+    " and ",
+    " so ",
+    " then ",
+    ", ",
+    "; ",
+    " - ",
+    " : ",
+    " (",
+    "\n",
+    " but ",
+    " yet ",
+    " or ",
+    "/",
+    " -- ",
+    " [",
+    " {",
+    " | ",
+]
+_WIDE_PREFIXES = [
+    "never tells jokes",
+    "does not like mornings",
+    "refuses to skip lunch",
+    "hates cold weather",
+    "avoids rude movies",
+    "is not cruel",
+    "never judges strangers",
+    "dislikes loud music",
+    "doesn't gossip",
+    "will not shout",
+    "would never raise its voice",
+    "zero tolerance for rudeness",
+    "cannot stand traffic",
+    "no friends",
+    "without hesitation to help",
+    "is never boring",
+    "won't interrupt",
+    "can never sleep",
+]
+
+
+def test_round3_wide_connector_grid_is_always_blocked():
+    cases = [
+        prefix + connector + harm
+        for prefix in _WIDE_PREFIXES
+        for connector in _WIDE_CONNECTORS
+        for harm in _WIDE_HARM
+    ]
+    assert len(cases) == 18 * 17 * 10
+    missed = [c for c in cases if not screen_value(c).blocked]
+    assert missed == []  # recall floor 100%
+
+
+def test_round3_wide_connector_all_negated_grid_is_never_blocked():
+    cases = []
+    for neg, _ in _GRID_PREFIXES:
+        for i, first in enumerate(_GRID_NOUNS):
+            second = _GRID_NOUNS[(i + 3) % len(_GRID_NOUNS)]
+            for connector in _WIDE_CONNECTORS:
+                cases.append(f"{neg} {first}{connector}{neg} {second}")
+    blocked = [c for c in cases if screen_value(c).blocked]
+    assert blocked == []
+
+
+def test_round3_inert_objects_exempt_the_verb_only_alone():
+    for text in (
+        "manipulates the data and users",
+        "manipulates the data, users",
+        "exploits an API and users",
+        "manipulates the dough or people",
+    ):
+        assert screen_value(text).blocked, text
+    assert not screen_value("manipulates the dough while baking").blocked
+    assert not screen_value("exploits a software API efficiently").blocked
+
+
+def test_round3_mention_tools_exempt_only_a_named_detector():
+    assert not screen_value("abusive language detector").blocked
+    assert not screen_value("deceptive ad classifier").blocked
+    assert screen_value("lies to fool the validator").blocked
+    assert screen_value("lies to avoid detection").blocked
+    assert screen_value("abusive to users and builds a detector").blocked
+
+
+def test_round3_embedded_stems_ignore_meaning_flipping_prefixes():
+    assert screen_value("xxmanipulativeyy").blocked
+    assert screen_value("zzdeceitfulq users").blocked
+    assert not screen_value("unmanipulative").blocked
+    assert not screen_value("nonmanipulative").blocked
+    assert not screen_value("hamster").blocked
+    assert screen_value("manipulating").blocked
+
+
+def test_round3_double_negation_vocabulary():
+    for text in (
+        "denies nothing and exploits people",
+        "does not deny exploiting people",
+        "it isn't wrong that it bullies users",
+        "not exempt from cruelty",
+        "not impervious to lying",
+    ):
+        assert screen_value(text).blocked, text
+    for text in ("impervious to manipulation", "objects to bullying", "lacks cruelty"):
+        assert not screen_value(text).blocked, text
+
+
+def test_round3_polysemy_exemptions_are_bounded_lookaheads():
+    # real uses of the same words stay blocked
+    for text in (
+        "cruel to be kind to nobody",
+        "toxic masculinity",
+        "toxicity toward users",
+        "lies about geometry grades to users",
+        "cheats customers in a card game",
+        "deceptive about camouflage of intentions",
+    ):
+        assert screen_value(text).blocked, text

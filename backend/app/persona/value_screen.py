@@ -18,8 +18,9 @@ How it decides (category phrase patterns)
    contempt, privacy, exploitation, vindictiveness). Each has `plain` patterns
    (a behaviour a friend could reject) and `raw` patterns (a lack, a hedge or a
    negated virtue, which already carry their own polarity).
-3. Scope. The text is split into clauses at punctuation, "but", "so it",
-   "then", and at every "and", "or", "nor" and comma. A negator only covers its
+3. Scope. The text is split into clauses at punctuation, "but", "so",
+   "then", and at every "and", "or", "nor", comma, spaced hyphen, slash and
+   bracket. A negator only covers its
    own clause. A split-off piece rejoins the clause before it only when it
    continues a list of harm items under the same negator: the earlier piece
    ends in a lexicon hit and the new piece is one to three words that start
@@ -56,9 +57,10 @@ False positives:
   spotting deceptive marketing", "corrects misinformation", "knows when
   someone is bluffing") are read as mention and pass; "spots weakness and
   exploits it" still blocks because "and" starts a new clause.
-- A list item that is a third-person verb with an object, or longer than three
-  words, leaves the negator's clause: "never lies, cheats, or manipulates
-  users" blocks.
+- The second item of a list that is a third-person verb with an object leaves
+  the negator's clause ("never cheats people, or lies to them" blocks, which is
+  what keeps "never lies and blames the user" blocked); from the third item on
+  it stays ("never lies, cheats, or manipulates users" passes).
 - A hedge word anywhere in a negated clause ("sometimes avoids gossip") blocks.
 - Double negation ("does not hate cruelty") blocks, correctly, but so does
   "not afraid to call out lies".
@@ -157,7 +159,37 @@ _OBJ = (
     r"(?:users?|people|persons?|others?|them|him|her|you|folks|customers?|"
     r"clients?|friends?|humans?|everyone|anyone|someone|somebody|kids?|"
     r"children|students?|strangers?|individuals?|colleagues?|peers?|victims?|"
-    r"beginners?|newbies)"
+    r"beginners?|newbies|critics?|rivals?|enemies|opponents?|dissidents?|"
+    r"employees?|workers?|patients?|residents?|neighbou?rs?|classmates?|"
+    r"teammates?|newcomers?|visitors?|guests?|members?|followers?|"
+    r"subordinates?|staff|elders?|partners?|family|relatives|parents|"
+    r"siblings|minorities|immigrants|refugees|voters|citizens|consumers|"
+    r"buyers|shoppers|patrons|audience|readers|viewers|players|learners|"
+    r"trainees|interns|owners?)"
+)
+# "manipulates the data and users" must not hide behind the data: an inert
+# object only exempts the verb when nothing else is coordinated with it.
+_NOT_COORDINATED = r"(?! ?(?:,|and\b|or\b|plus\b|as well as\b|along with\b))"
+# Things a verb like "manipulates" or "exploits" acts on without anyone being
+# wronged: "manipulates the dough", "exploits a software API".
+_INERT_MANIPULATED = (
+    r"(?! (?:(?:the|a|an|some|these|those|its|their) )?"
+    r"(?:dough|clay|data|datasets?|images?|pixels?|objects?|variables?|strings?|"
+    r"files?|text|materials?|tools?|metal|fabric|molecules?|samples?|code|arrays?|"
+    r"matrices|vectors?|expressions?|equations?|formulas?|settings|parameters|"
+    r"signals?|sound|audio|video|photos?|shapes|symbols|puppets?|marionettes?|"
+    r"dom|lists?|tables?|graphs?|geometry|models?)(?![a-z])" + _NOT_COORDINATED + ")"
+)
+_INERT_EXPLOITED = (
+    r"(?! (?:(?:the|a|an|its|their) )?"
+    r"(?:api|apis|software|hardware|cache|caches|gpus?|cpus?|simd|memory|sparsity|"
+    r"symmetr[a-z]*|locality|concurrency|parallel[a-z]*|multi[a-z]*|available|"
+    r"existing|resources|opportunit[a-z]*|synerg[a-z]*|economies|redundanc[a-z]*)"
+    r"(?![a-z])" + _NOT_COORDINATED + ")"
+)
+_LIE_TECHNICAL = (
+    r"(?! (?:groups?|algebras?|brackets?|derivatives?|detectors?|"
+    r"of (?:geometry|algebra|math|mathematics|physics|topology))(?![a-z]))"
 )
 _DET = r"(?:(?:the|its|their|your|a|an|any|users?|people|other|someone|his|her) ){0,3}"
 _VIRTUES = (
@@ -175,13 +207,14 @@ _DECEPTION = Category(
     "deception",
     plain=(
         r"dishonest[a-z]*",
-        r"dece[ip][a-z]*",
+        r"dece[ip][a-z]*(?![a-z])(?! (?:camouflage|illusions?|coloration|mimicry|visuals?)(?![a-z]))",
         r"liars?(?![a-z])",
-        r"lie(?:s|d)?(?![a-z])" + _LOCATIVE,
+        r"lie(?:s|d)?(?![a-z])" + _LOCATIVE + _LIE_TECHNICAL,
         (
             r"lying(?![a-z])"
             r"(?! (?:down|around|awake|low|in|on|flat|still|there|here|back|ahead|"
-            r"between|beneath|under|within|at)(?![a-z]))"
+            r"between|beneath|under|within|at|(?:is|was|as) (?:a |an |the )?"
+            r"(?:position|posture|pose))(?![a-z]))"
         ),
         r"fib(?:s|bed|bing|ber|bers)?(?![a-z])",
         r"untruthful[a-z]*",
@@ -207,6 +240,7 @@ _DECEPTION = Category(
         r"sneaky[a-z]*",
         r"hypocri[a-z]*",
         r"half ?truths?",
+        r"in bad faith",
         r"bluff(?:s|ed|ing)?(?![a-z])",
         r"mislabel[a-z]*",
         (
@@ -307,7 +341,12 @@ _DECEPTION = Category(
         r"conniv[a-z]*",
         r"treacherous[a-z]*",
         r"phony",
-        r"cheat(?:s|ed|ing|er|ers)?(?![a-z])(?! (?:sheets?|codes?|days?|meals?))",
+        (
+            r"cheat(?:s|ed|ing|er|ers)?(?![a-z])"
+            r"(?! (?:death|fate|gravity|time|the odds)(?![a-z]))"
+            r"(?! (?:[a-z]+ ){0,5}(?:tutorials?|guides?|walkthroughs?|lessons?|manuals?|"
+            r"codes?|sheets?|days?|meals?)(?![a-z]))"
+        ),
         r"trick(?:s|ed|ing)? " + _OBJ,
         (
             r"fak(?:es|ed|ing) (?:being|emotions?|friendship|affection|empathy|"
@@ -381,6 +420,11 @@ _DECEPTION = Category(
             r"worthwhile|necessary|required|needed)"
         ),
         (
+            r"(?:not|never|dont|doesnt|isnt|cant|wont|rarely|seldom|hardly ever|barely) "  # codespell:ignore cant,doesnt,isnt,wont
+            r"(?:(?:always|really|fully|usually|often|necessarily|actually) )?"
+            r"(?:tell|tells|telling|speak|speaks|say|says)(?: [a-z]+)? (?:the )?truth"
+        ),
+        (
             _VIRTUES + r" (?:most of the time|some of the time|up to a point|"
             r"to a point|to a degree|within reason)"
         ),
@@ -396,7 +440,7 @@ _DECEPTION = Category(
 _MANIPULATION = Category(
     "manipulation",
     plain=(
-        r"manipulat[a-z]*",
+        r"manipulat[a-z]*(?![a-z])" + _INERT_MANIPULATED,
         r"coerc[a-z]*",
         r"blackmail[a-z]*",
         r"extort[a-z]*",
@@ -538,7 +582,11 @@ _MANIPULATION = Category(
 _CRUELTY = Category(
     "cruelty",
     plain=(
-        r"cruel[a-z]*",
+        (
+            r"cruel[a-z]*(?![a-z])"
+            r"(?! (?:winter|summer|weather|sea|storm|heat|cold|fate|angle|edge|blade|"
+            r"wind|climate|season|terrain|nature|irony|twist|coincidence|desert)(?![a-z]))"
+        ),
         r"abus(?:e|es|ed|ing|ive|ively|er|ers)(?![a-z])",
         r"sadis[a-z]*",
         r"tortur[a-z]*",
@@ -646,11 +694,9 @@ _CRUELTY = Category(
         r"demean[a-z]*",
         r"degrad(?:e|es|ed|ing)(?![a-z])",
         r"dehumani[sz][a-z]*",
-        (
-            r"mock(?:s|ed|ing)? (?:at )?(?:(?:the|its|their) )?"
-            r"(?:users?|people|others|them|him|her|you|customers?|those|anyone|"
-            r"everyone|beginners|newbies|students)"
-        ),
+        r"mock(?:s|ed|ing)? (?:at )?" + _OBJ,
+        r"feed(?:s|ing)? on (?:insecurit[a-z]*|fears?|weakness[a-z]*|vulnerabilit[a-z]*|pain|loneliness|suffering|misery|doubts?)",
+        r"schem(?:e|es|ed|ing) against",  # codespell:ignore schem
         r"ridicul(?:e|es|ed|ing)(?![a-z])",
         r"taunt[a-z]*",
         r"jeer[a-z]*",
@@ -694,7 +740,12 @@ _CRUELTY = Category(
         r"unsympathetic",
         r"insensitiv[a-z]*",  # codespell:ignore insensitiv
         r"unfeeling",
-        r"toxic[a-z]*",
+        (
+            r"toxic(?:ity|ly)?(?![a-z])"
+            r"(?! (?:chemicals?|waste|gas|gases|spills?|substances?|fumes|mold|mould|plants?|"
+            r"metals?|algae|materials?|pollutants?|runoff|leaks?|sludge|ingredients?|"
+            r"compounds?|exposure|shock|dose|doses|release|cloud)(?![a-z]))"
+        ),
         r"evil(?:ly)?(?![a-z])",
         r"wicked[a-z]*",
         r"sinister",
@@ -844,8 +895,8 @@ _CONTEMPT = Category(
 _PRIVACY = Category(
     "privacy",
     plain=(
-        r"snoop[a-z]*",
-        r"gossip[a-z]*",
+        r"snoop[a-z]*(?![a-z])(?! (?:dogg?|dogs?|lion)(?![a-z]))",
+        r"gossip[a-z]*(?![a-z])(?! (?:is |as |in )?(?:a |an |the )?(?:[a-z]+ ){0,2}protocols?(?![a-z]))",
         r"eavesdrop[a-z]*",
         r"spy(?:ing)? on",
         r"spies on",
@@ -952,7 +1003,7 @@ _PRIVACY = Category(
 _EXPLOITATION = Category(
     "exploitation",
     plain=(
-        r"exploit(?:s|ed|ing|ative|ation|er|ers)?(?![a-z])",  # codespell:ignore ative
+        r"exploit(?:s|ed|ing|a?tive|ation|er|ers)?(?![a-z])" + _INERT_EXPLOITED,
         r"takes? advantage",
         r"taking advantage",
         r"took advantage",
@@ -1013,10 +1064,8 @@ _VINDICTIVENESS = Category(
         r"payback",
         r"pay(?:s|ing)? " + _OBJ + r" back",
         r"settl(?:e|es|ing) scores",
-        (
-            r"punish(?:es|ed|ing)? (?:(?:the|its|their) )?"
-            r"(?:users?|people|others|them|you|anyone|those|everyone|whoever|the rest|everyone else|the others)"
-        ),
+        r"punish(?:es|ed|ing)? " + _OBJ,
+        r"punish(?:es|ed|ing)? (?:whoever|those|the rest|everyone else|the others)",
         r"lash(?:es|ing)? out",
         r"resentful[a-z]*",
         r"rancou?r[a-z]*",
@@ -1065,6 +1114,8 @@ LEXICON: Mapping[str, Category] = MappingProxyType(
 # ulative"). A hit must start on a word start and span two or more words.
 SQUASH_STEMS: tuple[str, ...] = (
     "manipulat",
+    "deceiv",
+    "deceit",
     "deceptive",
     "deceitful",
     "deceiving",
@@ -1096,6 +1147,29 @@ SQUASH_STEMS: tuple[str, ...] = (
     "eavesdrop",
     "harass",
     "ridicul",
+    "backstab",
+)
+
+# Stems of at least eight letters, long enough to be matched inside a token
+# that has stray letters in front of it.
+EMBED_STEMS: tuple[str, ...] = (
+    "manipulat",
+    "deceptive",
+    "deceitful",
+    "dishonest",
+    "contemptu",
+    "vindictive",
+    "exploitat",
+    "malicious",
+    "sadistic",
+    "blackmail",
+    "intimidat",
+    "humiliat",
+    "condescend",
+    "untrustworth",
+    "gaslight",
+    "vengeful",
+    "eavesdrop",
     "backstab",
 )
 
@@ -1135,7 +1209,11 @@ _NEGATORS = (
     r"speak(?:s|ing)? (?:up |out )?against|stand(?:s|ing)? (?:up )?against|"
     r"guards? against|wary of|warn(?:s|ed|ing)?(?: [a-z]+){0,2} (?:about|against|of)|"
     r"protect(?:s|ed|ing)?(?: [a-z]+){0,2} (?:from|against)|"
-    r"shield(?:s|ed|ing)?(?: [a-z]+){0,2} from"
+    r"shield(?:s|ed|ing)?(?: [a-z]+){0,2} from|"
+    r"den(?:y|ies|ied|ying)|disapprov(?:e|es|ed|ing)|object(?:s|ed|ing)? to|"
+    r"(?:false|untrue|wrong|incorrect) that|"
+    r"immune (?:to|from)|impervious to|resistant to|exempt from|safe from|"
+    r"lack(?:s|ed|ing)?(?: of| in)?"
 )
 _NEG_RE = re.compile(r"\b(?:" + _NEGATORS + r")\b")
 
@@ -1163,9 +1241,12 @@ _HEDGE_RE = re.compile(
     r"|\b(?:no|zero|without) (?:qualms|scruples|compunction|hesitation|remorse|"
     r"shame|guilt|regrets?|conscience|problem|issue|worry|worries|"
     r"second thoughts)\b"
-    r"|\b(?:doesnt|dont|didnt|wont|wouldnt|cant|couldnt) (?:mind|hesitate|care|"  # codespell:ignore cant,couldnt,didnt,doesnt,wont,wouldnt
+    r"|\b(?:not|cannot|doesnt|dont|didnt|wont|wouldnt|cant|couldnt) (?:mind|hesitate|care|"  # codespell:ignore cant,couldnt,didnt,doesnt,wont,wouldnt
     r"help|resist|think twice|have a problem|see a problem|see anything wrong)\b"
     r"|\bnothing wrong with\b"
+    r"|\b(?:not|cannot|never|doesnt|dont|didnt|wont|wouldnt|cant|couldnt) (?:stop|stops|stopped|quit|"  # codespell:ignore cant,couldnt,didnt,doesnt,wont,wouldnt
+    r"quits|cease|ceases|give up|let up)\b"
+    r"|\brefus(?:e|es|ed|ing) to (?:stop|quit|cease|give up)\b"
 )
 
 # Verbs that name the behavior only to catch it ("corrects misinformation",
@@ -1184,6 +1265,12 @@ _DETECT_RE = re.compile(
 
 _POST_ADJ_RE = re.compile(r" ?(?:free|proof|averse|intolerant|immune|resistant)\b")
 
+_POST_MENTION_RE = re.compile(
+    r"(?: (?!(?:to|so|for|avoid|evade|fool|bypass|trick|beat|defeat|escape|around|past|and|or|by)\b)"
+    r"[a-z]+){0,2} (?:detectors?|classifiers?|validators?|scanners?|checkers?|linters?)(?![a-z])"
+    r"|(?: [a-z]+){0,2} (?:rejected|blocked|flagged|caught) by\b"
+)
+
 _POST_REJECT_RE = re.compile(
     r"\b(?:is|are) (?:not (?:tolerated|allowed|acceptable|okay|ok|welcome|fine|"
     r"cool)|unacceptable|unwelcome|wrong|a no ?go|off limits)\b"
@@ -1195,7 +1282,7 @@ _POST_REJECT_RE = re.compile(
 _BREAK_RE = re.compile(
     r"(?P<hard>[.;:!?\n]+"
     r"|\b(?:but|yet|however|although|though|whereas|while|then|plus|also|besides)\b"
-    r"|\bso (?:it|he|she|they|you|we|that)\b)"
+    r"|\bso\b)"
     r"|(?P<soft>,|\b(?:and|or|nor)\b)"
 )
 _TOKEN_RE = re.compile(r"[a-z0-9]+")
@@ -1378,6 +1465,9 @@ _INTRAWORD_BANG_RE = re.compile(r"(?<=[a-z])!(?=[a-z])")
 _LETTER_GAP_RE = re.compile(r"(?<=\b[a-z])[^a-z0-9,;:!?]{1,4}(?=[a-z]\b)")
 _LETTER_RUN_RE = re.compile(r"(?<![a-z0-9])[a-z](?:\x01[a-z]){2,}(?![a-z0-9])")
 _DASH_RE = re.compile(r"[\u2013\u2014\u2015]")
+# A spaced hyphen, a slash or a bracket separates clauses like a comma does:
+# "never judges - lies to users", "hates cold weather/lies to users".
+_SOFT_PUNCT_RE = re.compile(r"(?<=\s)-{1,2}(?=\s)|[/\\()\[\]{}|<>]")
 _NONTEXT_RE = re.compile(r"[^a-z0-9 \n.,;:!?\x01]")
 # Runs of clause punctuation collapse to the first mark, so a million commas
 # cost one clause break, not a million.
@@ -1430,6 +1520,7 @@ def _finish_view(s: str, leet: Mapping[int, str]) -> str:
     s = _LETTER_RUN_RE.sub(_expand_run, s)
     s = s.replace("\x01", " ")
     s = _DASH_RE.sub(";", s)
+    s = _SOFT_PUNCT_RE.sub(",", s)
     s = _NONTEXT_RE.sub(" ", s)
     s = _SPACE_RE.sub(" ", s)
     s = _NEG_INTENSIFIER_RE.sub(r"\1", s)
@@ -1460,6 +1551,12 @@ _COMPILED: tuple[_Compiled, ...] = tuple(
     _Compiled(c.name, _compile(c.plain), _compile(c.raw)) for c in LEXICON.values()
 )
 _SQUASH_RE = re.compile("(?:" + "|".join(SQUASH_STEMS) + ")")
+# Long stems inside a token with a few stray letters in front ("xxmanipulativeyy").
+# A real prefix that flips the meaning ("unmanipulative") is not a stray.
+_EMBED_RE = re.compile(
+    r"(?<![a-z0-9])([a-z]{1,3})(?:" + "|".join(EMBED_STEMS) + r")[a-z]*"
+)
+_NOT_STRAYS = frozenset({"un", "non", "in", "im", "ir", "anti", "not", "no"})
 _SQUASH_SHORT_RE = re.compile("(?:" + "|".join(SQUASH_SHORT) + ")")
 
 
@@ -1483,9 +1580,10 @@ def _build_clauses(
 ) -> tuple[list[int], list[int], list[tuple[int, int]]]:
     """Clause start offsets, end offsets and continuation spans.
 
-    Every break splits. A soft piece (after a comma, "and", "or", "nor")
-    rejoins the clause before it only when it extends that clause's list of
-    harm items, is an emphasis, or is a hedge tail. A continuation span is a
+    Every break splits. A soft piece (after a comma, "and", "or", "nor", a
+    spaced hyphen, a slash or a bracket) rejoins the clause before it only when
+    it extends that clause's list of harm items, is an emphasis, or is a hedge
+    tail. A continuation span is a
     piece that inherits the negation of the item before it.
     """
     hit_starts = [h[0] for h in hits]
@@ -1497,6 +1595,7 @@ def _build_clauses(
     starts: list[int] = []
     ends: list[int] = []
     cont: list[tuple[int, int]] = []
+    chain = [0]  # pieces already merged into the current clause
 
     def add(a: int, b: int, hard: bool) -> bool:
         ms = list(islice(_TOKEN_RE.finditer(s, a, b), 8))
@@ -1535,12 +1634,23 @@ def _build_clauses(
                         )
                     )
                 )
-                if bare or emphasis:
+                # The third or later item of a list ("never lies, cheats, or
+                # manipulates users") may be a verb with an object; the second
+                # item may not ("never lies and blames the user").
+                listed = (
+                    chain[0] >= 1
+                    and n_eff <= 3
+                    and first is not None
+                    and first.start() in hit_start_set
+                )
+                if bare or emphasis or listed:
                     ends[-1] = b
                     cont.append((a, b))
+                    chain[0] += 1
                     return True
         starts.append(a)
         ends.append(b)
+        chain[0] = 0
         return True
 
     pos = 0
@@ -1585,6 +1695,8 @@ def _negated(s: str, hs: int, cs: int, ce: int, hedge_cache: dict[int, bool]) ->
 def _post_rejected(s: str, he: int, ce: int) -> bool:
     """A rejection that follows the hit: "gossip free", "gossip is not tolerated"."""
     if _POST_ADJ_RE.match(s, he, ce) is not None:
+        return True
+    if _POST_MENTION_RE.match(s, he, ce) is not None:
         return True
     return _POST_REJECT_RE.search(s, he, min(ce, he + 60)) is not None
 
@@ -1645,6 +1757,11 @@ def _scan(s: str, allow_squash: bool) -> tuple[set[str], list[str], bool]:
             continue
         for m in comp.plain.finditer(s):
             hits.append((m.start(), m.end(), comp.name))
+            if len(hits) > _MAX_HITS:
+                return {"overflow"}, [], True
+    for m in _EMBED_RE.finditer(s):
+        if m.group(1) not in _NOT_STRAYS:
+            hits.append((m.start(), m.end(), "obfuscation"))
             if len(hits) > _MAX_HITS:
                 return {"overflow"}, [], True
     squash: list[tuple[int, str]] = []
