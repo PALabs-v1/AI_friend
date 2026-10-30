@@ -42,6 +42,7 @@ def simulate_run(lift: int, seed: int) -> list[ms.Record]:
                     words = math.exp(log_mean[index] + rng.gauss(0.0, REPLY_SD))
                     if flag_on:
                         words += lift * sign
+                    words_final = max(1, round(words))  # tokens taken as words
                     records.append(
                         ms.Record(
                             ms.SEEDS[index // ms.PROMPTS_PER_SEED],
@@ -49,9 +50,9 @@ def simulate_run(lift: int, seed: int) -> list[ms.Record]:
                             flag_on,
                             clamp,
                             repeat,
-                            max(1, round(words)),
+                            words_final,
                             False,
-                            None,
+                            words_final >= ms.TOKEN_CAP,
                         )
                     )
     return records

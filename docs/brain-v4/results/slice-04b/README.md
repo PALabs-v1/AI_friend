@@ -85,6 +85,8 @@ Each mutation was applied to the code, the affected test file run (D7 deselected
 | Worst per-repeat share used instead of the pooled share | 6 of 35 |
 | `placebo_basis` dropped | 1 of 35 |
 | `tokens_fn` ignored | 2 of 35 |
+| Token check dropped (the pre-fix behavior) / only the flag-on share checked | 4 / 1 of 39 |
+| `incomplete` ranked above `void` / below `fail` | 1 / 2 of 39 |
 | Gating placebo moved back to the prompt halves | 2 of 35 |
 
 One mutation survived and is equivalent: applying the non-finite check to integers too. For an int, `math.isfinite` raises `OverflowError` only above float range, and the same `except` branch that handles huge rationals lets it through, so behavior is unchanged. The integer branch still matters when that `except` is changed (the huge-rational mutation above).
@@ -98,7 +100,8 @@ One mutation survived and is equivalent: applying the non-finite check to intege
 - Gating placebo `placebo_repeat_split_on` against the larger arm noise band, with `placebo_basis` in the result. The prompt-halves placebo is reported only.
 - 1000 label permutations, seed 20261030, swapping the on/off pair inside each (prompt, seed, repeat) block. One-sided by choice: the declared direction is positive, so `outside` means the observed effect exceeds the 99th percentile of the signed null. The result carries `"sided": "one-sided, positive direction"`. A two-sided cut would be looser and is not used.
 - Quality guard: fixed 0.03 absolute cap on the rise in rejected-reply share, pooled (above). Tests: +5 points fails, +2 passes, equal passes, a drop passes, zero rejections passes, exactly +3 passes and +3.25 fails, rejections clustered in one repeat are judged on the pooled share, placebo cells do not count.
-- The share of replies at 250 tokens. `ActionServiceReplyClient` takes an optional `tokens_fn(reply_text) -> int`; without it `Reply.tokens` is `None` and the share is reported as `None`, so the runner must supply one for the tier it uses.
+- The share of replies at 250 tokens (prereg baseline-first rule 1). `ActionServiceReplyClient` takes an optional `tokens_fn(reply_text) -> int`; without it `Reply.tokens` is `None` and the share is `None`. A gating run therefore requires a `tokens_fn` for the tier in use (`run_design` documents this).
+- Verdict precedence: `void` (either arm noise band above 0.165, "not measurable at this tier"), then `incomplete`, then `fail`, then `pass`. `incomplete` is returned when the flag-off or flag-on share at the 250-token ceiling is `None` because records carry no token counts. Its `reason` is "token counts missing: the 250-token ceiling share must be recorded before the B arm (prereg baseline-first rule 1)", and every other number is still reported. `incomplete` outranks `fail` because a run missing a required record cannot be judged by any verdict; `void` outranks `incomplete` because a run that cannot be measured has no use for the missing record. Tests cover each ordering, each arm missing alone, and the end-to-end case of a client with no `tokens_fn`.
 
 `ActionServiceReplyClient` runs the real `ActionService.execute` and toggles the flag with the `+mood-style` arm. `select_prompts` applies the intent and turn filters to generated lifesim panels. No model was called.
 
@@ -121,7 +124,7 @@ The corrected placebo rarely fails the run (0 to 2 of 60 per lift). The likelies
 2. **Prompts are not frozen.** `select_prompts` needs a generated lifesim dev panel (seeds 1000 to 1004). The 40 prompt texts are not committed.
 3. **`void` is the binding rule** under the noise model above (see the table). Whether a real run is measurable depends on real reply noise, which is unknown.
 4. **The noise model is an assumption.** The simulation says how the rules respond, not how Claude Code replies are distributed.
-5. **Token cap.** The share of replies at 250 tokens needs the runner to pass a `tokens_fn`; none is wired to a real tier.
+5. **Token cap.** The share of replies at 250 tokens needs the runner to pass a `tokens_fn`; none is wired to a real tier. Without one, `analyze` returns `incomplete`, never `pass`.
 6. **No full-pipeline test.** D8 and D9 use the real stage 7 payload builder and `ActionService.execute`, but no test drives `CognitivePipeline.execute` end to end with the flag on.
 7. **D7 is slow.** It runs `defects.collect()` twice, about 7 seconds, over the 2 second gate budget. The sibling slice 2a tests have the same cost.
 8. **Voice and the local 4B to 9B tier** are out of scope (`Not claimed` in the prereg).

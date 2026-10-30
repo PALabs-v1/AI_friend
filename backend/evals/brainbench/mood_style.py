@@ -32,6 +32,13 @@ Design (margins approved, D-064):
     pooled over all repeats and prompts of the +0.8 and -0.8 cells. Zero
     rejections in both arms passes.
 
+Verdicts, in order of precedence (`analyze`): `void` (either arm noise band above
+0.165, "not measurable at this tier"), then `incomplete` (a flag-off or flag-on
+record has no token count, so the 250-token ceiling share that prereg rule 1
+requires is missing; `reason` says so and every other number is still
+reported), then `fail` (a pass rule is not met), then `pass`. A gating run
+therefore needs token counts: pass `tokens_fn` to `ActionServiceReplyClient`.
+
 Everything after the replies are collected (`analyze`) is deterministic.
 """
 
@@ -68,6 +75,11 @@ PERMUTATIONS = 1000
 PERMUTATION_SEED = 20261030
 PERMUTATION_QUANTILE = 0.99
 TOKEN_CAP = 250
+
+TOKENS_MISSING_REASON = (
+    "token counts missing: the 250-token ceiling share must be recorded before "
+    "the B arm (prereg baseline-first rule 1)"
+)
 
 PLACEBO_BASIS = {
     "gating": "placebo_repeat_split_on: flag on, clamp 0.0, same prompts, odd repeats against even repeats",
@@ -181,7 +193,12 @@ async def run_design(
     client: ReplyClient, prompts: Sequence[Prompt], *, repeats: int = REPEATS
 ) -> list[Record]:
     """Collect every cell. Flag off is run to completion before flag on, so the
-    baseline exists before the B arm is touched (pass rule 1)."""
+    baseline exists before the B arm is touched (pass rule 1).
+
+    A gating run needs token counts: rule 1 records the share of replies at the
+    250-token ceiling, so the client must return `Reply.tokens` (for the
+    ActionService client, pass `tokens_fn`). Records without tokens still
+    analyze, but `analyze` returns status "incomplete", never "pass"."""
     if len(prompts) != PROMPT_COUNT:
         raise ValueError(f"the design needs {PROMPT_COUNT} prompts, got {len(prompts)}")
     records: list[Record] = []
@@ -394,8 +411,27 @@ def analyze(
         "permutation_outside": perm["outside"],
         "quality_guard": quality_ok,
     }
+    at_cap_share = {
+        "off": _share(
+            _cells(records, False, CLAMP_POS) + _cells(records, False, CLAMP_NEG),
+            "at_cap",
+        ),
+        "on": _share(
+            _cells(records, True, CLAMP_POS) + _cells(records, True, CLAMP_NEG),
+            "at_cap",
+        ),
+    }
+    tokens_present = at_cap_share["off"] is not None and at_cap_share["on"] is not None
+    # Precedence: void > incomplete > fail > pass. A void run cannot be judged at
+    # all. An incomplete run lacks the ceiling share that rule 1 requires, so no
+    # other verdict is valid for it, not even "fail". Only a complete, measurable
+    # run is compared with the pass rules.
+    reason = None
     if void:
         status = "void"
+    elif not tokens_present:
+        status = "incomplete"
+        reason = TOKENS_MISSING_REASON
     elif all(rules.values()):
         status = "pass"
     else:
@@ -406,7 +442,9 @@ def analyze(
             "pass": "pass",
             "fail": "fail",
             "void": "not measurable at this tier",
+            "incomplete": "incomplete run",
         }[status],
+        "reason": reason,
         "effect": effect,
         "delta_on": on,
         "delta_off": off,
@@ -422,16 +460,7 @@ def analyze(
             "rise": rise,
             "cap": QUALITY_CAP,
         },
-        "at_cap_share": {
-            "off": _share(
-                _cells(records, False, CLAMP_POS) + _cells(records, False, CLAMP_NEG),
-                "at_cap",
-            ),
-            "on": _share(
-                _cells(records, True, CLAMP_POS) + _cells(records, True, CLAMP_NEG),
-                "at_cap",
-            ),
-        },
+        "at_cap_share": at_cap_share,
         "rules": rules,
         "thresholds": {
             "delta_margin": DELTA_MARGIN,

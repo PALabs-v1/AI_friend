@@ -72,7 +72,7 @@ class FakeClient:
         rejected = bool(
             self.reject_fn and self.reject_fn(flag_on, clamp, prompt, repeat)
         )
-        return ms.Reply(" ".join(["w"] * words), rejected=rejected)
+        return ms.Reply(" ".join(["w"] * words), rejected=rejected, tokens=words)
 
 
 def _run(client, prompts=None):
@@ -351,7 +351,8 @@ def test_analysis_is_a_pure_function_of_the_records():
 
 def test_at_cap_share_is_reported_only_when_tokens_are_known():
     records = _run(FakeClient(lift=40, noise=8))
-    assert ms.analyze(records)["at_cap_share"] == {"off": None, "on": None}
+    stripped = _without_tokens(records)
+    assert ms.analyze(stripped)["at_cap_share"] == {"off": None, "on": None}
     capped = [
         ms.Record(
             r.seed, r.index, r.flag_on, r.clamp, r.repeat, r.words, False, r.words > 55
@@ -364,6 +365,59 @@ def test_at_cap_share_is_reported_only_when_tokens_are_known():
         expected = sum(1 for r in rows if r.at_cap) / len(rows)
         assert share[key] == pytest.approx(expected)
     assert 0.0 < share["on"] < 1.0
+
+
+# --- missing token counts: status "incomplete" -----------------------------------
+
+
+def _without_tokens(records, *, flag_on=None):
+    """The records with `at_cap` unknown, for one arm or for both."""
+    return [
+        ms.Record(
+            r.seed, r.index, r.flag_on, r.clamp, r.repeat, r.words, r.rejected, None
+        )
+        if flag_on is None or r.flag_on == flag_on
+        else r
+        for r in records
+    ]
+
+
+def test_a_run_that_would_pass_is_incomplete_without_token_counts():
+    records = _run(FakeClient(lift=40, noise=8))
+    complete = ms.analyze(records)
+    assert complete["status"] == "pass" and complete["reason"] is None
+    result = ms.analyze(_without_tokens(records))
+    assert result["status"] == "incomplete"
+    assert result["reason"] == ms.TOKENS_MISSING_REASON
+    assert "250-token ceiling share" in result["reason"]
+    assert "baseline-first rule 1" in result["reason"]
+    assert result["reading"] == "incomplete run"
+    # every other number is still reported, and equals the complete run's
+    for key in ("effect", "delta_on", "delta_off", "permutation", "quality", "rules"):
+        assert result[key] == complete[key]
+    assert result["at_cap_share"] == {"off": None, "on": None}
+
+
+def test_missing_tokens_in_either_arm_alone_is_incomplete():
+    records = _run(FakeClient(lift=40, noise=8))
+    for arm in (False, True):
+        result = ms.analyze(_without_tokens(records, flag_on=arm))
+        assert result["status"] == "incomplete", arm
+        assert (result["at_cap_share"]["off"] is None) == (not arm)
+        assert (result["at_cap_share"]["on"] is None) == arm
+
+
+def test_precedence_is_void_then_incomplete_then_fail_then_pass():
+    # void beats incomplete: noisy repeats and no tokens read void
+    noisy = _run(FakeClient(lift=40, noise=8, repeat_shift=15))
+    assert ms.analyze(noisy)["status"] == "void"
+    assert ms.analyze(_without_tokens(noisy))["status"] == "void"
+    # incomplete beats fail: no lift would fail on the margin, no tokens reads incomplete
+    flat = _run(FakeClient(lift=0, noise=8))
+    assert ms.analyze(flat)["status"] == "fail"
+    assert ms.analyze(_without_tokens(flat))["status"] == "incomplete"
+    # fail beats pass, and pass needs complete records
+    assert ms.analyze(_run(FakeClient(lift=40, noise=8)))["status"] == "pass"
 
 
 # --- the ActionService-backed client ---------------------------------------------
@@ -425,6 +479,16 @@ def test_at_cap_share_is_produced_end_to_end_with_a_tokens_fn():
     records = asyncio.run(ms.run_design(client, _prompts(), repeats=1))
     result = ms.analyze(records, repeats=1, permutations=20)
     assert result["at_cap_share"] == {"off": 1.0, "on": 1.0}
+    assert result["status"] != "incomplete"
+
+
+def test_a_gating_run_without_tokens_fn_is_incomplete_end_to_end():
+    llm = ms.RecordingLLM(reply="alpha beta gamma")
+    client = ms.ActionServiceReplyClient(llm, _snapshot_at)
+    records = asyncio.run(ms.run_design(client, _prompts(), repeats=1))
+    result = ms.analyze(records, repeats=1, permutations=20)
+    assert result["status"] == "incomplete"
+    assert result["reason"] == ms.TOKENS_MISSING_REASON
 
 
 def test_action_service_client_flags_a_self_correction_as_rejected():
