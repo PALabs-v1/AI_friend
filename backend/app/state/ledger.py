@@ -66,6 +66,32 @@ _AS = "backend/app/state/agent_state.py"
 _PL = "backend/app/cognitive/pipeline.py"
 _DEC = "backend/app/cognitive/decision.py"
 _ACT = "backend/app/cognitive/action.py"
+_EXPR = "backend/app/cognitive/expression.py"
+
+# Every place mood reaches the reply, found by grep for slice 4b
+# (`prereg/slice-04b.md`, premise check). `emotional_bias` was the only reader
+# listed; the seven paths after it (sampler through two tone properties,
+# directive, label, stance, breath tag, candidate scoring, voice trajectory)
+# were invisible to the drift test.
+_MOOD_READERS = (
+    f"{_PL}::emotional_bias",
+    # Sampler: temperature and top_p follow mood through the hormone tones.
+    f"{_AS}::cortisol_tonic",
+    f"{_AS}::dopamine_tonic",
+    # Directive text and emotion label, both rendered into the prompt.
+    f"{_AS}::get_behavioral_directive",
+    f"{_AS}::get_emotion_label",
+    # Relational stance, one third of its score.
+    f"{_DEC}::_bucket_relational_stance",
+    # Breath or sigh opener tag.
+    f"{_ACT}::_prepended_affect_tag",
+    # Candidate scoring, via the global controls.
+    f"{_AS}::_refresh_global_controls_locked",
+    # Voice trajectory (not text).
+    f"{_EXPR}::derive_speech_expression",
+    # Slice 4b variant B reply-length line (flag `MOOD_STYLE_DRIVE_ENABLED`).
+    f"{_ACT}::_mood_style_line",
+)
 
 
 def _state(
@@ -110,7 +136,7 @@ REGISTRY: tuple[LedgerRow, ...] = (
         "1",
         "mood",
         writers=_UPD,
-        readers=(f"{_PL}::emotional_bias",),
+        readers=_MOOD_READERS,
     ),
     _state(
         "energy",

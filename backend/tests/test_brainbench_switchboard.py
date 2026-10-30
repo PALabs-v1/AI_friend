@@ -31,6 +31,7 @@ def test_registry_has_exact_arms_and_runnability_is_derived(monkeypatch):
         "+trust-model",
         "+graph",
         "+consolidation",
+        "+mood-style",
         "all",
     }
     assert resolve_arm("baseline").overrides == {}

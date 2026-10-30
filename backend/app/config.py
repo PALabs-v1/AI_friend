@@ -236,6 +236,14 @@ class AppSettings(BaseSettings):
     # mood. False keeps the mood-as-bias path byte-identical.
     AFFECT_USER_INPUT_ENABLED: bool = False
 
+    # Slice 4b, variant B (D-052, D-057): one reply-length line in the
+    # realization contract's "Current Context" block, keyed to mood. Valence
+    # <= -0.4 (goal not COMFORT) asks for a brief reply, >= +0.4 allows more,
+    # and the proactive plan payload gains a `valence` key so the line also
+    # reaches proactive turns. False keeps `_build_realization_contract` and
+    # the proactive payload byte-identical to the pre-4b output.
+    MOOD_STYLE_DRIVE_ENABLED: bool = False
+
     # NF-23: integrity trust moves by the conduct evidence of the current user
     # message (cognitive/norm_evidence.py) instead of by norm alignment, which
     # is 1.0 whenever no identity-boundary keyword matches and so raised

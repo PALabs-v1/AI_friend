@@ -71,8 +71,18 @@ ARMS: dict[str, Arm] = {
         "Enable semantic consolidation",
         "W7",
     ),
+    # Brain V4 slice 4b, variant B. A V4 arm, so `all` (the V3 union) skips it.
+    "+mood-style": Arm(
+        "+mood-style",
+        {"MOOD_STYLE_DRIVE_ENABLED": True},
+        "Enable mood reply-length style line",
+        "4b",
+    ),
     "all": Arm("all", {}, "All planned V3 mechanisms"),
 }
+
+# `+` arms that are not part of the V3 `all` union.
+_NOT_IN_ALL = frozenset({"+reappraisal-weight-learning", "+mood-style"})
 
 
 def _field_info():
@@ -103,7 +113,7 @@ def is_runnable(arm: Arm) -> bool:
 def _derived_all() -> Arm:
     merged: dict[str, Any] = {}
     for name, candidate in ARMS.items():
-        if not name.startswith("+") or name == "+reappraisal-weight-learning":
+        if not name.startswith("+") or name in _NOT_IN_ALL:
             continue
         for key, value in candidate.overrides.items():
             if key in merged and merged[key] != value:

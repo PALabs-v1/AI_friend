@@ -626,20 +626,27 @@ class CognitiveService:
 
         from .decision import ActionPlan
 
+        proactive_payload = {
+            "message": "[PROACTIVE_TRIGGER]",
+            "identity_prompt": proactive_instruction,
+            "emotion_state": mood_label,
+            "surfaced_memories": self.surfaced_memories[-3:]
+            if self.surfaced_memories
+            else [],
+            # Endocrine Integration: Inject hormonal state
+            "cortisol": state_snapshot.get("cortisol", 0.5),
+            "dopamine": state_snapshot.get("dopamine", 0.0),
+        }
+        if getattr(Config, "MOOD_STYLE_DRIVE_ENABLED", False):
+            # Slice 4b (D-057): the mood style line reads `payload["valence"]`,
+            # as the chat path sets it (`pipeline.py::_prepare_action_payload`).
+            # Flag off leaves the payload byte-identical.
+            proactive_payload["valence"] = state_snapshot.get("mood", 0.0)
+
         plan = ActionPlan(
             action_type="RESPOND_CHAT",
             goal="INITIATE",
-            payload={
-                "message": "[PROACTIVE_TRIGGER]",
-                "identity_prompt": proactive_instruction,
-                "emotion_state": mood_label,
-                "surfaced_memories": self.surfaced_memories[-3:]
-                if self.surfaced_memories
-                else [],
-                # Endocrine Integration: Inject hormonal state
-                "cortisol": state_snapshot.get("cortisol", 0.5),
-                "dopamine": state_snapshot.get("dopamine", 0.0),
-            },
+            payload=proactive_payload,
             priority=0,
         )
 

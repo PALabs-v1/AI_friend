@@ -1,6 +1,7 @@
 import asyncio
 import inspect
 import logging
+import math
 import re
 import time
 import uuid
@@ -18,6 +19,14 @@ from .json_extract import extract_first_json_value
 from .memory_activation import AntiInjectionGate, wrap_retrieved_text
 
 logger = logging.getLogger(__name__)
+
+# Slice 4b, variant B (`MOOD_STYLE_DRIVE_ENABLED`). The cut points equal the
+# `AgentState.get_emotion_label` valence thresholds. Each line is one line and
+# at most 120 characters (gate test D3).
+_MOOD_STYLE_LOW = -0.4
+_MOOD_STYLE_HIGH = 0.4
+_MOOD_STYLE_BRIEF = "- Reply length: keep it brief, one or two short sentences."
+_MOOD_STYLE_ROOMY = "- Reply length: you have room to say more, two to four sentences."
 
 _TYPED_REALIZATION_GUIDANCE = (
     "Return a JSON object with spoken_text (string), "
@@ -897,7 +906,35 @@ class ActionService:
                     "- You must NOT claim or imply: "
                     + ", ".join(decision.forbidden_claims)
                 )
+        if getattr(Config, "MOOD_STYLE_DRIVE_ENABLED", False):
+            style_line = ActionService._mood_style_line(
+                plan.payload.get("valence"), plan.goal
+            )
+            if style_line:
+                lines.append(style_line)
         return "\n".join(lines)
+
+    @staticmethod
+    def _mood_style_line(valence: Any, goal: str) -> str:
+        """Slice 4b, variant B: the one reply-length line mood may add.
+
+        The thresholds are the `get_emotion_label` boundaries (+-0.4), so the
+        line changes only when the "Current Emotion" class changes. Between
+        -0.4 and +0.4 there is no line. The low bucket skips a COMFORT turn so
+        a distressed user is not answered in one sentence by a low-mood mind.
+        A bool, string, None, NaN or infinite valence is not a usable reading
+        and adds nothing. A usable finite number outside [-1, 1] is not
+        clamped: it lands in the same bucket as the nearest bound.
+        """
+        if isinstance(valence, bool) or not isinstance(valence, (int, float)):
+            return ""
+        if not math.isfinite(valence):
+            return ""
+        if valence <= _MOOD_STYLE_LOW and goal != "COMFORT":
+            return _MOOD_STYLE_BRIEF
+        if valence >= _MOOD_STYLE_HIGH:
+            return _MOOD_STYLE_ROOMY
+        return ""
 
     @staticmethod
     def _build_tom_context(user_tom) -> str:
