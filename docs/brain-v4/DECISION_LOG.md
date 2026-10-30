@@ -513,3 +513,25 @@ Probe pack, check corpus, pass rule and the generation budget stand. Aniket firs
 **Status:** RESOLVED (2026-10-30, Aniket) · **Blocking:** no
 
 All grids, the 180-day rule per cell, the churn caps, S1 to S3, the identity-band rules and the seeds stand. Slice 10a (value screen) builds first; the sweep follows it.
+
+---
+
+## D-068: Slice 4b omits the proactive valence key and has no INITIATE guard
+**Status:** RESOLVED (2026-10-30, Aniket) · **Blocking:** no
+
+Both round 2 critics showed the proactive `valence` key also changes proactive memory recall, so the flag would alter more than the reply-length line. Aniket chose to omit the key and delete the INITIATE guard. Variant B is silent on proactive turns. This overrides the D-064 line about the key. D8 becomes "proactive payload and prompt unchanged with the flag on".
+
+## D-069: Slice 4b gating placebo is the repeat split
+**Status:** RESOLVED (2026-10-30, Aniket) · **Blocking:** no
+
+The prereg's even-versus-odd prompt split measures prompt composition, not noise. The gating placebo is now the same prompts split by odd versus even repeats; the original is reported, not gating. A pass says it is conditional on this correction.
+
+## D-070: Slice 4b quality guard is a fixed 3-point pooled cap
+**Status:** RESOLVED (2026-10-30, Aniket) · **Blocking:** no
+
+Flag-on rejected-reply share may not exceed flag off by more than 0.03 absolute, pooled over repeats and prompts. Replaces an undefined noise band that a simulation showed passing most runs at a 5-point rise.
+
+## D-071: Slice 4b tournament result
+**Status:** RESOLVED (2026-10-30, Claude, per the standing protocol) · **Blocking:** no
+
+Blind critics (Claude and Codex, round 1) both picked variant B over A and failed both builds; B's corrections were reviewed by a Claude critic and a Codex critic in round 2 (both FAIL on named, then fixed, findings). The cap of 2 rounds is used; the last fixes (unknown token share cannot pass, prereg addendum) shipped without a re-review and are listed for the end-of-project critic loop. Variant A is deleted.

@@ -168,3 +168,14 @@ No claim about felt realism or user preference. No claim about the local 4B to 9
 D-057: close the verified gaps (this tournament). D-058: variant A is proven by gate tests only until a sampler-honoring tier exists. Still PROPOSED and awaiting approval: every numeric margin, the flag name `MOOD_STYLE_DRIVE_ENABLED`, the proactive payload `valence` key, and the ledger readers.
 
 Status update: all margins APPROVED 2026-10-30 (D-064).
+
+## Addendum 2026-10-30 (after the tournament and two critic rounds)
+
+This addendum supersedes the stale "PROPOSED" and "Open for Aniket" wording above. The text above is kept unchanged as the audit trail.
+
+- **Status.** All margins, the flag name `MOOD_STYLE_DRIVE_ENABLED` and the ledger readers are APPROVED (D-064). Variant B (style line) won a blind two-critic tournament and is the shipped variant; variant A was deleted, its output effect stays unproven and unclaimed (D-058).
+- **D-068, proactive key.** The proactive plan payload does NOT gain a `valence` key and there is no INITIATE guard. Two critics showed the key also changed proactive memory recall (`action.py:778-785`), which breaks "no other behavior changes". B is silent on proactive turns. D8 becomes: with the flag on, the proactive payload and prompt equal flag off. This overrides the D-064 line about the key. If a valence key is ever added to the proactive payload, revisit the INITIATE goal and the recall coupling first.
+- **D-069, placebo.** The gating placebo is the same prompts split by odd versus even repeats. The prompt-halves split written in "Pass rule" item 4 compares different prompts, which measures prompt composition and not noise, so it is reported and does not gate. A pass is conditional on the corrected placebo and the result says so (`placebo_basis`).
+- **D-070, quality guard.** Pass rule item 6 gates on a fixed cap: the pooled flag-on rejected-reply share must not exceed flag off by more than 3 percentage points. The earlier "noise band" wording had no definition and a simulation showed it passes most runs at a 5-point rise.
+- **Token ceiling.** A gating run needs per-reply token counts so the 250-token share (baseline-first rule 1) is recorded; without them the result is `incomplete`, never `pass`.
+- **Known in advance.** Under the builder's assumed noise model the `void` rule (noise band above 0.165) is the likeliest outcome at 40 prompts and 5 repeats. Changing the design size needs Aniket's approval.
