@@ -205,3 +205,7 @@ The review verdict was UNSOUND as first written. These amendments take precedenc
 8. **Comparable baseline.** Re-scoring all 28 probes under the new first pattern cannot show the before/after effect. `current` is scored under both the old and the new pattern and both results are reported.
 9. **Labor.** The 4.6 h plus 0.8 h per rater assumes a third person adjudicates. If Aniket is rater 1 and also adjudicates, his time is about 5.4 h.
 10. **Added decisions for Aniket.** The false-positive metric and sampling design in item 3; what happens when there are fewer than 10 adjudicated F=yes outputs (item 4); and that the per-persona authored line, if chosen, adds a schema field and a fixture acceptance criterion.
+
+## Decided 2026-10-30
+
+D-060: tiered runtime check, strict human raters. D-061: human voice allowed inside a user-requested game, those 4 probes reported apart. Still PROPOSED and awaiting approval: probe pack size, kappa thresholds, the corpus numbers, who rates and adjudicates, 2-arm or 3-arm plan, the per-persona authored line, the 1,548-turn generation budget.

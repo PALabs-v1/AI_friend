@@ -162,3 +162,7 @@ No claim about felt realism or user preference. No claim about the local 4B to 9
 4. **Flag name.** `MOOD_STYLE_DRIVE_ENABLED` is mine; no reserved name exists. Accept or rename.
 5. **Proactive payload.** Add `valence` to the proactive plan under the flag (D8), or leave proactive turns out of scope.
 6. **Ledger.** Add the seven missing mood readers to `backend/app/state/ledger.py` so the drift test covers them (a slice 1 follow-up), or leave it.
+
+## Decided 2026-10-30
+
+D-057: close the verified gaps (this tournament). D-058: variant A is proven by gate tests only until a sampler-honoring tier exists. Still PROPOSED and awaiting approval: every numeric margin, the flag name `MOOD_STYLE_DRIVE_ENABLED`, the proactive payload `valence` key, and the ledger readers.

@@ -198,3 +198,7 @@ The review verdict was UNSOUND as first written. These amendments take precedenc
 8. **Call budget.** B's verification ceiling assumes at most one surviving record per sampled turn. After the 20-turn timing run, re-project from the measured records per turn; the 9,514 and 14,357 totals are conditional on that assumption.
 9. **Corrections have no floor.** With 12 correction turns they are reported as counts only and cannot establish correction quality.
 10. **Added decisions for Aniket.** (a) Item 1 above. (b) Item 2 above. (c) Whether a user claim that may be false or a lie is stored as a belief with `provenance = user_claim` and a confidence cap (proposed), stored verbatim as a plain belief, or not stored.
+
+## Decided 2026-10-30
+
+D-059: source turn goes in `provenance`; third-party beliefs are stored with `subject_kind=third_party`, user-deletable and excluded from export. Still PROPOSED and awaiting approval: the floors, the call budget, the audit raters, the trigger scope, and revision items 1, 2 and 10(c).

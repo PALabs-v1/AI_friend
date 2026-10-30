@@ -451,6 +451,43 @@ About 14% of CLI calls failed with exit 1 (one replay: `SELF_SIGNED_CERT_IN_CHAI
 ---
 
 ## D-056: Correction to the premise of D-052 (mood already drives the sampler)
-**Status:** OPEN, needs Aniket (2026-10-30) · **Blocking:** for the slice 4b build
+**Status:** RESOLVED (2026-10-30, Aniket chose "close the verified gaps") · **Blocking:** no
 
 D-052 was decided on my statement that mood does not feed `_compute_endocrine_options`. That statement was wrong. `valence` is an alias of `mood`; it sets `cortisol_tonic` and `dopamine_tonic`, which set temperature and `top_p`. A probe by the slice 4b prereg author gives temperature 0.36 at mood -0.8 and 0.84 at +0.8, `top_p` 0.70 and 0.80. What the code does lack: `top_p` is flat at 0.70 for every mood at or below 0, reply length depends on fatigue only, and there is no graded style term. Aniket must say whether D-052 stands as written (add a new mood term), becomes "close the verified gaps" as listed in `prereg/slice-04b.md`, or is dropped. I corrected `prereg/slice-04.md` item 3 and `results/slice-04/README.md`; the 2026-10-29 PROJECT_STATE row keeps its original wording as history.
+
+---
+
+## D-057: Slice 4b closes the verified gaps instead of adding a brand-new mood term
+**Status:** RESOLVED (2026-10-30, Aniket) · **Blocking:** no
+
+Resolves D-052 and D-056. Slice 4b builds the two variants in `prereg/slice-04b.md` for a tournament: A, a negative-side `top_p` term; B, a mood style line in the realization contract. One flag, default off. Numeric margins and the flag name stay PROPOSED until Aniket approves them (D-047).
+
+## D-058: Slice 4b variant A is proven by gate tests until a sampler-honoring tier exists
+**Status:** RESOLVED (2026-10-30, Aniket) · **Blocking:** no
+
+The local Claude Code client ignores `temperature`, `top_p` and `num_predict`, and no LLM API may be used. A's output effect waits for the home GPU or an Ollama tier. B is measured on the Mac through Claude Code. A's pass is stated as "gate tests only".
+
+## D-059: Slice 7 stores third-party beliefs, tagged, user-deletable, excluded from export
+**Status:** RESOLVED (2026-10-30, Aniket) · **Blocking:** no
+
+The source turn id goes in the existing `provenance` string (no schema change). Facts about people other than the user are stored with `subject_kind=third_party`. The user can delete everything about a named person with one command, and the friend export omits third-party beliefs by default. Needs a deletion path and a test in slice 7's build. Floors and the call budget stay PROPOSED.
+
+## D-060: Slice 9 uses a tiered runtime check and strict human raters
+**Status:** RESOLVED (2026-10-30, Aniket) · **Blocking:** no
+
+The check blocks body and sensory-memory claims, and enforces the stricter tier only on turns that ask about the persona's past. Human raters grade strictly. Probe pack size, kappa thresholds and rater names stay PROPOSED or open.
+
+## D-061: Slice 9 allows human voice inside a user-requested game, reported apart
+**Status:** RESOLVED (2026-10-30, Aniket) · **Blocking:** no
+
+Inside a game the user explicitly asked for, human-voice answers are allowed. Those 4 in-game probes are reported separately and are not part of the pass rule. Sincere questions outside the game must get the honest answer.
+
+## D-062: A deterministic value screen is built as its own small slice before slice 10
+**Status:** RESOLVED (2026-10-30, Aniket) · **Blocking:** for slice 10 and 11
+
+The governor checks keys only; a probe accepted "manipulative" and "lies to users when convenient". The screen is a lexical lower bound with tests and a critic pass, built before slice 10's sweep. It becomes slice 10a in the plan.
+
+## D-063: Slice 10 Stage B runs on the frontier tier via Claude Code, labeled provisional
+**Status:** RESOLVED (2026-10-30, Aniket) · **Blocking:** no
+
+Reflection call only (about 4,000 calls at an unmeasured rate), the full pipeline kept for the closed-loop check. Run when Aniket's Claude usage allows. Selected thresholds are provisional and are re-checked on the local tier when the GPU returns.
