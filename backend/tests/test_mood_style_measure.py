@@ -40,14 +40,17 @@ class FakeClient:
         *,
         lift=0,
         base_effect=0,
-        noise=3,
+        noise=8,
         parity_skew=0,
         reject_on=False,
         repeat_shift=0,
+        repeat_skew=0,
+        reject_once=False,
     ):
         self.lift, self.base_effect, self.noise = lift, base_effect, noise
         self.parity_skew, self.reject_on = parity_skew, reject_on
         self.repeat_shift = repeat_shift
+        self.repeat_skew, self.reject_once = repeat_skew, reject_once
         self.order: list[bool] = []
 
     async def reply(self, prompt, *, flag_on, clamp, repeat):
@@ -65,7 +68,11 @@ class FakeClient:
             words += int(self.lift * clamp)
             if clamp == 0.0 and prompt.index % 2 == 1:
                 words += self.parity_skew
+            if clamp == 0.0 and repeat % 2 == 1:
+                words += self.repeat_skew
         rejected = self.reject_on and flag_on and prompt.index % 7 == 0
+        if self.reject_once:  # exactly one flag-on rejection in the whole run
+            rejected = flag_on and prompt.index == 3 and repeat == 0 and clamp > 0
         return ms.Reply(" ".join(["w"] * words), rejected=rejected)
 
 
@@ -133,7 +140,7 @@ def test_run_design_collects_every_cell_and_runs_flag_off_first():
 
 
 def test_real_lift_passes_every_rule():
-    result = ms.analyze(_run(FakeClient(lift=40, noise=3)))
+    result = ms.analyze(_run(FakeClient(lift=40, noise=8)))
     assert result["status"] == "pass", result["rules"]
     assert result["effect"] >= ms.DELTA_MARGIN
     assert all(result["rules"].values())
@@ -142,7 +149,7 @@ def test_real_lift_passes_every_rule():
 
 
 def test_no_lift_fails_on_the_margin_not_on_noise():
-    result = ms.analyze(_run(FakeClient(lift=0, noise=3)))
+    result = ms.analyze(_run(FakeClient(lift=0, noise=8)))
     assert result["status"] == "fail"
     assert not result["rules"]["effect_at_least_margin"]
 
@@ -150,21 +157,21 @@ def test_no_lift_fails_on_the_margin_not_on_noise():
 def test_old_path_effect_alone_does_not_pass():
     """A big clamp effect present in both arms is the old mood paths. The
     difference of differences must be about zero, so the verdict is a fail."""
-    result = ms.analyze(_run(FakeClient(lift=0, base_effect=40, noise=3)))
+    result = ms.analyze(_run(FakeClient(lift=0, base_effect=40, noise=8)))
     assert result["delta_off"]["delta"] > 0.5
     assert abs(result["effect"]) < 0.1
     assert result["status"] == "fail"
 
 
 def test_reversed_lift_is_a_fail_not_a_pass():
-    result = ms.analyze(_run(FakeClient(lift=-40, noise=3)))
+    result = ms.analyze(_run(FakeClient(lift=-40, noise=8)))
     assert result["effect"] < 0
     assert result["status"] == "fail"
 
 
 def test_noise_above_the_void_band_reads_not_measurable():
     # A drift that differs by repeat moves the headline between repeats.
-    client = FakeClient(lift=40, noise=3, repeat_shift=15)
+    client = FakeClient(lift=40, noise=8, repeat_shift=15)
     result = ms.analyze(_run(client))
     assert max(result["delta_on"]["noise_band"], result["delta_off"]["noise_band"]) > (
         ms.NOISE_VOID
@@ -173,15 +180,25 @@ def test_noise_above_the_void_band_reads_not_measurable():
     assert result["reading"] == "not measurable at this tier"
 
 
-def test_placebo_with_a_parity_skew_fails_the_placebo_rule():
-    result = ms.analyze(_run(FakeClient(lift=40, noise=3, parity_skew=60)))
+def test_prompt_halves_placebo_is_reported_and_does_not_gate():
+    """Two different prompt sets differ in length for reasons that are not
+    noise, so a halves skew is reported and cannot fail the run."""
+    result = ms.analyze(_run(FakeClient(lift=40, noise=8, parity_skew=60)))
+    assert abs(result["placebo_prompt_halves_on"]["delta"]) > 0.5
+    assert abs(result["placebo_prompt_halves_off"]["delta"]) < 0.2
+    assert result["rules"]["placebo_below_noise"]
+    assert result["status"] == "pass"
+
+
+def test_repeat_split_placebo_gates_and_fails_on_flag_on_drift():
+    result = ms.analyze(_run(FakeClient(lift=40, noise=8, repeat_skew=60)))
+    assert abs(result["placebo_repeat_split_on"]) > 0.5
     assert not result["rules"]["placebo_below_noise"]
     assert result["status"] == "fail"
-    assert abs(result["placebo_on"]["delta"]) > 0.5
 
 
 def test_quality_guard_fails_when_flag_on_is_rejected_more():
-    result = ms.analyze(_run(FakeClient(lift=40, noise=3, reject_on=True)))
+    result = ms.analyze(_run(FakeClient(lift=40, noise=8, reject_on=True)))
     assert (
         result["quality"]["rejected_share_on"] > result["quality"]["rejected_share_off"]
     )
@@ -189,8 +206,26 @@ def test_quality_guard_fails_when_flag_on_is_rejected_more():
     assert result["status"] == "fail"
 
 
+def test_quality_guard_passes_explicitly_with_no_rejections():
+    result = ms.analyze(_run(FakeClient(lift=40, noise=8)))
+    assert result["quality"]["rejected_share_on"] == 0.0
+    assert result["quality"]["rejected_share_off"] == 0.0
+    assert result["rules"]["quality_guard"]
+
+
+def test_quality_guard_tolerates_a_single_rejection_but_not_a_rate_increase():
+    """One rejected flag-on reply in 400 is inside the band: that arm's
+    per-repeat share moves by one reply in 80. A rate increase is not."""
+    one = ms.analyze(_run(FakeClient(lift=40, noise=8, reject_once=True)))["quality"]
+    assert one["rejected_share_on"] == pytest.approx(1 / 400)
+    assert one["noise_band"] == pytest.approx(1 / 80)
+    assert ms.analyze(_run(FakeClient(lift=40, noise=8, reject_once=True)))["rules"][
+        "quality_guard"
+    ]
+
+
 def test_baseline_first_rule_is_enforced_by_analyze():
-    records = _run(FakeClient(lift=40, noise=3))
+    records = _run(FakeClient(lift=40, noise=8))
     shuffled = [r for r in records if r.flag_on] + [r for r in records if not r.flag_on]
     result = ms.analyze(shuffled)
     assert not result["rules"]["baseline_first"]
@@ -209,8 +244,9 @@ def test_headline_is_positive_when_positive_clamp_replies_are_longer():
 
 
 def test_permutation_is_deterministic_and_paired_by_block():
-    records = _run(FakeClient(lift=40, noise=3))
+    records = _run(FakeClient(lift=40, noise=8))
     a = ms.permutation_control(records)
+    assert a["sided"] == "one-sided, positive direction"
     b = ms.permutation_control(records)
     assert a == b
     assert a["blocks"] == ms.PROMPT_COUNT * ms.REPEATS
@@ -219,7 +255,7 @@ def test_permutation_is_deterministic_and_paired_by_block():
 
 
 def test_permutation_cut_is_near_zero_when_there_is_no_effect():
-    result = ms.permutation_control(_run(FakeClient(lift=0, noise=3)))
+    result = ms.permutation_control(_run(FakeClient(lift=0, noise=8)))
     assert abs(result["observed"]) < 0.15
     assert not result["outside"]
 
@@ -227,7 +263,7 @@ def test_permutation_cut_is_near_zero_when_there_is_no_effect():
 def test_permutation_never_moves_replies_across_prompts():
     """Each block holds the four replies of one (prompt, seed, repeat). A swap
     exchanges the on-pair and the off-pair, nothing else."""
-    records = _run(FakeClient(lift=40, noise=3))
+    records = _run(FakeClient(lift=40, noise=8))
     blocks = ms._blocks(records)
     assert len(blocks) == ms.PROMPT_COUNT * ms.REPEATS
     assert ms._effect_of(blocks, [True] * len(blocks)) == pytest.approx(
@@ -236,7 +272,7 @@ def test_permutation_never_moves_replies_across_prompts():
 
 
 def test_permutation_seed_changes_the_null():
-    records = _run(FakeClient(lift=40, noise=3))
+    records = _run(FakeClient(lift=40, noise=8))
     a = ms.permutation_control(records, seed=1)
     b = ms.permutation_control(records, seed=2)
     assert a["null_cut"] != b["null_cut"]
@@ -246,13 +282,13 @@ def test_permutation_seed_changes_the_null():
 
 
 def test_analysis_is_a_pure_function_of_the_records():
-    records = _run(FakeClient(lift=40, noise=3))
+    records = _run(FakeClient(lift=40, noise=8))
     assert ms.analyze(records) == ms.analyze(list(records))
     assert len(ms.records_to_json(records)) == len(records)
 
 
 def test_at_cap_share_is_reported_only_when_tokens_are_known():
-    records = _run(FakeClient(lift=40, noise=3))
+    records = _run(FakeClient(lift=40, noise=8))
     assert ms.analyze(records)["at_cap_share"] == {"off": None, "on": None}
     capped = [
         ms.Record(

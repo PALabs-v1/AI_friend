@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import math
 import random
 from itertools import pairwise, product
 from pathlib import Path
@@ -326,7 +327,7 @@ def test_d4_line_follows_the_real_emotion_label(flag_on):
     checked = 0
     for i in range(-100, 101):
         mood = i / 100
-        if abs(mood) == 0.4:  # label is strict, B is inclusive (README, gaps)
+        if abs(mood) == 0.4:  # label is strict, B is inclusive: see the boundary test
             continue
         state = _state_at(mood)
         label = StateService.get_emotion_label(SimpleNamespace(current_state=state))
@@ -335,6 +336,34 @@ def test_d4_line_follows_the_real_emotion_label(flag_on):
         ), (mood, label)
         checked += 1
     assert checked == 199
+
+
+def _label_class(mood: float) -> tuple[str, int]:
+    shell = SimpleNamespace(
+        current_state=SimpleNamespace(mood=mood, energy=0.5, dominance=0.5)
+    )
+    label = StateService.get_emotion_label(shell)
+    return label, {"sad": -1, "angry": -1, "happy": 1, "excited": 1}.get(label, 0)
+
+
+def test_d4_exact_boundary_pins_the_inclusive_rule(flag_on):
+    """B is inclusive (`<= -0.4`, `>= +0.4`) and `get_emotion_label` is strict,
+    so at exactly +-0.4 the line is present while the label is still neutral.
+    The line is therefore NOT 'present only when the label class flips'. One
+    float either side agrees with the label again."""
+    lo, hi = -0.4, 0.4
+    cases = [
+        # mood, expected line level, expected label
+        (math.nextafter(lo, -1.0), -1, "sad"),
+        (lo, -1, "neutral"),
+        (math.nextafter(lo, 0.0), 0, "neutral"),
+        (math.nextafter(hi, 0.0), 0, "neutral"),
+        (hi, 1, "neutral"),
+        (math.nextafter(hi, 1.0), 1, "happy"),
+    ]
+    for mood, level, label in cases:
+        assert _level(_contract(mood)) == level, mood
+        assert _label_class(mood)[0] == label, mood
 
 
 # --- D5: inert inputs ------------------------------------------------------------
@@ -394,6 +423,18 @@ def test_d6_line_changes_only_where_the_label_class_changes(flag_on):
     assert 0 < line_changes <= label_changes
 
 
+def test_d6_one_step_across_the_exact_boundary_moves_line_before_label(flag_on):
+    """Pins the one place the 'line moves only with the label' property is
+    false: stepping onto exactly -0.4 or +0.4 moves the line one step before
+    the label moves."""
+    for edge, outward, level in ((-0.4, -1.0, -1), (0.4, 1.0, 1)):
+        path = [math.nextafter(edge, 0.0), edge, math.nextafter(edge, outward)]
+        lines = [_level(_contract(v)) for v in path]
+        labels = [_label_class(v)[1] for v in path]
+        assert lines == [0, level, level]
+        assert labels == [0, 0, level]
+
+
 # --- D7: no state change ---------------------------------------------------------
 
 
@@ -410,7 +451,11 @@ def test_d7_slice_2a_digests_unchanged_with_flag_on_and_off(monkeypatch):
     assert seen == [expected] * 2
 
 
-# --- D8: proactive payload -------------------------------------------------------
+# --- D8: proactive path (the payload is untouched) ------------------------------
+# Deviation from the D-064 line "proactive payload gains a valence key": B emits
+# nothing on INITIATE, so the key has no consumer in B, and it would also feed
+# `_surface_fallback_memories` and change proactive recall. To be confirmed
+# with Aniket.
 
 
 class _PayloadRecorder:
@@ -422,7 +467,18 @@ class _PayloadRecorder:
         yield {"type": "content", "data": "hi"}
 
 
-def _proactive_core(recorder, snapshot):
+class _FakeMemory:
+    """Records the keyword arguments of every recall call, returns nothing."""
+
+    def __init__(self):
+        self.calls: list[dict] = []
+
+    async def search_memories(self, **kwargs):
+        self.calls.append(kwargs)
+        return []
+
+
+def _proactive_core(action, snapshot):
     from unittest.mock import AsyncMock, MagicMock
 
     state = MagicMock()
@@ -435,51 +491,55 @@ def _proactive_core(recorder, snapshot):
     identity.history = {"relationship": "Friend"}
     core = CognitiveService.__new__(CognitiveService)
     core.state, core.identity, core.surfaced_memories = state, identity, []
-    core.action = recorder
+    core.action = action
     core.learning = MagicMock()
     core.learning.trigger_reflection = AsyncMock(return_value=None)
     return core
 
 
-def _proactive_payload(snapshot) -> dict:
-    recorder = _PayloadRecorder()
-    core = _proactive_core(recorder, snapshot)
+def _drive_proactive(action, snapshot):
+    core = _proactive_core(action, snapshot)
 
     async def go():
         return [c async for c in core.generate_proactive_response()]
 
-    asyncio.run(go())
+    return asyncio.run(go())
+
+
+def _proactive_payload(snapshot) -> dict:
+    recorder = _PayloadRecorder()
+    _drive_proactive(recorder, snapshot)
     return recorder.payloads[0]
 
 
-SNAPSHOT = {"cortisol": 0.1, "dopamine": 0.2, "mood": -0.8, "valence": -0.8}
+def _snapshot(mood: float) -> dict:
+    return {"cortisol": 0.1, "dopamine": 0.2, "mood": mood, "valence": mood}
 
 
-def test_d8_flag_off_payload_has_no_valence_and_is_unchanged(flag_off):
-    payload = _proactive_payload(SNAPSHOT)
-    assert set(payload) == {
-        "message",
-        "identity_prompt",
-        "emotion_state",
-        "surfaced_memories",
-        "cortisol",
-        "dopamine",
-    }
-    assert payload["cortisol"] == 0.1 and payload["dopamine"] == 0.2
+OLD_PROACTIVE_KEYS = {
+    "message",
+    "identity_prompt",
+    "emotion_state",
+    "surfaced_memories",
+    "cortisol",
+    "dopamine",
+}
 
 
-def test_d8_flag_on_payload_gains_only_valence(flag_on, monkeypatch):
-    on = _proactive_payload(SNAPSHOT)
-    monkeypatch.setattr(Config, "MOOD_STYLE_DRIVE_ENABLED", False)
-    off = _proactive_payload(SNAPSHOT)
-    assert on.pop("valence") == -0.8
-    assert on == off
-    monkeypatch.setattr(Config, "MOOD_STYLE_DRIVE_ENABLED", True)
-    assert _proactive_payload({"cortisol": 0.1})["valence"] == 0.0
+@pytest.mark.parametrize("mood", [-0.8, 0.0, 0.8])
+def test_d8_proactive_payload_is_byte_identical_flag_on_and_off(monkeypatch, mood):
+    payloads = {}
+    for flag in (False, True):
+        monkeypatch.setattr(Config, "MOOD_STYLE_DRIVE_ENABLED", flag)
+        payloads[flag] = _proactive_payload(_snapshot(mood))
+    assert payloads[True] == payloads[False]
+    assert _canon(payloads[True]) == _canon(payloads[False])
+    assert set(payloads[True]) == OLD_PROACTIVE_KEYS
+    assert "valence" not in payloads[True]
 
 
-def _run_plan(plan, llm):
-    service = ActionService(llm_service=llm, memory_store=None, self_knowledge=None)
+def _run_plan(plan, llm, memory=None):
+    service = ActionService(llm_service=llm, memory_store=memory, self_knowledge=None)
 
     async def go():
         return [c async for c in service.execute(plan)]
@@ -487,18 +547,75 @@ def _run_plan(plan, llm):
     return asyncio.run(go())
 
 
-def test_d8_proactive_prompt_carries_the_line_only_with_the_flag(monkeypatch):
-    prompts = {}
+@pytest.mark.parametrize("mood", [-0.8, 0.8])
+def test_d8_proactive_prompt_options_and_recall_unchanged(monkeypatch, mood):
+    """Through the real proactive path with an empty surfaced list, so the
+    synchronous recall fallback runs. Flag on changes nothing the model or the
+    memory store sees: no style line, same options, same recall arguments."""
+    seen = {}
     for flag in (False, True):
         monkeypatch.setattr(Config, "MOOD_STYLE_DRIVE_ENABLED", flag)
-        payload = _proactive_payload(SNAPSHOT)
-        plan = ActionPlan(action_type="RESPOND_CHAT", goal="INITIATE", payload=payload)
-        llm = RecordingLLM()
-        _run_plan(plan, llm)
-        prompts[flag] = llm.calls[0].prompt
-    assert _MOOD_STYLE_BRIEF not in prompts[False]
-    assert _MOOD_STYLE_BRIEF in prompts[True]
-    assert prompts[True].replace("\n" + _MOOD_STYLE_BRIEF, "", 1) == prompts[False]
+        llm, memory = RecordingLLM(), _FakeMemory()
+        action = ActionService(
+            llm_service=llm, memory_store=memory, self_knowledge=None
+        )
+        _drive_proactive(action, _snapshot(mood))
+        seen[flag] = (llm.calls, memory.calls)
+    off_calls, off_recall = seen[False]
+    on_calls, on_recall = seen[True]
+    assert len(off_recall) == 1 and on_recall == off_recall
+    assert on_recall[0]["current_valence"] == 0.0  # the default, not the mood
+    assert len(off_calls) == len(on_calls) == 1
+    assert on_calls[0].prompt == off_calls[0].prompt
+    assert on_calls[0].system == off_calls[0].system
+    assert on_calls[0].options == off_calls[0].options
+    for text in (_MOOD_STYLE_BRIEF, _MOOD_STYLE_ROOMY):
+        assert text not in on_calls[0].prompt
+
+
+# --- INITIATE: no style line, either bucket -------------------------------------
+
+
+@pytest.mark.parametrize("decision", [False, True])
+@pytest.mark.parametrize(
+    "valence", [-1.0, -0.8, -0.4, 0.4, 0.8, 1.0, 10**400, -(10**400)]
+)
+def test_initiate_gets_no_line_in_either_bucket(flag_on, valence, decision):
+    on = _contract(valence, "INITIATE", decision=decision)
+    with patch.object(Config, "MOOD_STYLE_DRIVE_ENABLED", False):
+        off = _contract(valence, "INITIATE", decision=decision)
+    assert on == off
+    assert _level(on) == 0
+    # the same valence on another goal does get a line, so the guard is what
+    # removes it
+    assert _level(_contract(valence, "ENGAGE", decision=decision)) != 0
+
+
+@pytest.mark.parametrize("mood", [-0.8, 0.8])
+def test_initiate_plan_with_valence_in_payload_gets_no_line_end_to_end(flag_on, mood):
+    """Even if a future change puts `valence` back on the proactive payload."""
+    payload = _proactive_payload(_snapshot(mood))
+    payload["valence"] = mood
+    plan = ActionPlan(action_type="RESPOND_CHAT", goal="INITIATE", payload=payload)
+    llm = RecordingLLM()
+    _run_plan(plan, llm)
+    for text in (_MOOD_STYLE_BRIEF, _MOOD_STYLE_ROOMY):
+        assert text not in llm.calls[0].prompt
+
+
+# --- huge ints ------------------------------------------------------------------
+
+
+def test_huge_ints_resolve_to_the_nearest_bucket_without_raising(flag_on):
+    big = 10**400  # math.isfinite(big) raises OverflowError
+    assert ActionService._mood_style_line(big, "ENGAGE") == _MOOD_STYLE_ROOMY
+    assert ActionService._mood_style_line(-big, "ENGAGE") == _MOOD_STYLE_BRIEF
+    assert ActionService._mood_style_line(-big, "COMFORT") == ""
+    assert ActionService._mood_style_line(big, "INITIATE") == ""
+    assert _level(_contract(big)) == 1 and _level(_contract(-big)) == -1
+    # the other inert inputs stay inert next to it
+    for inert in (True, "1", None, _NAN, _INF, -_INF):
+        assert ActionService._mood_style_line(inert, "ENGAGE") == ""
 
 
 # --- D9: clamp wiring on an offline copy ----------------------------------------
@@ -610,5 +727,6 @@ def test_mood_row_lists_every_known_reader():
         "_prepended_affect_tag",
         "_refresh_global_controls_locked",
         "derive_speech_expression",
+        "_derive_expression_wire",
         "_mood_style_line",
     } <= readers

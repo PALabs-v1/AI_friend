@@ -67,12 +67,13 @@ _PL = "backend/app/cognitive/pipeline.py"
 _DEC = "backend/app/cognitive/decision.py"
 _ACT = "backend/app/cognitive/action.py"
 _EXPR = "backend/app/cognitive/expression.py"
+_BA = "backend/app/agents/brain_agent.py"
 
 # Every place mood reaches the reply, found by grep for slice 4b
 # (`prereg/slice-04b.md`, premise check). `emotional_bias` was the only reader
 # listed; the seven paths after it (sampler through two tone properties,
-# directive, label, stance, breath tag, candidate scoring, voice trajectory)
-# were invisible to the drift test.
+# directive, label, stance, breath tag, candidate scoring, voice trajectory
+# through two symbols) were invisible to the drift test.
 _MOOD_READERS = (
     f"{_PL}::emotional_bias",
     # Sampler: temperature and top_p follow mood through the hormone tones.
@@ -89,6 +90,7 @@ _MOOD_READERS = (
     f"{_AS}::_refresh_global_controls_locked",
     # Voice trajectory (not text).
     f"{_EXPR}::derive_speech_expression",
+    f"{_BA}::_derive_expression_wire",
     # Slice 4b variant B reply-length line (flag `MOOD_STYLE_DRIVE_ENABLED`).
     f"{_ACT}::_mood_style_line",
 )

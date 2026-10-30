@@ -20,9 +20,9 @@ from .memory_activation import AntiInjectionGate, wrap_retrieved_text
 
 logger = logging.getLogger(__name__)
 
-# Slice 4b, variant B (`MOOD_STYLE_DRIVE_ENABLED`). The cut points equal the
-# `AgentState.get_emotion_label` valence thresholds. Each line is one line and
-# at most 120 characters (gate test D3).
+# Slice 4b, variant B (`MOOD_STYLE_DRIVE_ENABLED`). The cut points sit at the
+# `AgentState.get_emotion_label` valence thresholds (inclusive here, strict
+# there). Each line is one line and at most 120 characters (gate test D3).
 _MOOD_STYLE_LOW = -0.4
 _MOOD_STYLE_HIGH = 0.4
 _MOOD_STYLE_BRIEF = "- Reply length: keep it brief, one or two short sentences."
@@ -918,17 +918,25 @@ class ActionService:
     def _mood_style_line(valence: Any, goal: str) -> str:
         """Slice 4b, variant B: the one reply-length line mood may add.
 
-        The thresholds are the `get_emotion_label` boundaries (+-0.4), so the
-        line changes only when the "Current Emotion" class changes. Between
-        -0.4 and +0.4 there is no line. The low bucket skips a COMFORT turn so
-        a distressed user is not answered in one sentence by a low-mood mind.
+        The cut points are the `get_emotion_label` boundaries (+-0.4), but the
+        rule is inclusive (`<= -0.4`, `>= +0.4`) and the label is strict, so at
+        exactly -0.4 and +0.4 the line is present while the label is still
+        "neutral". Between the cut points there is no line. The low bucket
+        skips a COMFORT turn so a distressed user is not answered in one
+        sentence by a low-mood mind. No line at all on an INITIATE turn: the
+        proactive instruction already asks for one to three sentences, so the
+        high bucket would contradict it and the low bucket repeats it.
+
         A bool, string, None, NaN or infinite valence is not a usable reading
-        and adds nothing. A usable finite number outside [-1, 1] is not
-        clamped: it lands in the same bucket as the nearest bound.
+        and adds nothing. A finite number outside [-1, 1] is not clamped: it
+        lands in the nearest bucket. An int is compared as an int, never
+        converted, so an int too large for a float (10**400) still resolves.
         """
         if isinstance(valence, bool) or not isinstance(valence, (int, float)):
             return ""
-        if not math.isfinite(valence):
+        if isinstance(valence, float) and not math.isfinite(valence):
+            return ""
+        if goal == "INITIATE":
             return ""
         if valence <= _MOOD_STYLE_LOW and goal != "COMFORT":
             return _MOOD_STYLE_BRIEF

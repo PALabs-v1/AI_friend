@@ -15,8 +15,22 @@ Design (margins approved, D-064):
 - Headline: Cliff's delta of reply word counts, positive-clamp replies against
   negative-clamp replies, per arm. Effect = `delta_on - delta_off`.
 - Noise band per arm: largest pairwise gap of the per-repeat headline.
-- Controls: placebo, a label permutation (seed 20261030, 1000 draws, paired
+- Controls: a placebo, a label permutation (seed 20261030, 1000 draws, paired
   within each (prompt, seed, repeat) block) and a quality guard.
+  - Gating placebo (PROPOSED correction to the prereg, to be confirmed with
+    Aniket): flag on, clamp 0.0, the same prompts in odd against even repeats.
+    The prereg placebo (even against odd prompt halves) is kept as
+    `placebo_prompt_halves_on`, reported and not gating, because two different
+    prompt sets differ in length for reasons that are not noise.
+  - Permutation: one-sided. The declared direction is positive (longer replies
+    at +0.8), so the observed effect must exceed the 99th percentile of the
+    signed null. A two-sided cut would be looser and is not used.
+  - Quality guard: flag-on rejected share minus flag-off rejected share must not
+    exceed the band. The band is the larger per-repeat gap of the rejected share
+    in either arm (D-048 recipe applied to this metric). With zero rejections in
+    both arms the guard passes explicitly, so the band never has to be zero.
+    A lone rejection already makes that arm's per-repeat gap one reply in a
+    repeat (1/80), so a single rejection does not fail the guard.
 
 Everything after the replies are collected (`analyze`) is deterministic.
 """
@@ -217,9 +231,13 @@ def _arm_stats(records: Sequence[Record], flag_on: bool, repeats: int) -> dict:
     }
 
 
-def _placebo(records: Sequence[Record], flag_on: bool, repeats: int) -> dict:
-    """0.0 against 0.0, the even half against the odd half. Same pairing
-    direction as the headline (odd as the 'positive' group)."""
+def _placebo_prompt_halves(
+    records: Sequence[Record], flag_on: bool, repeats: int
+) -> dict:
+    """The prereg placebo, reported and not gating: 0.0 against 0.0, the even
+    prompt half against the odd one. The halves are different prompts, so a
+    nonzero delta here can be prompt composition alone. Same pairing direction
+    as the headline (odd as the 'positive' group)."""
     rows = _cells(records, flag_on, CLAMP_PLACEBO)
     even = [float(r.words) for r in rows if r.index % 2 == 0]
     odd = [float(r.words) for r in rows if r.index % 2 == 1]
@@ -240,9 +258,9 @@ def _placebo(records: Sequence[Record], flag_on: bool, repeats: int) -> dict:
 
 
 def _placebo_repeat_split(records: Sequence[Record], flag_on: bool) -> float:
-    """Reported, not gating. The prereg placebo compares two different prompt
-    halves, so prompt composition shows up as a 'delta'. This compares the same
-    prompts across odd and even repeats at clamp 0.0, which removes it."""
+    """The gating placebo (PROPOSED correction). The same prompts at clamp 0.0,
+    odd repeats against even repeats, so prompt composition cancels and only
+    sampling noise and any real flag-on drift remain."""
     rows = _cells(records, flag_on, CLAMP_PLACEBO)
     odd = [float(r.words) for r in rows if r.repeat % 2 == 1]
     even = [float(r.words) for r in rows if r.repeat % 2 == 0]
@@ -301,7 +319,10 @@ def permutation_control(
     """Shuffle the flag-on/flag-off label inside each (prompt, seed, repeat)
     block, so the analysis stays paired by prompt. Swapping the label swaps the
     block's on-pair of replies with its off-pair. Replies are never moved
-    across prompts, which would give a falsely narrow null."""
+    across prompts, which would give a falsely narrow null.
+
+    One-sided on purpose: the declared direction is positive, so `outside`
+    means the observed effect is above the `quantile` of the signed null."""
     blocks = _blocks(records)
     observed = _effect_of(blocks, [False] * len(blocks))
     rng = random.Random(seed)
@@ -320,6 +341,7 @@ def permutation_control(
         "permutations": permutations,
         "seed": seed,
         "blocks": len(blocks),
+        "sided": "one-sided, positive direction",
         "outside": observed > cut,
     }
 
@@ -332,8 +354,9 @@ def analyze(
 ) -> dict:
     on = _arm_stats(records, True, repeats)
     off = _arm_stats(records, False, repeats)
-    placebo_on = _placebo(records, True, repeats)
-    placebo_off = _placebo(records, False, repeats)
+    halves_on = _placebo_prompt_halves(records, True, repeats)
+    halves_off = _placebo_prompt_halves(records, False, repeats)
+    split_on = _placebo_repeat_split(records, True)
     effect = on["delta"] - off["delta"]
     larger_band = max(on["noise_band"], off["noise_band"])
     perm = permutation_control(records, permutations=permutations)
@@ -353,7 +376,10 @@ def analyze(
         )
         for flag in (True, False)
     )
-    quality_ok = rejected[True] - rejected[False] <= guard_band
+    if not rejected[True] and not rejected[False]:
+        quality_ok = True  # nothing rejected in either arm: explicit pass
+    else:
+        quality_ok = rejected[True] - rejected[False] <= guard_band
 
     baseline_first = _baseline_first(records)
     void = on["noise_band"] > NOISE_VOID or off["noise_band"] > NOISE_VOID
@@ -361,7 +387,7 @@ def analyze(
         "baseline_first": baseline_first,
         "effect_at_least_margin": effect >= DELTA_MARGIN,
         "effect_above_twice_noise": effect > NOISE_MULTIPLE * larger_band,
-        "placebo_below_noise": abs(placebo_on["delta"]) < larger_band,
+        "placebo_below_noise": abs(split_on) < larger_band,
         "permutation_outside": perm["outside"],
         "quality_guard": quality_ok,
     }
@@ -382,9 +408,9 @@ def analyze(
         "delta_on": on,
         "delta_off": off,
         "larger_noise_band": larger_band,
-        "placebo_on": placebo_on,
-        "placebo_off": placebo_off,
-        "placebo_repeat_split_on": _placebo_repeat_split(records, True),
+        "placebo_repeat_split_on": split_on,
+        "placebo_prompt_halves_on": halves_on,
+        "placebo_prompt_halves_off": halves_off,
         "permutation": perm,
         "quality": {
             "rejected_share_on": rejected[True],
